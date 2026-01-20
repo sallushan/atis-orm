@@ -77,7 +77,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <inheritdoc />
         public override SqlExpression Convert(SqlExpression[] convertedChildren)
         {
-            var sourceType = this.ReflectionService.GetEntityTypeFromQueryableType(this.Expression.Type);
+            var sourceType = this.ReflectionService.GetElementType(this.Expression.Type);
             var sqlTable = this.model.GetSqlTable(sourceType);
             var tableColumns = this.model.GetTableColumns(sourceType);
             var table = this.SqlFactory.CreateTable(sqlTable, tableColumns);

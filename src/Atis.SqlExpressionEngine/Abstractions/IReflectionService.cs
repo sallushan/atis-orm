@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Data;
+using System.Data.Common;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -28,7 +30,7 @@ namespace Atis.SqlExpressionEngine.Abstractions
         /// </summary>
         /// <param name="queryableType">The queryable type.</param>
         /// <returns>The entity type.</returns>
-        Type GetEntityTypeFromQueryableType(Type queryableType);
+        Type GetElementType(Type queryableType);
 
         /// <summary>
         ///     <para>
@@ -109,5 +111,8 @@ namespace Atis.SqlExpressionEngine.Abstractions
         bool IsEnumerable(object value);
         bool IsGroupingType(Type type);
         bool IsAggregateMethod(MethodCallExpression methodCallExpression);
+        bool IsQueryableAsyncType(Type type);
+        bool IsPrimitive(Type resultType);
+        object CreateGenericInstance(Type type, Type[] genericTypeArguments, string executionContextSqlString, DbParameter[] dbParameters, DbConnection connectionInfo, bool shouldDisposeConnection, Func<IDataReader, object> elementFactory, DbTransaction transaction);
     }
 }

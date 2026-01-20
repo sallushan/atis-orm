@@ -346,7 +346,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
 
         protected override Type GetEnumerableEntityType(Type enumerableType)
         {
-            return this.reflectionService.GetEntityTypeFromQueryableType(enumerableType);
+            return this.reflectionService.GetElementType(enumerableType);
         }
 
 

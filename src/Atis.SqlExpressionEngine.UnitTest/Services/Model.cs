@@ -27,7 +27,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
         public override IReadOnlyList<TableColumn> GetTableColumns(Type type)
         {
             return this.GetColumnMembers(type)
-                            .Select(x => new TableColumn(x.Name, x.Name)).ToArray();
+                            .Select(x => new TableColumn(x.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? x.Name, x.Name))
+                            .ToArray();
         }
     }
 }

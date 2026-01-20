@@ -11,6 +11,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Atis.SqlExpressionEngine", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Atis.SqlExpressionEngine.UnitTest", "src\Atis.SqlExpressionEngine.UnitTest\Atis.SqlExpressionEngine.UnitTest.csproj", "{5A37F418-7AEB-FC9A-7BB5-5B5E4056072E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Atis.Orm", "src\Atis.Orm\Atis.Orm.csproj", "{5DA0D38E-F4B2-44CA-9D7A-6314E416815C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Atis.Orm.SqlServer", "src\Atis.Orm.SqlServer\Atis.Orm.SqlServer.csproj", "{73B1ADEE-B67B-423A-8E8A-CF0F4ABFDDC5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -29,6 +33,14 @@ Global
 		{5A37F418-7AEB-FC9A-7BB5-5B5E4056072E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5A37F418-7AEB-FC9A-7BB5-5B5E4056072E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5A37F418-7AEB-FC9A-7BB5-5B5E4056072E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5DA0D38E-F4B2-44CA-9D7A-6314E416815C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5DA0D38E-F4B2-44CA-9D7A-6314E416815C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5DA0D38E-F4B2-44CA-9D7A-6314E416815C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5DA0D38E-F4B2-44CA-9D7A-6314E416815C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73B1ADEE-B67B-423A-8E8A-CF0F4ABFDDC5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73B1ADEE-B67B-423A-8E8A-CF0F4ABFDDC5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73B1ADEE-B67B-423A-8E8A-CF0F4ABFDDC5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73B1ADEE-B67B-423A-8E8A-CF0F4ABFDDC5}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -37,6 +49,8 @@ Global
 		{FB3BDEAE-CD7B-4F97-8206-3668321D3F2D} = {EFD08378-6DBC-46F0-9E26-A85582815544}
 		{50E3A3D0-10A0-6638-55EA-DC743D9FBF6E} = {EFD08378-6DBC-46F0-9E26-A85582815544}
 		{5A37F418-7AEB-FC9A-7BB5-5B5E4056072E} = {EFD08378-6DBC-46F0-9E26-A85582815544}
+		{5DA0D38E-F4B2-44CA-9D7A-6314E416815C} = {EFD08378-6DBC-46F0-9E26-A85582815544}
+		{73B1ADEE-B67B-423A-8E8A-CF0F4ABFDDC5} = {EFD08378-6DBC-46F0-9E26-A85582815544}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {420A767B-CC45-416A-B480-36F1A9569BBE}

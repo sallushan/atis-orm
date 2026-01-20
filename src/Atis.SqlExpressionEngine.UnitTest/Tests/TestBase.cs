@@ -8,6 +8,8 @@ using Atis.SqlExpressionEngine.UnitTest.Converters;
 //using Atis.SqlExpressionEngine.UnitTest.Converters;
 using Atis.SqlExpressionEngine.UnitTest.Preprocessors;
 using Atis.SqlExpressionEngine.UnitTest.Services;
+using System.Diagnostics;
+
 
 //using Atis.SqlExpressionEngine.UnitTest.Services;
 using System.Linq.Expressions;
@@ -24,6 +26,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     {
         protected readonly IQueryProvider queryProvider = new QueryProvider();
         protected readonly DataContext dataContext = new();
+        protected readonly Stopwatch stopwatch = new Stopwatch();
 
         #region base methods
         protected void Test(string testHeading, Expression queryExpression, string expectedResult)

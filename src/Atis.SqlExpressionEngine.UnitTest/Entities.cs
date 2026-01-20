@@ -417,12 +417,20 @@ namespace Atis.SqlExpressionEngine.UnitTest
     }
 
 
+    [DbTable("Person", schema: "dbo")]
     public class Person
     {
+        [DbKey]
+        [DbIdentityColumn]
+        [DbColumn("ID")]
         public int Id { get; set; }
+        [DbColumn("AGE")]
         public int Age { get; set; }
+        [DbColumn("FRST_NM")]
         public string FirstName { get; set; }
+        [DbColumn("LAST_NM")]
         public string LastName { get; set; }
+        [DbColumn("MID_INIT")]
         public string MiddleInitial { get; set; }
         [NavigationLink(NavigationType.ToSingleChild, nameof(Id), nameof(Feet.PersonId))]
         public Func<Feet> NavFeet { get; set; }
