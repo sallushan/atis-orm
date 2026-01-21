@@ -29,14 +29,30 @@ namespace Atis.Orm
 
         public virtual TResult Execute<TResult>(Expression expression)
         {
-            IExecutionContext executionContext = this.GetExecutionContext(expression);            
-            return this.dbAdapter.Execute<TResult>(executionContext.Sql, executionContext.DbParameters, executionContext.ElementFactory);
+            IExecutionContext executionContext = this.GetExecutionContext(expression);
+            if (executionContext.IsNonQuery)
+            {
+                var result = this.dbAdapter.ExecuteNonQuery(executionContext.Sql, executionContext.DbParameters);
+                return (TResult)(object)result;
+            }
+            else
+            {
+                return this.dbAdapter.Execute<TResult>(executionContext.Sql, executionContext.DbParameters, executionContext.ElementFactory);
+            }
         }
 
         public virtual TResult ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken)
         {
             IExecutionContext executionContext = this.GetExecutionContext(expression);
-            return this.dbAdapter.ExecuteAsync<TResult>(executionContext.Sql, executionContext.DbParameters, executionContext.ElementFactory, cancellationToken);
+            if (executionContext.IsNonQuery)
+            {
+                var result = this.dbAdapter.ExecuteNonQueryAsync(executionContext.Sql, executionContext.DbParameters, cancellationToken);
+                return (TResult)(object)result;
+            }
+            else
+            {
+                return this.dbAdapter.ExecuteAsync<TResult>(executionContext.Sql, executionContext.DbParameters, executionContext.ElementFactory, cancellationToken);
+            }
         }
 
 

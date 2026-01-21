@@ -9,11 +9,12 @@ namespace Atis.Orm
 {
     public class ExecutionContext : IExecutionContext
     {
-        public ExecutionContext(string sql, IReadOnlyList<DbParameter> dbParameters, Func<IDataReader, object> elementFactory)
+        public ExecutionContext(string sql, IReadOnlyList<DbParameter> dbParameters, bool isNonQuery, Func<IDataReader, object> elementFactory)
         {
-            Sql = sql;
-            DbParameters = dbParameters;
-            ElementFactory = elementFactory;
+            this.Sql = sql ?? throw new ArgumentNullException(nameof(sql));
+            this.DbParameters = dbParameters;
+            this.ElementFactory = elementFactory;
+            this.IsNonQuery = isNonQuery;
         }
 
         public string Sql { get; }
@@ -21,5 +22,7 @@ namespace Atis.Orm
         public IReadOnlyList<DbParameter> DbParameters { get; }
 
         public Func<IDataReader, object> ElementFactory { get; }
+
+        public bool IsNonQuery { get; }
     }
 }

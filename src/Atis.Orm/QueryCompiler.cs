@@ -3,6 +3,7 @@ using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq.Expressions;
 
 namespace Atis.Orm
@@ -15,8 +16,9 @@ namespace Atis.Orm
         private readonly IExpressionVariableValuesExtractor queryParameterExtractor;
         private readonly IDbParameterFactory dbParameterFactory;
         private readonly IPreprocessingRequirementTester preprocessingRequirementTester;
+        private readonly IElementFactoryBuilder elementFactoryBuilder;
 
-        public QueryCompiler(IExpressionPreprocessorProvider preprocessor, IPreprocessingRequirementTester preprocessingRequirementTester, ILinqToSqlConverter linqToSqlConverter, ISqlExpressionTranslator sqlExpressionTranslator, IExpressionVariableValuesExtractor queryParameterExtractor, IDbParameterFactory dbParameterFactory)
+        public QueryCompiler(IExpressionPreprocessorProvider preprocessor, IPreprocessingRequirementTester preprocessingRequirementTester, ILinqToSqlConverter linqToSqlConverter, ISqlExpressionTranslator sqlExpressionTranslator, IExpressionVariableValuesExtractor queryParameterExtractor, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
         {
             this.linqToSqlConverter = linqToSqlConverter;
             this.preprocessor = preprocessor;
@@ -24,6 +26,7 @@ namespace Atis.Orm
             this.queryParameterExtractor = queryParameterExtractor;
             this.dbParameterFactory = dbParameterFactory;
             this.preprocessingRequirementTester = preprocessingRequirementTester;
+            this.elementFactoryBuilder = elementFactoryBuilder;
         }
 
         public ICompiledQuery Compile(Expression expression)
@@ -33,10 +36,17 @@ namespace Atis.Orm
 
             var preprocessedExpression = this.PreprocessExpression(expression);
             var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, preprocessedExpression);
-            var sqlExpression = this.ConvertToSqlExpression(preprocessedExpression);
+            var sqlExpression = this.ConvertExpressionToSqlExpression(preprocessedExpression);
+            var isNonQuery = sqlExpression is SqlUpdateExpression || sqlExpression is SqlInsertIntoExpression || sqlExpression is SqlDeleteExpression;
+            Func<IDataReader, object> elementFactory = this.CreateElementFactory(expression, sqlExpression);
             var translationResult = this.TranslateSqlExpression(sqlExpression);
-            var compiledQuery = new CompiledQuery(translationResult.Sql, translationResult.QueryParameters, this.dbParameterFactory);
+            var compiledQuery = new CompiledQuery(translationResult.Sql, translationResult.QueryParameters, this.dbParameterFactory, isNonQuery, elementFactory);
             return compiledQuery;
+        }
+
+        protected virtual Func<IDataReader, object> CreateElementFactory(Expression expression, SqlExpression sqlExpression)
+        {
+            return this.elementFactoryBuilder.CreateElementFactory(expression, sqlExpression);
         }
 
         protected virtual bool DeterminePreprocessingRequirement(Expression originalExpression, Expression preprocessedExpression)
@@ -51,7 +61,7 @@ namespace Atis.Orm
             return this.sqlExpressionTranslator.Translate(sqlExpression);
         }
 
-        protected virtual SqlExpression ConvertToSqlExpression(Expression preprocessedExpression)
+        protected virtual SqlExpression ConvertExpressionToSqlExpression(Expression preprocessedExpression)
         {
             return this.linqToSqlConverter.Convert(preprocessedExpression);
         }

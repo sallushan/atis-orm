@@ -10,5 +10,6 @@ namespace Atis.Orm
         string Sql { get; }
         IReadOnlyList<DbParameter> DbParameters { get; }
         Func<IDataReader, object> ElementFactory { get; }
+        bool IsNonQuery { get; }
     }
 }

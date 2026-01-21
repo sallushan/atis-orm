@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 
@@ -9,12 +10,16 @@ namespace Atis.Orm
         private readonly string sql;
         private readonly IReadOnlyList<IQueryParameter> queryParameters;
         private readonly IDbParameterFactory dbParameterFactory;
+        private readonly bool isNonQuery;
+        private readonly Func<IDataReader, object> elementFactory;
 
-        public CompiledQuery(string sql, IReadOnlyList<IQueryParameter> queryParameters, IDbParameterFactory dbParameterFactory)
+        public CompiledQuery(string sql, IReadOnlyList<IQueryParameter> queryParameters, IDbParameterFactory dbParameterFactory, bool isNonQuery, Func<IDataReader, object> elementFactory)
         {
             this.sql = sql;
             this.queryParameters = queryParameters;
             this.dbParameterFactory = dbParameterFactory;
+            this.isNonQuery = isNonQuery;
+            this.elementFactory = elementFactory;
         }
 
         public IExecutionContext GetExecutionContext(IReadOnlyList<object> parameterValues, bool useInitialValues)
@@ -27,7 +32,7 @@ namespace Atis.Orm
                 var dbParameter = dbParameterFactory.CreateDbParameter(queryParameter, parameterValue);
                 dbParameters[i] = dbParameter;
             }
-            return new ExecutionContext(sql, dbParameters, null);
+            return new ExecutionContext(sql, dbParameters, isNonQuery, elementFactory);
         }
     }
 }
