@@ -813,5 +813,38 @@ where exists(
             Test("Select with nested GroupBy inside projection should produce correlated subquery", q.Expression, expectedResult);
         }
 
+        [TestMethod]
+        public void Direct_scalar_property_selection_test()
+        {
+            //SqlDataSourceColumnExpression
+            Expression<Func<object>> queryExpression = () => queryProvider.DataSet<Student>().Select(x => x.StudentId).FirstOrDefault();
+            string? expectedResult = @"
+    select top (1) a_1.StudentId as Col1
+	from Student as a_1";
+            Test("Direct scalar property selection test", queryExpression.Body, expectedResult);
+        }
+
+        [TestMethod]
+        public void Direct_count_method_call_test()
+        {
+            //SqlFunctionCallExpression
+            Expression<Func<object>> queryExpression = () => queryProvider.DataSet<Student>().Where(x => x.StudentType == "123").Count();
+            string? expectedResult = @"
+select Count(1) as Col1
+	from Student as a_1
+	where (a_1.StudentType = '123')";
+            Test("Direct count method call test", queryExpression.Body, expectedResult);
+        }
+
+        [TestMethod]
+        public void Direct_max_method_call_test()
+        {
+            //SqlFunctionCallExpression
+            Expression<Func<object>> queryExpression = () => queryProvider.DataSet<Student>().Max(x => x.StudentId);
+            string? expectedResult = @"
+select Max(a_1.StudentId) as Col1
+	from Student as a_1";
+            Test("Direct max method call test", queryExpression.Body, expectedResult);
+        }
     }
 }
