@@ -42,7 +42,8 @@ namespace Atis.Orm
             if (this.dataReader == null)
             {
                 await this.db.OpenConnectionAsync(this.cancellationToken);
-                this.dataReader = await this.db.ExecuteReaderAsync(this.command, CommandBehavior.SequentialAccess, this.cancellationToken);
+                //this.dataReader = await this.db.ExecuteReaderAsync(this.command, CommandBehavior.SequentialAccess, this.cancellationToken);
+                this.dataReader = await this.command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, this.cancellationToken);
             }
             
             var hasData = await this.dataReader.ReadAsync(this.cancellationToken);

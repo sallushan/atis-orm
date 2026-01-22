@@ -22,8 +22,8 @@ namespace Atis.Orm
         T ExecuteScalarCommand<T>(DbCommand command);
         Task<T> ExecuteScalarCommandAsync<T>(DbCommand command, CancellationToken cancellationToken);
         DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType);
-        IDataReader ExecuteReader(DbCommand command, CommandBehavior sequentialAccess);
-        Task<DbDataReader> ExecuteReaderAsync(DbCommand command, CommandBehavior sequentialAccess, CancellationToken cancellationToken);
+        //IDataReader ExecuteReader(DbCommand command, CommandBehavior sequentialAccess);
+        //Task<DbDataReader> ExecuteReaderAsync(DbCommand command, CommandBehavior sequentialAccess, CancellationToken cancellationToken);
         int ExecuteNonQueryCommand(DbCommand command);
         Task<int> ExecuteNonQueryCommandAsync(DbCommand command, CancellationToken cancellationToken);
     }

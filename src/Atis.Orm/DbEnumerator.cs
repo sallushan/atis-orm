@@ -11,8 +11,10 @@ namespace Atis.Orm
     public class DbEnumerator<T> : IEnumerator<T>
     {
         private IDataReader dataReader;
-        private readonly DbCommand command;
+        private DbCommand command;
         private readonly Func<IDataReader, object> elementFactory;
+        private readonly string sql;
+        private readonly IEnumerable<DbParameter> dbParameters;
         private bool disposed;
         private bool currentIsSet;
         private T current;
@@ -25,7 +27,8 @@ namespace Atis.Orm
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             this.elementFactory = elementFactory ?? throw new ArgumentNullException(nameof(elementFactory));
-            this.command = db.CreateCommand(sql, dbParameters, CommandType.Text);
+            this.sql = sql;
+            this.dbParameters = dbParameters;
         }
 
         public bool MoveNext()
@@ -35,7 +38,9 @@ namespace Atis.Orm
             if (this.dataReader == null)
             {
                 this.db.OpenConnection();
-                this.dataReader = this.db.ExecuteReader(this.command, CommandBehavior.SequentialAccess);
+                //this.dataReader = this.db.ExecuteReader(this.command, CommandBehavior.SequentialAccess);
+                this.command = this.db.CreateCommand(this.sql, this.dbParameters, CommandType.Text);
+                this.dataReader = this.command.ExecuteReader(CommandBehavior.SequentialAccess);
             }
             
             var hasData = this.dataReader.Read();
@@ -84,7 +89,7 @@ namespace Atis.Orm
                     this.dataReader = null;
                 }
 
-                this.command.Dispose();
+                this.command?.Dispose();
 
                 this.db.CloseConnection();
             }

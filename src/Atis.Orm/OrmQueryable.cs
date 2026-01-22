@@ -11,6 +11,12 @@ namespace Atis.Orm
     public class OrmQueryable<T> : IOrderedQueryable<T>, IAsyncEnumerable<T>
     {
         private readonly IAsyncQueryProvider queryProvider;
+        public OrmQueryable(IAsyncQueryProvider provider)
+        {
+            this.Expression = Expression.Constant(this);
+            this.queryProvider = provider ?? throw new ArgumentNullException(nameof(provider));
+        }
+
         public OrmQueryable(IAsyncQueryProvider provider, Expression expression)
         {
             this.Expression = expression;

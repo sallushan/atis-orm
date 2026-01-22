@@ -46,6 +46,8 @@ namespace Atis.SqlExpressionEngine.Services
 
         public virtual Type GetElementType(Type queryableType)
         {
+            if (queryableType.IsGenericType && queryableType.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                return queryableType.GetGenericArguments()[0];
             return queryableType.GetInterfaces()
                                 .Where(t => t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IEnumerable<>))
                                 .Select(t => t.GetGenericArguments()[0])

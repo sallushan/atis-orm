@@ -1,10 +1,20 @@
-﻿using Atis.Orm;
+﻿using Atis.Expressions;
+using Atis.Orm;
+using Atis.Orm.SqlServer;
+using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.Preprocessors;
+using Atis.SqlExpressionEngine.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
+using Atis.SqlExpressionEngine.UnitTest.Converters;
+using Atis.SqlExpressionEngine.UnitTest.Preprocessors;
+using Atis.SqlExpressionEngine.UnitTest.Services;
 using Microsoft.Data.SqlClient;
+using Microsoft.VisualStudio.TestTools.UnitTesting.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -110,6 +120,63 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var hash9 = comparer.GetHashCode(expr9);
             var hash10 = comparer.GetHashCode(expr10);
             Assert.AreEqual(hash9, hash10, "Hash codes should be equal");
+        }
+
+        [TestMethod]
+        public void ToList_test()
+        {
+            var expressionEvaluator = new ExpressionEvaluator();
+            var reflectionService = new ReflectionService(expressionEvaluator);
+            var dbCommunication = new SqlDbCommunication($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
+            var cacheKeyProvider = new ExpressionCacheKeyProvider();
+            var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);            
+            var preprocessingRequirementTester = new PreprocessingRequirementTester();
+            var sqlDataTypeFactory = new SqlDataTypeFactory();
+            var parameterMapper = new LambdaParameterToDataSourceMapper();
+            var sqlFactory = new SqlExpressionFactory();
+            var logger = new Services.Logger();
+            var model = new Services.Model();
+            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger };
+            var conversionContext = new ConversionContext(contextExtensions);
+            var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
+            var preprocessor = GetPreprocessorProvider(reflectionService, model);
+            var linqToSqlConverter = new LinqToSqlConverter(reflectionService, expressionConverterProvider, new SqlExpressionPostprocessorProvider(postprocessors: []));
+            var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
+            var dbParameterFactory = new SqlDbParameterFactory();
+            var elementFactoryBuilder = new ElementFactoryBuilder();
+            var queryCompiler = new QueryCompiler(preprocessor, preprocessingRequirementTester, linqToSqlConverter, sqlExpressionTranslator, dbParameterFactory, elementFactoryBuilder);
+            var expressionVariableValueExtrator = new ExpressionVariableValuesExtractor();
+            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtrator, preprocessor);
+            var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
+            var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
+            var results = queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToList();
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{result.EmployeeId}: {result.FirstName}");
+            }
+        }
+
+        private IExpressionPreprocessorProvider GetPreprocessorProvider(IReflectionService reflectionService, IModel model/*, IQueryProvider queryProvider*/)
+        {
+            //var navigateToManyPreprocessor = new NavigateToManyPreprocessor(queryProvider, reflectionService);
+            //var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService, queryProvider);
+            var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
+            //var childJoinReplacementPreprocessor = new ChildJoinReplacementPreprocessor(reflectionService);
+            var calculatedPropertyReplacementPreprocessor = new CalculatedPropertyPreprocessor(reflectionService);
+            var specificationPreprocessor = new SpecificationCallRewriterPreprocessor(reflectionService);
+            var convertPreprocessor = new ConvertExpressionReplacementPreprocessor();
+            var allToAnyRewriterPreprocessor = new AllToAnyRewriterPreprocessor();
+            var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(reflectionService);
+            //var nonPrimitivePropertyReplacementPreprocessor = new NonPrimitiveCalculatedPropertyPreprocessor(reflectionService);
+            //var concreteParameterPreprocessor = new ConcreteParameterReplacementPreprocessor(new QueryPartsIdentifier(), reflectionService);
+            var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
+            var customMethodReplacementPreprocessor = new CustomBusinessMethodPreprocessor();
+            var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model);
+            var preprocessor = new ExpressionPreprocessorProvider([queryVariablePreprocessor, methodInterfaceTypeReplacementPreprocessor, /*navigateToManyPreprocessor, navigateToOnePreprocessor,*/ /*childJoinReplacementPreprocessor, */calculatedPropertyReplacementPreprocessor, specificationPreprocessor, convertPreprocessor, allToAnyRewriterPreprocessor, inValuesReplacementPreprocessor, customMethodReplacementPreprocessor,
+                navigationEqualityPreprocessor
+                /*, concreteParameterPreprocessor*/]);
+            return preprocessor;
         }
     }
 }
