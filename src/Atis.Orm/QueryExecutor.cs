@@ -1,4 +1,5 @@
-﻿using Atis.SqlExpressionEngine.Abstractions;
+﻿using Atis.Expressions;
+using Atis.SqlExpressionEngine.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -18,13 +19,15 @@ namespace Atis.Orm
         private readonly ICompiledQueryCacheProvider queryCacheProvider;
         private readonly IQueryCompiler queryCompiler;
         private readonly IExpressionVariableValuesExtractor expressionVariableValuesExtractor;
+        private readonly IExpressionPreprocessorProvider preprocessor;
 
-        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor)
+        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, IExpressionPreprocessorProvider preprocessor)
         {
             this.dbAdapter = dbAdapter ?? throw new ArgumentNullException(nameof(dbAdapter));
             this.queryCacheProvider = queryCacheProvider ?? throw new ArgumentNullException(nameof(queryCacheProvider));
             this.queryCompiler = queryCompiler ?? throw new ArgumentNullException(nameof(queryCompiler));
             this.expressionVariableValuesExtractor = expressionVariableValuesExtractor ?? throw new ArgumentNullException(nameof(expressionVariableValuesExtractor));
+            this.preprocessor = preprocessor;
         }
 
         public virtual TResult Execute<TResult>(Expression expression)
@@ -62,10 +65,18 @@ namespace Atis.Orm
             IReadOnlyList<object> parameterValues = null;
             if (cacheHit)
             {
-                parameterValues = this.expressionVariableValuesExtractor.ExtractVariableValues(expression);
+                Expression expressionToUseToExtractVariableValues = expression;
+                if (compiledQuery.IsPreprocessingRequired)
+                    expressionToUseToExtractVariableValues = this.PreprocessExpression(expression);
+                parameterValues = this.expressionVariableValuesExtractor.ExtractVariableValues(expressionToUseToExtractVariableValues);
             }
             IExecutionContext queryExecutionParameter = compiledQuery.GetExecutionContext(parameterValues, useInitialValues: !cacheHit);
             return queryExecutionParameter;
+        }
+
+        protected virtual Expression PreprocessExpression(Expression expression)
+        {
+            return this.preprocessor?.Preprocess(expression) ?? expression;
         }
 
         protected virtual ICompiledQuery GetOrAddCompiledQuery(Expression expression, out bool cacheHit)

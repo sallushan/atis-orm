@@ -12,15 +12,18 @@ namespace Atis.Orm
         private readonly IDbParameterFactory dbParameterFactory;
         private readonly bool isNonQuery;
         private readonly Func<IDataReader, object> elementFactory;
-
-        public CompiledQuery(string sql, IReadOnlyList<IQueryParameter> queryParameters, IDbParameterFactory dbParameterFactory, bool isNonQuery, Func<IDataReader, object> elementFactory)
+        
+        public CompiledQuery(string sql, IReadOnlyList<IQueryParameter> queryParameters, IDbParameterFactory dbParameterFactory, bool isNonQuery, Func<IDataReader, object> elementFactory, bool isPreprocessingRequired)
         {
             this.sql = sql;
             this.queryParameters = queryParameters;
             this.dbParameterFactory = dbParameterFactory;
             this.isNonQuery = isNonQuery;
             this.elementFactory = elementFactory;
+            this.IsPreprocessingRequired = isPreprocessingRequired;
         }
+
+        public bool IsPreprocessingRequired { get; }
 
         public IExecutionContext GetExecutionContext(IReadOnlyList<object> parameterValues, bool useInitialValues)
         {

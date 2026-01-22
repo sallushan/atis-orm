@@ -13,17 +13,15 @@ namespace Atis.Orm
         private readonly ILinqToSqlConverter linqToSqlConverter;
         private readonly IExpressionPreprocessorProvider preprocessor;
         private readonly ISqlExpressionTranslator sqlExpressionTranslator;
-        private readonly IExpressionVariableValuesExtractor queryParameterExtractor;
         private readonly IDbParameterFactory dbParameterFactory;
         private readonly IPreprocessingRequirementTester preprocessingRequirementTester;
         private readonly IElementFactoryBuilder elementFactoryBuilder;
 
-        public QueryCompiler(IExpressionPreprocessorProvider preprocessor, IPreprocessingRequirementTester preprocessingRequirementTester, ILinqToSqlConverter linqToSqlConverter, ISqlExpressionTranslator sqlExpressionTranslator, IExpressionVariableValuesExtractor queryParameterExtractor, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
+        public QueryCompiler(IExpressionPreprocessorProvider preprocessor, IPreprocessingRequirementTester preprocessingRequirementTester, ILinqToSqlConverter linqToSqlConverter, ISqlExpressionTranslator sqlExpressionTranslator, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
         {
             this.linqToSqlConverter = linqToSqlConverter;
             this.preprocessor = preprocessor;
             this.sqlExpressionTranslator = sqlExpressionTranslator;
-            this.queryParameterExtractor = queryParameterExtractor;
             this.dbParameterFactory = dbParameterFactory;
             this.preprocessingRequirementTester = preprocessingRequirementTester;
             this.elementFactoryBuilder = elementFactoryBuilder;
@@ -40,7 +38,7 @@ namespace Atis.Orm
             var isNonQuery = sqlExpression is SqlUpdateExpression || sqlExpression is SqlInsertIntoExpression || sqlExpression is SqlDeleteExpression;
             Func<IDataReader, object> elementFactory = this.CreateElementFactory(expression, sqlExpression);
             var translationResult = this.TranslateSqlExpression(sqlExpression);
-            var compiledQuery = new CompiledQuery(translationResult.Sql, translationResult.QueryParameters, this.dbParameterFactory, isNonQuery, elementFactory);
+            var compiledQuery = new CompiledQuery(translationResult.Sql, translationResult.QueryParameters, this.dbParameterFactory, isNonQuery, elementFactory, isPreprocessingRequired);
             return compiledQuery;
         }
 
