@@ -26,10 +26,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             if (sqlExpression is SqlDerivedTableExpression derivedTable)
             {
-                string sql;
-                var translator = new SqlExpressionTranslator() { IsRowNumberSupported = false, };
+                var translator = new SqlExpressionTranslatorBase();
 
-                sql = translator.Translate(derivedTable);
+                var translationResult = translator.Translate(derivedTable);
+                var sql = translationResult.Sql;
 
                 Console.WriteLine(sql);
 
