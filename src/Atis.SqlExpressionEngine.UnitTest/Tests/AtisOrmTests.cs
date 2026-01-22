@@ -54,5 +54,62 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 Assert.Fail("Expected SqlDerivedTableExpression");
             }
         }
+
+        [TestMethod]
+        public void ExpressionEqualityComparer_test()
+        {
+            Expression<Func<TestEntities.Employee, object>> expr1 = x => new { x.EmployeeId, NameParts = new { x.FirstName, x.LastName }, x.HireDate };
+            Expression<Func<TestEntities.Employee, object>> expr2 = x => new { x.EmployeeId, NameParts = new { x.FirstName, x.LastName }, x.HireDate };
+            var comparer = ExpressionEqualityComparer.Instance;
+            var areEqual = comparer.Equals(expr1, expr2);
+            Assert.IsTrue(areEqual, "Expressions should be equal");
+            var hash1 = comparer.GetHashCode(expr1);
+            var hash2 = comparer.GetHashCode(expr2);
+            Assert.AreEqual(hash1, hash2, "Hash codes should be equal");
+
+            var hireDate = DateTime.Today;
+            Expression<Func<TestEntities.Employee, bool>> expr3 = x => x.HireDate > hireDate;
+            hireDate = DateTime.Today.AddDays(1);
+            Expression<Func<TestEntities.Employee, bool>> expr4 = x => x.HireDate > hireDate;
+
+            areEqual = comparer.Equals(expr3, expr4);
+            Assert.IsTrue(areEqual, "Expressions should be equal");
+
+            var hash3 = comparer.GetHashCode(expr3);
+            var hash4 = comparer.GetHashCode(expr4);
+            Assert.AreEqual(hash3, hash4, "Hash codes should be equal");
+
+            var name = "John";
+            Expression<Func<TestEntities.Employee, bool>> expr5 = x => x.FirstName == name;
+            Expression<Func<TestEntities.Employee, bool>> expr6 = x => x.LastName == name;
+
+            areEqual = comparer.Equals(expr5, expr6);
+            Assert.IsFalse(areEqual, "Expressions should not be equal");
+
+            var hash5 = comparer.GetHashCode(expr5);
+            var hash6 = comparer.GetHashCode(expr6);
+            Assert.AreNotEqual(hash5, hash6, "Hash codes should not be equal");
+
+            Expression<Func<TestEntities.Employee, bool>> expr7 = x => x.FirstName == "John";
+            Expression<Func<TestEntities.Employee, bool>> expr8 = x => x.FirstName == name;
+
+            areEqual = comparer.Equals(expr7, expr8);
+            Assert.IsFalse(areEqual, "Expressions should not be equal");
+
+            var hash7 = comparer.GetHashCode(expr7);
+            var hash8 = comparer.GetHashCode(expr8);
+            Assert.AreNotEqual(hash7, hash8, "Hash codes should not be equal");
+
+            var marksGained = 85;
+            Expression<Func<StudentGrade, bool>> expr9 = x => x.NavStudentGradeDetails.Where(y => y.MarksGained > marksGained).Any();
+            marksGained = 90;
+            Expression<Func<StudentGrade, bool>> expr10 = x => x.NavStudentGradeDetails.Where(y => y.MarksGained > marksGained).Any();
+
+            areEqual = comparer.Equals(expr9, expr10);
+            Assert.IsTrue(areEqual, "Expressions should be equal");
+            var hash9 = comparer.GetHashCode(expr9);
+            var hash10 = comparer.GetHashCode(expr10);
+            Assert.AreEqual(hash9, hash10, "Hash codes should be equal");
+        }
     }
 }
