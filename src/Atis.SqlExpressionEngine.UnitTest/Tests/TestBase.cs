@@ -50,6 +50,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 };
                 try
                 {
+                    //if (result is SqlDerivedTableExpression derivedTable)
+                    //{
+                    //    var sqlQueryShapePrinter = new SqlQueryShapePrinter();
+                    //    var shapeInString = sqlQueryShapePrinter.PrintShape(derivedTable.QueryShape, derivedTable.SelectColumnCollection.SelectColumns);
+                    //    Console.WriteLine(shapeInString);
+                    //}
+
                     resultQuery = translator.Translate(result);
                 }
                 catch

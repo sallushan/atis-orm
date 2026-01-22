@@ -154,5 +154,23 @@ select	a_3.C1 as C1
 ";
             Test("Sub Query Selection Test", q.Expression, expectedResult);
         }
+
+        [TestMethod]
+        public void Multiple_data_sources_with_full_data_source_selected_in_nested_anonymous_type_along_with_normal_columns_2()
+        {
+            var queryProvider = new QueryProvider();
+            var q = queryProvider.From(() => new { e = QueryExtensions.Table<Employee>(), ed = QueryExtensions.Table<EmployeeDegree>() })
+                            .LeftJoin(x => x.ed, x => x.e.EmployeeId == x.ed.EmployeeId)
+                            .LeftJoin(queryProvider.DataSet<Employee>(), (o, j) => new { o, m = j }, n => n.o.e.ManagerId == n.m.EmployeeId)
+                            .Select(x => new { FullDetail = new { Employee = x.o.e, x.o.e.Name }, x.o.ed.RowId, x.m })
+
+                    ;
+            string expectedResult = @"
+select a_1.RowId as RowId, a_1.EmployeeId as EmployeeId, a_1.Name as Name, a_1.Department as Department, a_1.ManagerId as ManagerId, a_1.Name as Name_1, a_2.RowId as RowId_1, a_3.RowId as RowId_2, a_3.EmployeeId as EmployeeId_1, a_3.Name as Name_2, a_3.Department as Department_1, a_3.ManagerId as ManagerId_1
+	from Employee as a_1
+			left join EmployeeDegree as a_2 on (a_1.EmployeeId = a_2.EmployeeId)
+			left join Employee as a_3 on (a_1.ManagerId = a_3.EmployeeId)";
+            Test("Select Multi Level With Sub Query Test 2", q.Expression, expectedResult);
+        }
     }
 }
