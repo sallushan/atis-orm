@@ -11,8 +11,8 @@
             {
                 br = QueryExtensions.Table<BenchStock_Requisition>(),
                 tran_Site = QueryExtensions.Table<SiteBase>(),
-                pid_CreatedBy = QueryExtensions.Table<PID_Master>(),
-                pid_ProcessedBy = QueryExtensions.Table<PID_Master>(),
+                pid_CreatedBy = QueryExtensions.Table<MSTR_PID>(),
+                pid_ProcessedBy = QueryExtensions.Table<MSTR_PID>(),
                 mlu_tran_Site_City = QueryExtensions.Table<MasterLookup>()
             })
                             .LeftJoin(x => x.tran_Site, x => x.br.Trans_DODAAC == x.tran_Site.LOCNCODE)

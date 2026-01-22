@@ -383,7 +383,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public System.String FAXNUMBR { get; set; }
     }
 
-    public partial class PID_Master
+    public partial class MSTR_PID
     {
         public System.String PID { get; set; }
         public System.String FNAME { get; set; }

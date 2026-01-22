@@ -83,7 +83,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         }
 
-        private SqlExpression? ConvertExpressionToSqlExpression(Expression queryExpression, out Expression updatedQueryExpression)
+        protected SqlExpression? ConvertExpressionToSqlExpression(Expression queryExpression, out Expression updatedQueryExpression)
         {
             var model = new Model();
             updatedQueryExpression = PreprocessExpression(queryExpression, model);

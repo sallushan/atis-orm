@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Atis.Orm\Atis.Orm.csproj" />
     <ProjectReference Include="..\Atis.SqlExpressionEngine\Atis.SqlExpressionEngine.csproj" />
   </ItemGroup>
 

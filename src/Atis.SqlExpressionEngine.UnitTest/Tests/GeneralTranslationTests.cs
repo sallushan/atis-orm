@@ -600,7 +600,7 @@ select	a_1.RowId as RowId, a_1.EmployeeId as EmployeeId, a_1.Name as Name, a_1.D
         [TestMethod]
         public void Custom_business_method_in_query_test()
         {
-            var pidMaster = new Queryable<PID_Master>(this.queryProvider);
+            var pidMaster = new Queryable<MSTR_PID>(this.queryProvider);
             var q = pidMaster.Where(x => x.PID == "123")
                         .Select(x => new { x.PID, FullName = FullName(x.FNAME, x.LNAME) });
             string expectedResult = @"
