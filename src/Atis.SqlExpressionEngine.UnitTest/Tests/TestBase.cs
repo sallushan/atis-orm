@@ -108,8 +108,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             //expression = stringLengthReplacementVisitor.Visit(expression);
             var queryProvider = new QueryProvider();
             var reflectionService = new ReflectionService(new ExpressionEvaluator());
-            var navigateToManyPreprocessor = new NavigateToManyPreprocessor(queryProvider, reflectionService);
-            var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService, queryProvider);
+            var navigateToManyPreprocessor = new NavigateToManyPreprocessor(/*queryProvider,*/ reflectionService);
+            var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService/*, queryProvider*/);
             var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
             //var childJoinReplacementPreprocessor = new ChildJoinReplacementPreprocessor(reflectionService);
             var calculatedPropertyReplacementPreprocessor = new CalculatedPropertyPreprocessor(reflectionService);

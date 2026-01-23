@@ -8,19 +8,19 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
 {
     public class NavigateToManyPreprocessor : NavigateToManyPreprocessorBase
     {
-        private readonly IQueryProvider queryProvider;
+        //private readonly IQueryProvider queryProvider;
         private readonly IReflectionService reflectionService;
 
-        public NavigateToManyPreprocessor(IQueryProvider queryProvider, IReflectionService reflectionService)
+        public NavigateToManyPreprocessor(/*IQueryProvider queryProvider,*/ IReflectionService reflectionService)
         {
-            this.queryProvider = queryProvider;
+            //this.queryProvider = queryProvider;
             this.reflectionService = reflectionService;
         }
 
-        protected override IQueryable<T> CreateQuery<T>()
-        {
-            return new Queryable<T>(queryProvider);
-        }
+        //protected override IQueryable<T> CreateQuery<T>()
+        //{
+        //    return new Queryable<T>(queryProvider);
+        //}
 
         protected override Type? GetEntityType(Expression navigationNode)
         {
@@ -52,7 +52,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
                 LambdaExpression? joinedSource = null;
                 if (relation.FromParentToChild != null)
                 {
-                    joinedSource = relation.FromParentToChild(this.queryProvider);
+                    joinedSource = relation.FromParentToChild();
                 }
                 var navigationInfo = new NavigationInfo(relationAttribute.NavigationType, relationLambda, joinedSource, memberExpression.Member.Name);
                 return navigationInfo;

@@ -1,5 +1,6 @@
 ﻿using Atis.Expressions;
 using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.ExpressionExtensions;
 using Atis.SqlExpressionEngine.Preprocessors;
 using Atis.SqlExpressionEngine.UnitTest.Metadata;
 using System.Linq.Expressions;
@@ -12,7 +13,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
         private readonly static MethodInfo createJoinedDataSourceOpenMethodInfo = typeof(NavigateToOnePreprocessor).GetMethod(nameof(CreateJoinedDataSourceGen), BindingFlags.NonPublic | BindingFlags.Instance);
 
         private readonly IReflectionService reflectionService;
-        private readonly IQueryProvider queryProvider;
+        //private readonly IQueryProvider queryProvider;
 
         private enum NavigationPropertyType
         {
@@ -21,10 +22,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
             RelationAttribute
         }
 
-        public NavigateToOnePreprocessor(IReflectionService reflectionService, IQueryProvider queryProvider)
+        public NavigateToOnePreprocessor(IReflectionService reflectionService/*, IQueryProvider queryProvider*/)
         {
             this.reflectionService = reflectionService;
-            this.queryProvider = queryProvider;
+            //this.queryProvider = queryProvider;
         }
 
         protected override bool DoesParameterBelongToQueryMethod(ParameterExpression parameter, Expression queryMethod)
@@ -142,13 +143,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
                                 Type joinedSourceType;
                                 if (navigationType == NavigationType.ToParent || navigationType == NavigationType.ToParentOptional)
                                 {
-                                    otherDataSource = entityRelation.FromChildToParent(this.queryProvider);
+                                    otherDataSource = entityRelation.FromChildToParent();
                                     joinedSourceParamType = entityRelation.ChildType;
                                     joinedSourceType = entityRelation.ParentType;
                                 }
                                 else
                                 {
-                                    otherDataSource = entityRelation.FromParentToChild(this.queryProvider);
+                                    otherDataSource = entityRelation.FromParentToChild();
                                     joinedSourceParamType = entityRelation.ParentType;
                                     joinedSourceType = entityRelation.ChildType;
                                 }
@@ -339,10 +340,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
             throw new InvalidOperationException($"Method does not support '{oldQueryMethodNode.NodeType}' to create a Query Method Call");
         }
 
-        protected override IQueryProvider GetQueryProvider()
-        {
-            return this.queryProvider;
-        }
+        //protected override IQueryProvider GetQueryProvider()
+        //{
+        //    return this.queryProvider;
+        //}
 
         protected override Type GetEnumerableEntityType(Type enumerableType)
         {
@@ -366,8 +367,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.Preprocessors
         /// <returns>The joined data source expression.</returns>
         private Expression<Func<TParent, IQueryable<TJoined>>> CreateJoinedDataSourceGen<TParent, TJoined>()
         {
-            var queryProvider = this.GetQueryProvider();
-            return qs_param => QueryExtensions.DataSet<TJoined>(queryProvider);
+            //var queryProvider = this.GetQueryProvider();
+            //return qs_param => QueryExtensions.DataSet<TJoined>(queryProvider);
+            var qs_param = Expression.Parameter(typeof(TParent), "qs_param");
+            var queryRootExpression = new QueryRootExpression(typeof(TJoined));
+            var lambda = Expression.Lambda<Func<TParent, IQueryable<TJoined>>>(queryRootExpression, qs_param);
+            return lambda;
         }
     }
 }

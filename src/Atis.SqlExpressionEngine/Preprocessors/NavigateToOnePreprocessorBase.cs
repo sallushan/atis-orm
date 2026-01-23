@@ -117,7 +117,7 @@ namespace Atis.SqlExpressionEngine.Preprocessors
         protected abstract bool DoesParameterBelongToQueryMethod(ParameterExpression parameter, Expression queryMethod);
         protected abstract Expression GetQuerySourceArgumentFromQueryMethod(Expression queryMethod);
         protected abstract Expression CreateQueryMethodCall(Expression oldQueryMethodNode, Expression wrappedQuerySourceArg);
-        protected abstract IQueryProvider GetQueryProvider();
+        //protected abstract IQueryProvider GetQueryProvider();
         protected abstract Type GetEnumerableEntityType(Type enumerableType);
         protected abstract bool TryExtractQueryMethodInjectionPoint(ParameterExpression parameterExpression, Expression parentExpression, NavigationInfo navigationInfo, out LambdaExpression parentExpressionLambda, out Expression queryMethod);
 

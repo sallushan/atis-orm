@@ -14,14 +14,14 @@ namespace Atis.SqlExpressionEngine.Preprocessors
     /// </summary>
     public abstract class NavigateToManyPreprocessorBase : ExpressionVisitor, IExpressionPreprocessor
     {
-        /// <summary>
-        ///     <para>
-        ///         Creates a queryable collection of the specified type.
-        ///     </para>
-        /// </summary>
-        /// <typeparam name="T">The type of the elements in the queryable collection.</typeparam>
-        /// <returns>An <see cref="IQueryable{T}"/> representing the queryable collection.</returns>
-        protected abstract IQueryable<T> CreateQuery<T>();
+        ///// <summary>
+        /////     <para>
+        /////         Creates a queryable collection of the specified type.
+        /////     </para>
+        ///// </summary>
+        ///// <typeparam name="T">The type of the elements in the queryable collection.</typeparam>
+        ///// <returns>An <see cref="IQueryable{T}"/> representing the queryable collection.</returns>
+        //protected abstract IQueryable<T> CreateQuery<T>();
 
         /// <summary>
         ///     <para>
@@ -153,17 +153,52 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             }
             else
             {
-                return this.CreateQueryInternal<T>(navigationInfo, parentExpression).Expression;
+                //return this.CreateQueryInternal<T>(navigationInfo, parentExpression).Expression;
+                return this.CreateQueryExpressionInternal<T>(navigationInfo, parentExpression);
             }
         }
 
-        private IQueryable<T> CreateQueryInternal<T>(NavigationInfo navigationInfo, Expression parentExpression)
+        /// <summary>
+        ///     <para>
+        ///         Creates the query root expression for a given entity type.
+        ///     </para>
+        ///     <para>
+        ///         Override this if you need a custom root expression per entity type.
+        ///     </para>
+        /// </summary>
+        protected virtual Expression CreateQueryRoot(Type entityType)
+        {
+            if (entityType is null)
+                throw new ArgumentNullException(nameof(entityType));
+
+            return new QueryRootExpression(entityType);
+        }
+
+
+        //private IQueryable<T> CreateQueryInternal<T>(NavigationInfo navigationInfo, Expression parentExpression)
+        //{
+        //    var predicate = this.CreatePredicate<T>(navigationInfo, parentExpression);
+        //    var query = this.CreateQuery<T>();
+        //    query = query.Where(predicate);
+        //    return query;
+        //}
+        private Expression CreateQueryExpressionInternal<T>(NavigationInfo navigationInfo, Expression parentExpression)
         {
             var predicate = this.CreatePredicate<T>(navigationInfo, parentExpression);
-            var query = this.CreateQuery<T>();
-            query = query.Where(predicate);
-            return query;
+
+            // Build: Queryable.Where<T>( <root>, predicate )
+            var root = this.CreateQueryRoot(typeof(T));
+            var whereCall =
+                Expression.Call(
+                    typeof(Queryable),
+                    nameof(Queryable.Where),
+                    new[] { typeof(T) },
+                    root,
+                    Expression.Quote(predicate));
+
+            return whereCall;
         }
+
 
         private Expression<Func<T, bool>> CreatePredicate<T>(NavigationInfo navigationInfo, Expression parentExpression)
         {

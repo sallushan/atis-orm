@@ -101,6 +101,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 this.Append(")");
                 return node;
             }
+            else if (node is QueryRootExpression queryRoot)
+            {
+                this.Append($"QueryRoot<{queryRoot.Type.GetGenericArguments()[0].Name}>");
+            }
 
             return base.VisitExtension(node);
         }

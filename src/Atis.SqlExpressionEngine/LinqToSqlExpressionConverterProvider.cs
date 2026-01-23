@@ -19,6 +19,7 @@ namespace Atis.SqlExpressionEngine
             this.Context = context;
             var defaultConverters = new IExpressionConverterFactory<Expression, SqlExpression>[]
             {
+                new QueryRootExpressionConverterFactory(context),
                 new SchemaExpressionConverterFactory(context),
                 new TableExpressionConverterFactory(context),
                 new NullableValueExpressionConverterFactory(context),

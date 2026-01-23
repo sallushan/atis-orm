@@ -605,7 +605,7 @@ select	a_1.RowId as RowId, a_1.EmployeeId as EmployeeId, a_1.Name as Name, a_1.D
                         .Select(x => new { x.PID, FullName = FullName(x.FNAME, x.LNAME) });
             string expectedResult = @"
 select	a_1.PID as PID, ((a_1.FNAME + ' ') + a_1.LNAME) as FullName
-from	PID_Master as a_1
+from	MSTR_PID as a_1
 where	(a_1.PID = '123')
 ";
             Test("Custom Business Method Test", q.Expression, expectedResult);
