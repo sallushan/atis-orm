@@ -7,16 +7,8 @@ using Atis.SqlExpressionEngine.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using Atis.SqlExpressionEngine.UnitTest.Converters;
 using Atis.SqlExpressionEngine.UnitTest.Preprocessors;
-using Atis.SqlExpressionEngine.UnitTest.Services;
 using Microsoft.Data.SqlClient;
-using Microsoft.VisualStudio.TestTools.UnitTesting.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
@@ -136,7 +128,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var parameterMapper = new LambdaParameterToDataSourceMapper();
             var sqlFactory = new SqlExpressionFactory();
             var logger = new Services.Logger();
-            var model = new Services.Model();
+            var model = new Services.Model(reflectionService);
             var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger };
             var conversionContext = new ConversionContext(contextExtensions);
             var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
@@ -146,8 +138,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var dbParameterFactory = new SqlDbParameterFactory();
             var elementFactoryBuilder = new ElementFactoryBuilder();
             var queryCompiler = new QueryCompiler(preprocessor, preprocessingRequirementTester, linqToSqlConverter, sqlExpressionTranslator, dbParameterFactory, elementFactoryBuilder);
-            var expressionVariableValueExtrator = new ExpressionVariableValuesExtractor();
-            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtrator, preprocessor);
+            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
+            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
             var results = queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToList();
@@ -159,8 +151,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         private IExpressionPreprocessorProvider GetPreprocessorProvider(IReflectionService reflectionService, IModel model/*, IQueryProvider queryProvider*/)
         {
-            //var navigateToManyPreprocessor = new NavigateToManyPreprocessor(queryProvider, reflectionService);
-            //var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService, queryProvider);
+            //var stringLengthReplacementVisitor = new StringLengthReplacementVisitor();
+            //expression = stringLengthReplacementVisitor.Visit(expression);
+            //var queryProvider = new QueryProvider();
+            //var navigateToManyPreprocessor = new NavigateToManyPreprocessor(/*queryProvider,*/ reflectionService);
+            var navigateToManyPreprocessor = new NavigateToManyPreprocessor(model);
+            //var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService/*, queryProvider*/);
+            var navigateToOnePreprocessor = new NavigateToOnePreprocessor(model);
             var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
             //var childJoinReplacementPreprocessor = new ChildJoinReplacementPreprocessor(reflectionService);
             var calculatedPropertyReplacementPreprocessor = new CalculatedPropertyPreprocessor(reflectionService);
@@ -173,7 +170,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
             var customMethodReplacementPreprocessor = new CustomBusinessMethodPreprocessor();
             var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model);
-            var preprocessor = new ExpressionPreprocessorProvider([queryVariablePreprocessor, methodInterfaceTypeReplacementPreprocessor, /*navigateToManyPreprocessor, navigateToOnePreprocessor,*/ /*childJoinReplacementPreprocessor, */calculatedPropertyReplacementPreprocessor, specificationPreprocessor, convertPreprocessor, allToAnyRewriterPreprocessor, inValuesReplacementPreprocessor, customMethodReplacementPreprocessor,
+            var preprocessor = new ExpressionPreprocessorProvider([queryVariablePreprocessor, methodInterfaceTypeReplacementPreprocessor, navigateToManyPreprocessor, navigateToOnePreprocessor, /*childJoinReplacementPreprocessor, */calculatedPropertyReplacementPreprocessor, specificationPreprocessor, convertPreprocessor, allToAnyRewriterPreprocessor, inValuesReplacementPreprocessor, customMethodReplacementPreprocessor,
                 navigationEqualityPreprocessor
                 /*, concreteParameterPreprocessor*/]);
             return preprocessor;

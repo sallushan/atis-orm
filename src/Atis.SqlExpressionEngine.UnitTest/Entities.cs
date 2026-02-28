@@ -153,7 +153,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public string EmployeeId { get; set; }
         public string Degree { get; set; }
         public string University { get; set; }
-        [NavigationProperty(NavigationType.ToChildren, typeof(EmployeeDegreeWithMarksheetRelation))]
+        //[NavigationProperty(NavigationType.ToChildren, typeof(EmployeeDegreeWithMarksheetRelation))]
+        [NavigationLink(NavigationType.ToChildren, nameof(EmployeeDegree.RowId), nameof(Marksheet.EmployeeDegreeRowId))]
         public IQueryable<Marksheet> NavMarksheets { get; set; }
         [NavigationLink(NavigationType.ToParent, nameof(Employee.EmployeeId), nameof(EmployeeDegree.EmployeeId))]
         public Func<Employee> NavEmployee { get; set; }
