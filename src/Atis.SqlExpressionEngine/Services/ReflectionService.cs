@@ -14,14 +14,6 @@ namespace Atis.SqlExpressionEngine.Services
 {
     public class ReflectionService : IReflectionService
     {
-        private readonly IExpressionEvaluator expressionEvaluator;
-
-        public ReflectionService(IExpressionEvaluator expressionEvaluator)
-        {
-            this.expressionEvaluator = expressionEvaluator;
-        }
-
-
         public virtual MemberInfo GetPropertyOrField(Type type, string propertyOrFieldName)
         {
             var propertyInfo = type.GetProperty(propertyOrFieldName);
@@ -64,16 +56,6 @@ namespace Atis.SqlExpressionEngine.Services
             return type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
         }
 
-        public virtual object Evaluate(Expression expression)
-        {
-            return this.expressionEvaluator.Evaluate(expression);
-        }
-
-        public virtual bool CanEvaluate(Expression expression)
-        {
-            return this.expressionEvaluator.CanEvaluate(expression);
-        }
-
         public virtual Type GetPropertyOrFieldType(MemberInfo member)
         {
             return ((member as PropertyInfo)?.PropertyType
@@ -109,11 +91,6 @@ namespace Atis.SqlExpressionEngine.Services
                        .Append(type) // also check the type itself
                        .Any(x => x.IsGenericType &&
                                  x.GetGenericTypeDefinition() == typeof(IEnumerable<>));
-        }
-
-        public virtual bool IsVariable(MemberExpression node)
-        {
-            return this.CanEvaluate(node);
         }
 
         /// <summary>

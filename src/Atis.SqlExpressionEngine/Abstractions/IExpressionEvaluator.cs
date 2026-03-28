@@ -29,5 +29,6 @@ namespace Atis.SqlExpressionEngine.Abstractions
         /// </returns>
         object Evaluate(Expression expression);
         bool CanEvaluate(Expression expression);
+        bool IsVariable(Expression expression);
     }
 }

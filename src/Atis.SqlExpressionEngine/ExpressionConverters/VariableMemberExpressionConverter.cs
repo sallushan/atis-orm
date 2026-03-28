@@ -13,6 +13,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     public class VariableMemberExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MemberExpression>
     {
         private readonly IReflectionService reflectionService;
+        private readonly IExpressionEvaluator expressionEvaluator;
 
         /// <summary>
         ///     <para>
@@ -23,6 +24,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         public VariableMemberExpressionConverterFactory(IConversionContext context) : base(context)
         {
             this.reflectionService = context.GetExtensionRequired<IReflectionService>();
+            this.expressionEvaluator = context.GetExtensionRequired<IExpressionEvaluator>();
         }
 
         /// <inheritdoc />
@@ -46,7 +48,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <returns><c>true</c> if the specified member expression is a variable member expression; otherwise, <c>false</c>.</returns>
         protected virtual bool IsVariableMemberExpression(MemberExpression memberExpression)
         {
-            return this.reflectionService.IsVariable(memberExpression);
+            return this.expressionEvaluator.IsVariable(memberExpression);
         }
     }
 
@@ -99,7 +101,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <returns>Value from the specified member expression.</returns>
         protected virtual object GetVariableValue(MemberExpression memberExpression)
         {
-            return this.ReflectionService.Evaluate(memberExpression);
+            return this.ExpressionEvaluator.Evaluate(memberExpression);
         }
 
         /// <inheritdoc />

@@ -118,7 +118,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         public void ToList_test()
         {
             var expressionEvaluator = new ExpressionEvaluator();
-            var reflectionService = new OrmReflectionService(expressionEvaluator);
+            var reflectionService = new OrmReflectionService();
             var dbCommunication = new SqlDbCommunication($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
@@ -132,7 +132,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger };
             var conversionContext = new ConversionContext(contextExtensions);
             var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
-            var preprocessor = GetPreprocessorProvider(reflectionService, model);
+            var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, model);
             var linqToSqlConverter = new LinqToSqlConverter(reflectionService, expressionConverterProvider, new SqlExpressionPostprocessorProvider(postprocessors: []));
             var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
             var dbParameterFactory = new SqlDbParameterFactory();
@@ -154,7 +154,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         public async Task ToListAsync_test()
         {
             var expressionEvaluator = new ExpressionEvaluator();
-            var reflectionService = new OrmReflectionService(expressionEvaluator);
+            var reflectionService = new OrmReflectionService();
             var dbCommunication = new SqlDbCommunication($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
@@ -168,7 +168,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger };
             var conversionContext = new ConversionContext(contextExtensions);
             var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
-            var preprocessor = GetPreprocessorProvider(reflectionService, model);
+            var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, model);
             var linqToSqlConverter = new LinqToSqlConverter(reflectionService, expressionConverterProvider, new SqlExpressionPostprocessorProvider(postprocessors: []));
             var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
             var dbParameterFactory = new SqlDbParameterFactory();
@@ -185,7 +185,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             }
         }
 
-        private IExpressionPreprocessorProvider GetPreprocessorProvider(IReflectionService reflectionService, IModel model/*, IQueryProvider queryProvider*/)
+        private IExpressionPreprocessorProvider GetPreprocessorProvider(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, IModel model/*, IQueryProvider queryProvider*/)
         {
             //var stringLengthReplacementVisitor = new StringLengthReplacementVisitor();
             //expression = stringLengthReplacementVisitor.Visit(expression);
@@ -197,10 +197,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
             //var childJoinReplacementPreprocessor = new ChildJoinReplacementPreprocessor(reflectionService);
             var calculatedPropertyReplacementPreprocessor = new CalculatedPropertyPreprocessor(reflectionService);
-            var specificationPreprocessor = new SpecificationCallRewriterPreprocessor(reflectionService);
+            var specificationPreprocessor = new SpecificationCallRewriterPreprocessor(reflectionService, expressionEvaluator);
             var convertPreprocessor = new ConvertExpressionReplacementPreprocessor();
             var allToAnyRewriterPreprocessor = new AllToAnyRewriterPreprocessor();
-            var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(reflectionService);
+            var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(expressionEvaluator);
             //var nonPrimitivePropertyReplacementPreprocessor = new NonPrimitiveCalculatedPropertyPreprocessor(reflectionService);
             //var concreteParameterPreprocessor = new ConcreteParameterReplacementPreprocessor(new QueryPartsIdentifier(), reflectionService);
             var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);

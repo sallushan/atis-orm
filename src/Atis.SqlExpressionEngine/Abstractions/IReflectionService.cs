@@ -72,20 +72,6 @@ namespace Atis.SqlExpressionEngine.Abstractions
 
         /// <summary>
         ///     <para>
-        ///         Evaluates the specified expression.
-        ///     </para>
-        /// </summary>
-        /// <param name="expression">The expression to evaluate.</param>
-        /// <returns>The result of the evaluation.</returns>
-        /// <remarks>
-        ///     <para>
-        ///         Caution: this method might execute the expression and can have security implications.
-        ///     </para>
-        /// </remarks>
-        object Evaluate(Expression expression);
-
-        /// <summary>
-        ///     <para>
         ///         Determines whether the specified type is a primitive type.
         ///     </para>
         /// </summary>
@@ -102,12 +88,10 @@ namespace Atis.SqlExpressionEngine.Abstractions
         /// <returns>True if the type is an enumerable type; otherwise, false.</returns>
         bool IsEnumerableType(Type type);
 
-        bool CanEvaluate(Expression expression);
-
-        bool IsVariable(MemberExpression expression);
-
         bool IsEnumerable(object value);
+
         bool IsGroupingType(Type type);
+
         object CreateGenericInstance(Type type, Type[] genericTypeArguments, string executionContextSqlString, DbParameter[] dbParameters, DbConnection connectionInfo, bool shouldDisposeConnection, Func<IDataReader, object> elementFactory, DbTransaction transaction);
     }
 }

@@ -92,10 +92,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         protected SqlExpression? ConvertExpressionToSqlExpression(Expression queryExpression, out Expression updatedQueryExpression)
         {
-            var model = new Model(new ReflectionService(new ExpressionEvaluator()));
+            var model = new Model(new ReflectionService());
             updatedQueryExpression = PreprocessExpression(queryExpression, model);
             var sqlDataTypeFactory = new SqlDataTypeFactory();
-            var reflectionService = new ReflectionService(new ExpressionEvaluator());
+            var reflectionService = new ReflectionService();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
             var sqlFactory = new SqlExpressionFactory();
             var logger = new Logger();
@@ -114,7 +114,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             //var stringLengthReplacementVisitor = new StringLengthReplacementVisitor();
             //expression = stringLengthReplacementVisitor.Visit(expression);
             //var queryProvider = new QueryProvider();
-            var reflectionService = new ReflectionService(new ExpressionEvaluator());
+            var expressionEvaluator = new ExpressionEvaluator();
+            var reflectionService = new ReflectionService();
             //var navigateToManyPreprocessor = new NavigateToManyPreprocessor(/*queryProvider,*/ reflectionService);
             var navigateToManyPreprocessor = new NavigateToManyPreprocessor(model);
             //var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService/*, queryProvider*/);
@@ -122,10 +123,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
             //var childJoinReplacementPreprocessor = new ChildJoinReplacementPreprocessor(reflectionService);
             var calculatedPropertyReplacementPreprocessor = new CalculatedPropertyPreprocessor(reflectionService);
-            var specificationPreprocessor = new SpecificationCallRewriterPreprocessor(reflectionService);
+            var specificationPreprocessor = new SpecificationCallRewriterPreprocessor(reflectionService, expressionEvaluator);
             var convertPreprocessor = new ConvertExpressionReplacementPreprocessor();
             var allToAnyRewriterPreprocessor = new AllToAnyRewriterPreprocessor();
-            var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(reflectionService);
+            var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(expressionEvaluator);
             //var nonPrimitivePropertyReplacementPreprocessor = new NonPrimitiveCalculatedPropertyPreprocessor(reflectionService);
             //var concreteParameterPreprocessor = new ConcreteParameterReplacementPreprocessor(new QueryPartsIdentifier(), reflectionService);
             var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);

@@ -20,11 +20,11 @@ namespace Atis.SqlExpressionEngine.Preprocessors
     /// </summary>
     public class InValuesExpressionReplacementPreprocessor : ExpressionVisitor, IExpressionPreprocessor
     {
-        private readonly IReflectionService reflectionService;
+        private readonly IExpressionEvaluator expressionEvaluator;
 
-        public InValuesExpressionReplacementPreprocessor(IReflectionService reflectionService)
+        public InValuesExpressionReplacementPreprocessor(IExpressionEvaluator expressionEvaluator)
         {
-            this.reflectionService = reflectionService;
+            this.expressionEvaluator = expressionEvaluator;
         }
 
         /// <inheritdoc />
@@ -84,7 +84,7 @@ namespace Atis.SqlExpressionEngine.Preprocessors
 
         protected virtual bool CanEvaluate(Expression arrayExpr)
         {
-            return this.reflectionService.CanEvaluate(arrayExpr);
+            return this.expressionEvaluator.CanEvaluate(arrayExpr);
         }
 
         private static bool TryExtractEqualityTarget(Expression body, ParameterExpression param, out Expression target)

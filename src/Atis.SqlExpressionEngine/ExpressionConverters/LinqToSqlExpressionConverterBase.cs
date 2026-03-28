@@ -37,6 +37,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             this.Context = context;
             this.SqlFactory = this.Context.GetExtensionRequired<ISqlExpressionFactory>();
             this.ReflectionService = this.Context.GetExtensionRequired<IReflectionService>();
+            this.ExpressionEvaluator = this.Context.GetExtensionRequired<IExpressionEvaluator>();
             this.parameterMapper = this.Context.GetExtensionRequired<ILambdaParameterToDataSourceMapper>();
             this.logger = this.Context.GetExtension<ILogger>();
         }
@@ -59,6 +60,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// </summary>
         public ISqlExpressionFactory SqlFactory { get; }
         public IReflectionService ReflectionService { get; }
+        public IExpressionEvaluator ExpressionEvaluator { get; }
         protected HashSet<ParameterExpression> MappedParameters { get; } = new HashSet<ParameterExpression>();
 
         /// <summary>

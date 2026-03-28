@@ -20,14 +20,16 @@ namespace Atis.SqlExpressionEngine.Preprocessors
     public partial class SpecificationCallRewriterPreprocessor : ExpressionVisitor, IExpressionPreprocessor
     {
         private readonly IReflectionService reflectionService;
+        private readonly IExpressionEvaluator expressionEvaluator;
 
         /// <summary>
         ///     Initializes a new instance of the <see cref="SpecificationCallRewriterPreprocessor"/> class.
         /// </summary>
         /// <param name="reflectionService">The reflection service used for accessing type and member information.</param>
-        public SpecificationCallRewriterPreprocessor(IReflectionService reflectionService)
+        public SpecificationCallRewriterPreprocessor(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator)
         {
             this.reflectionService = reflectionService;
+            this.expressionEvaluator = expressionEvaluator;
         }
 
         /// <inheritdoc />
@@ -94,7 +96,7 @@ namespace Atis.SqlExpressionEngine.Preprocessors
                             {
                                 // we'll compile the expression mentioned in the constructor argument and assume that it was a constant value
                                 // and pass it as value in below Activator.CreateInstance call
-                                ctorArg = this.reflectionService.Evaluate(newSpecificationExpr.Arguments[i]);
+                                ctorArg = this.expressionEvaluator.Evaluate(newSpecificationExpr.Arguments[i]);
                             }
                             catch (Exception ex)
                             {
@@ -117,7 +119,7 @@ namespace Atis.SqlExpressionEngine.Preprocessors
                 {
                     try
                     {
-                        specification = this.reflectionService.Evaluate(methodCallExpr.Object);
+                        specification = this.expressionEvaluator.Evaluate(methodCallExpr.Object);
                     }
                     catch (Exception ex)
                     {

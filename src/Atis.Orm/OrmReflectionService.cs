@@ -9,9 +9,6 @@ namespace Atis.Orm
 {
     public class OrmReflectionService : ReflectionService, IOrmReflectionService
     {
-        public OrmReflectionService(IExpressionEvaluator expressionEvaluator)
-        : base(expressionEvaluator) { }
-
         public bool IsAsyncEnumerableType(Type type)
         {
             if (type == typeof(string)) return false;

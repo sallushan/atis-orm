@@ -18,10 +18,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 Expression.Constant("Finance")
             );
 
-            var reflectionService = new ReflectionService(new ExpressionEvaluator()); // Or get via DI/test setup
+            var expressionEvaluator = new ExpressionEvaluator(); // Or get via DI/test setup
 
             // Act
-            bool result = reflectionService.CanEvaluate(expr);
+            bool result = expressionEvaluator.CanEvaluate(expr);
 
             // Assert
             Assert.IsTrue(result, "Inline array should be evaluatable.");
@@ -86,7 +86,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         private static Services.Model GetModelService()
         {
-            return new Atis.SqlExpressionEngine.UnitTest.Services.Model(new ReflectionService(new ExpressionEvaluator()));
+            return new Atis.SqlExpressionEngine.UnitTest.Services.Model(new ReflectionService());
         }
 
         [TestMethod]

@@ -70,5 +70,10 @@ namespace Atis.SqlExpressionEngine.Services
                     throw new NotSupportedException($"Unsupported expression type: {expression.GetType()}");
             }
         }
+
+        public bool IsVariable(Expression expression)
+        {
+            return this.CanEvaluate(expression);
+        }
     }
 }
