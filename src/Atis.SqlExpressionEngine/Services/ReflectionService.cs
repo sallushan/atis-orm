@@ -140,11 +140,6 @@ namespace Atis.SqlExpressionEngine.Services
             return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IGrouping<,>);
         }
 
-        public bool IsPrimitive(Type resultType)
-        {
-            throw new NotImplementedException();
-        }
-
         public object CreateGenericInstance(Type type, Type[] genericTypeArguments, string executionContextSqlString, DbParameter[] dbParameters, DbConnection connectionInfo, bool shouldDisposeConnection, Func<IDataReader, object> elementFactory, DbTransaction transaction)
         {
             throw new NotImplementedException();
