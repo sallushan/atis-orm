@@ -99,8 +99,8 @@ namespace Atis.SqlExpressionEngine.Abstractions
         ///     </para>
         /// </summary>
         /// <param name="type">The type to check.</param>
-        /// <returns>True if the type is a queryable type; otherwise, false.</returns>
-        bool IsQueryableType(Type type);
+        /// <returns>True if the type is an enumerable type; otherwise, false.</returns>
+        bool IsEnumerableType(Type type);
 
         bool CanEvaluate(Expression expression);
 

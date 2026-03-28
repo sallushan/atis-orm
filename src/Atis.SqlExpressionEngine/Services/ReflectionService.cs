@@ -100,7 +100,7 @@ namespace Atis.SqlExpressionEngine.Services
                    || type == typeof(TimeSpan); // INTERVAL, TIME (some DBs)
         }
 
-        public virtual bool IsQueryableType(Type type)
+        public virtual bool IsEnumerableType(Type type)
         {
             if (type == typeof(string))
                 return false;

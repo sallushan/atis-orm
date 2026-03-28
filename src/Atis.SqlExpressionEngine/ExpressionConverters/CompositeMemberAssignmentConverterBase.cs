@@ -34,7 +34,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 var sqlExpression = sqlExpressions[i];
                 var expressionType = this.GetExpressionType(i);
 
-                if (this.ReflectionService.IsQueryableType(expressionType))
+                if (this.ReflectionService.IsEnumerableType(expressionType))
                 {
                     if (sqlExpression is SqlDerivedTableExpression derivedTableExpression)
                         sqlExpression = new SqlQueryableExpression(derivedTableExpression);

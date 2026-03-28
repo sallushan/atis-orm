@@ -38,7 +38,7 @@ namespace Atis.Orm
 
         public T Execute<T>(string query, IEnumerable<DbParameter> dbParameters, Func<IDataReader, object> elementFactory)
         {
-            if (!this.reflectionService.IsQueryableType(typeof(T)))
+            if (!this.reflectionService.IsEnumerableType(typeof(T)))
                 return this.ExecuteEnumerable<T>(query, dbParameters, elementFactory).FirstOrDefault();
 
             var elementType = this.reflectionService.GetElementType(typeof(T));

@@ -217,7 +217,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
             {
                 parentModelType = parentModelType.GetGenericArguments()[0];
             }
-            else if (this.reflectionService.IsQueryableType(parentModelType))
+            else if (this.reflectionService.IsEnumerableType(parentModelType))
             {
                 // since we are using this method for both ToChildren and ToParent, therefore, the
                 // navigation property can be defined as Func<T> or IQueryable<T>
