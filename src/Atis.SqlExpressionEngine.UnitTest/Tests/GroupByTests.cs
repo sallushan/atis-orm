@@ -503,15 +503,15 @@ select	a_1.CountryID as CountryId, ConcatAggregate(a_1.StudentType) as StudentTy
             string expectedResult = @"
 select a_3.Id as Id, a_3.Age as Age, a_3.FirstName as FirstName, a_3.LastName as LastName, a_3.MiddleInitial as MiddleInitial
 	from (
-			select a_1.FirstName as Col1
+			select a_1.FRST_NM as Col1
 			from Person as a_1
-			group by a_1.FirstName
+			group by a_1.FRST_NM
 		) as a_2
 			outer apply (
-				select top (1) a_4.Id as Id, a_4.Age as Age, a_4.FirstName as FirstName, a_4.LastName as LastName, a_4.MiddleInitial as MiddleInitial
+				select top (1) a_4.ID as Id, a_4.AGE as Age, a_4.FRST_NM as FirstName, a_4.LAST_NM as LastName, a_4.MID_INIT as MiddleInitial
 				from Person as a_4
-				where (a_2.Col1 = a_4.FirstName)
-				order by a_4.FirstName asc, a_4.LastName asc
+				where (a_2.Col1 = a_4.FRST_NM)
+				order by a_4.FRST_NM asc, a_4.LAST_NM asc
 			) as a_3
 ";
             Test("Queryable Selecting Grouped Row Test", q.Expression, expectedResult);
@@ -536,7 +536,7 @@ select top (1) a_4.FirstName as FirstName, a_4.FullName as FullName
 	from (
 			select a_2.FirstName as Col1
 			from (
-					select a_1.FirstName as FirstName, ((((a_1.FirstName + ' ') + a_1.MiddleInitial) + ' ') + a_1.LastName) as FullName
+					select a_1.FRST_NM as FirstName, ((((a_1.FRST_NM + ' ') + a_1.MID_INIT) + ' ') + a_1.LAST_NM) as FullName
 					from Person as a_1
 				) as a_2
 			group by a_2.FirstName
@@ -544,7 +544,7 @@ select top (1) a_4.FirstName as FirstName, a_4.FullName as FullName
 			outer apply (
 				select top (1) a_5.FirstName as FirstName, a_5.FullName as FullName
 				from (
-						select a_1.FirstName as FirstName, ((((a_1.FirstName + ' ') + a_1.MiddleInitial) + ' ') + a_1.LastName) as FullName
+						select a_1.FRST_NM as FirstName, ((((a_1.FRST_NM + ' ') + a_1.MID_INIT) + ' ') + a_1.LAST_NM) as FullName
 						from Person as a_1
 					) as a_5
 				where (a_3.Col1 = a_5.FirstName)
@@ -569,17 +569,17 @@ select (
 			from (
 					select a_3.FirstName as FirstName, a_3.Id as Id
 					from (
-							select a_1.LastName as LastName, a_1.FirstName as FirstName, a_1.Id as Id
+							select a_1.LAST_NM as LastName, a_1.FRST_NM as FirstName, a_1.ID as Id
 							from Person as a_1
-							where ((a_1.MiddleInitial = 'Q') and (a_1.Age = 20))
+							where ((a_1.MID_INIT = 'Q') and (a_1.AGE = 20))
 						) as a_3
 					where (a_2.LastName = a_3.LastName)
 				) as a_4
 		) as Col1
 	from (
-			select a_1.LastName as LastName, a_1.FirstName as FirstName, a_1.Id as Id
+			select a_1.LAST_NM as LastName, a_1.FRST_NM as FirstName, a_1.ID as Id
 			from Person as a_1
-			where ((a_1.MiddleInitial = 'Q') and (a_1.Age = 20))
+			where ((a_1.MID_INIT = 'Q') and (a_1.AGE = 20))
 		) as a_2
 	group by a_2.LastName
 	order by CharLength((
@@ -587,9 +587,9 @@ select (
 			from (
 					select a_3.FirstName as FirstName, a_3.Id as Id
 					from (
-							select a_1.LastName as LastName, a_1.FirstName as FirstName, a_1.Id as Id
+							select a_1.LAST_NM as LastName, a_1.FRST_NM as FirstName, a_1.ID as Id
 							from Person as a_1
-							where ((a_1.MiddleInitial = 'Q') and (a_1.Age = 20))
+							where ((a_1.MID_INIT = 'Q') and (a_1.AGE = 20))
 						) as a_3
 					where (a_2.LastName = a_3.LastName)
 				) as a_4
@@ -640,12 +640,12 @@ select a_2.Style as Key, (
                     .OrderBy(e => e);
             string expectedResult = @"
 select (
-			select top (1) a_2.LastName as Col1
+			select top (1) a_2.LAST_NM as Col1
 			from Person as a_2
-			where (a_1.FirstName = a_2.FirstName)
+			where (a_1.FRST_NM = a_2.FRST_NM)
 		) as Col1
 	from Person as a_1
-	group by a_1.FirstName
+	group by a_1.FRST_NM
 	order by Col1 asc
 ";
             Test("Queryable Selecting Grouped Row Test-4", q.Expression, expectedResult);
@@ -662,14 +662,14 @@ select (
                         .OrderBy(e => e);
             string expectedResult = @"
 select (
-			select top (1) a_2.MiddleInitial as Col1
+			select top (1) a_2.MID_INIT as Col1
 			from Person as a_2
-			where (a_2.Age = 20)
-				 and (a_1.Id = a_2.Id)
+			where (a_2.AGE = 20)
+				 and (a_1.ID = a_2.ID)
 		) as Col1
 	from Person as a_1
-	where (a_1.Age = 20)
-	group by a_1.Id
+	where (a_1.AGE = 20)
+	group by a_1.ID
 	order by Col1 asc
 ";
             Test("Queryable Selecting Grouped Row Test-5", q.Expression, expectedResult);
@@ -699,12 +699,12 @@ select (
                                 Min = g.Min(p3 => p3.NavFeet().Size),
                             });
             string expectedResult = @"
-select Person_3.LastName as LastName, NavFeet_2.Size as Size, Min(NavFeet_2.Size) as Min
+select Person_3.LAST_NM as LastName, NavFeet_2.Size as Size, Min(NavFeet_2.Size) as Min
 	from Person as a_1
-			left join Feet as NavFeet_2 on (a_1.Id = NavFeet_2.PersonId)
-			left join Person as Person_3 on (Person_3.Id = NavFeet_2.Id)
-	where (((NavFeet_2.Size = 11) and (a_1.MiddleInitial is not null)) and (NavFeet_2.Id <> 1))
-	group by NavFeet_2.Size, Person_3.LastName
+			left join Feet as NavFeet_2 on (a_1.ID = NavFeet_2.PersonId)
+			left join Person as Person_3 on (Person_3.ID = NavFeet_2.Id)
+	where (((NavFeet_2.Size = 11) and (a_1.MID_INIT is not null)) and (NavFeet_2.Id <> 1))
+	group by NavFeet_2.Size, Person_3.LAST_NM
 ";
             Test("Queryable Selecting Grouped Row Test-6", q.Expression, expectedResult);
         }
@@ -753,7 +753,7 @@ select a_2.Id as Id, a_3.Age as Age, a_3.Style as Style, Queryable: {
 				from (
 						select a_5.Id as Id, a_5.Age as Age, a_5.Style as Style, a_5.PersonId as PersonId
 						from (
-								select a_1.Id as Id, a_1.Age as Age, a_1.FirstName as FirstName, a_1.LastName as LastName, a_1.MiddleInitial as MiddleInitial
+								select a_1.ID as Id, a_1.AGE as Age, a_1.FRST_NM as FirstName, a_1.LAST_NM as LastName, a_1.MID_INIT as MiddleInitial
 								from Person as a_1
 							) as a_4
 								inner join Shoes as a_5 on (a_4.Age = a_5.Age)
@@ -762,7 +762,7 @@ select a_2.Id as Id, a_3.Age as Age, a_3.Style as Style, Queryable: {
 			)
 		} as Values
 	from (
-			select a_1.Id as Id, a_1.Age as Age, a_1.FirstName as FirstName, a_1.LastName as LastName, a_1.MiddleInitial as MiddleInitial
+			select a_1.ID as Id, a_1.AGE as Age, a_1.FRST_NM as FirstName, a_1.LAST_NM as LastName, a_1.MID_INIT as MiddleInitial
 			from Person as a_1
 		) as a_2
 			inner join Shoes as a_3 on (a_2.Age = a_3.Age)

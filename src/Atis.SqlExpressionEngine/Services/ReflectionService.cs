@@ -7,6 +7,8 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using System.Data.Common;
+using System.Data;
 
 namespace Atis.SqlExpressionEngine.Services
 {
@@ -42,8 +44,10 @@ namespace Atis.SqlExpressionEngine.Services
         }
 
 
-        public virtual Type GetEntityTypeFromQueryableType(Type queryableType)
+        public virtual Type GetElementType(Type queryableType)
         {
+            if (queryableType.IsGenericType && queryableType.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                return queryableType.GetGenericArguments()[0];
             return queryableType.GetInterfaces()
                                 .Where(t => t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IEnumerable<>))
                                 .Select(t => t.GetGenericArguments()[0])
@@ -175,6 +179,21 @@ namespace Atis.SqlExpressionEngine.Services
                     methodCallExpression.Method.DeclaringType == typeof(Queryable))
                     &&
                     aggregateMethodNames.Contains(methodCallExpression.Method.Name);
+        }
+
+        public bool IsQueryableAsyncType(Type type)
+        {
+            throw new NotImplementedException();
+        }
+
+        public bool IsPrimitive(Type resultType)
+        {
+            throw new NotImplementedException();
+        }
+
+        public object CreateGenericInstance(Type type, Type[] genericTypeArguments, string executionContextSqlString, DbParameter[] dbParameters, DbConnection connectionInfo, bool shouldDisposeConnection, Func<IDataReader, object> elementFactory, DbTransaction transaction)
+        {
+            throw new NotImplementedException();
         }
     }
 }

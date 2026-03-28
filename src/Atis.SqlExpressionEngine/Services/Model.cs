@@ -3,6 +3,7 @@ using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 
@@ -21,7 +22,7 @@ namespace Atis.SqlExpressionEngine.Services
     ///         Similarly, it assumes that the table name is the same as the type name.
     ///     </para>
     /// </remarks>
-    public class Model : IModel
+    public abstract class Model : IModel
     {
         /// <inheritdoc />
         public virtual IReadOnlyList<MemberInfo> GetPrimaryKeys(Type type)
@@ -46,5 +47,7 @@ namespace Atis.SqlExpressionEngine.Services
         {
             return new SqlTable(type.Name);
         }
+
+        public abstract bool TryGetNavigation(MemberExpression memberExpression, out NavigationInfo navigation);
     }
 }

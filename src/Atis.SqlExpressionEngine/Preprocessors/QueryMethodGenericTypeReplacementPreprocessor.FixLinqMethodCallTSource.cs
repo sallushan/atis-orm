@@ -100,7 +100,7 @@ namespace Atis.SqlExpressionEngine.Preprocessors
 
             private Type GetEnumerableType(Type queryableType)
             {
-                return this.reflectionService.GetEntityTypeFromQueryableType(queryableType);
+                return this.reflectionService.GetElementType(queryableType);
             }
 
             private class TypeReplacer : ExpressionVisitor

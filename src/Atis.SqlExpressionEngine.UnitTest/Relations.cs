@@ -1,4 +1,6 @@
-﻿using Atis.SqlExpressionEngine.UnitTest.Metadata;
+﻿using Atis.Expressions;
+using Atis.SqlExpressionEngine.ExpressionExtensions;
+using Atis.SqlExpressionEngine.UnitTest.Metadata;
 using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.UnitTest
@@ -51,7 +53,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
     {
         // JoinExpression null will make it outer apply
         public override Expression<Func<ItemExtension, ItemPart, bool>>? JoinExpression => null;
-        public override Expression<Func<ItemExtension, IQueryable<ItemPart>>>? FromParentToChild(IQueryProvider queryProvider)
+        public override Expression<Func<ItemExtension, IQueryable<ItemPart>>>? FromParentToChild()
         {
             return parent => parent.NavParts.Take(1);
         }
@@ -99,17 +101,44 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public override Expression<Func<ItemInventoryTransaction, ItemInventoryTransactionSummary, bool>> JoinExpression
             => (iit, its) => iit.RowId == its.TransactionRowId;
 
-        public override Expression<Func<ItemInventoryTransaction, IQueryable<ItemInventoryTransactionSummary>>>? FromParentToChild(IQueryProvider queryProvider)
+        public override Expression<Func<ItemInventoryTransaction, IQueryable<ItemInventoryTransactionSummary>>>? FromParentToChild()
         {
-            var q = new Queryable<ItemInventoryTransactionDetail>(queryProvider);
-            return parent => q.GroupBy(x => x.TransactionRowId)
-                                       .Select(x => new ItemInventoryTransactionSummary
-                                       {
-                                           TransactionRowId = x.Key,
-                                           TotalCapturedQty = x.Sum(y => y.CapturedQty),
-                                           TotalQtyGained = x.Sum(y => y.CalcQtyGained),
-                                           TotalQtyLost = x.Sum(y => y.CalcQtyLost),
-                                       });
+            //var q = new Atis.Orm.OrmQueryable<ItemInventoryTransactionDetail>(queryProvider);
+            //return parent => q.GroupBy(x => x.TransactionRowId)
+            //                           .Select(x => new ItemInventoryTransactionSummary
+            //                           {
+            //                               TransactionRowId = x.Key,
+            //                               TotalCapturedQty = x.Sum(y => y.CapturedQty),
+            //                               TotalQtyGained = x.Sum(y => y.CalcQtyGained),
+            //                               TotalQtyLost = x.Sum(y => y.CalcQtyLost),
+            //                           });
+            var queryRoot = new QueryRootExpression(typeof(ItemInventoryTransactionDetail));
+            var summaryExpression = GetSummaryExpression();
+            var newExpression = ExpressionReplacementVisitor.Replace(summaryExpression.Parameters[0], queryRoot, summaryExpression.Body);
+            var parent = Expression.Parameter(typeof(ItemInventoryTransaction), "parent");
+            Expression<Func<ItemInventoryTransaction, IQueryable<ItemInventoryTransactionSummary>>> lambda =
+                Expression.Lambda<Func<ItemInventoryTransaction, IQueryable<ItemInventoryTransactionSummary>>>(
+                    newExpression, parent);
+            return lambda;
+        }
+
+        private static LambdaExpression __summaryExpression;
+        private static LambdaExpression GetSummaryExpression()
+        {
+            if (__summaryExpression is null)
+            {
+                Expression<Func<IQueryable<ItemInventoryTransactionDetail>, IQueryable<ItemInventoryTransactionSummary>>> expr =
+                    source => source.GroupBy(x => x.TransactionRowId)
+                                           .Select(x => new ItemInventoryTransactionSummary
+                                           {
+                                               TransactionRowId = x.Key,
+                                               TotalCapturedQty = x.Sum(y => y.CapturedQty),
+                                               TotalQtyGained = x.Sum(y => y.CalcQtyGained),
+                                               TotalQtyLost = x.Sum(y => y.CalcQtyLost),
+                                           });
+                __summaryExpression = expr;
+            }
+            return __summaryExpression;
         }
     }
 
@@ -117,7 +146,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
     {
         // JoinExpression null will make it outer apply
         public override Expression<Func<Invoice, InvoiceDetail, bool>>? JoinExpression => null;
-        public override Expression<Func<Invoice, IQueryable<InvoiceDetail>>>? FromParentToChild(IQueryProvider queryProvider)
+        public override Expression<Func<Invoice, IQueryable<InvoiceDetail>>>? FromParentToChild()
         {
             return parent => parent.NavLines.Take(1);
         }
@@ -127,7 +156,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
     {
         // JoinExpression null will make it outer apply
         public override Expression<Func<Invoice, InvoiceDetail, bool>>? JoinExpression => null;
-        public override Expression<Func<Invoice, IQueryable<InvoiceDetail>>>? FromParentToChild(IQueryProvider queryProvider)
+        public override Expression<Func<Invoice, IQueryable<InvoiceDetail>>>? FromParentToChild()
         {
             return parent => parent.NavLines.Take(2);
         }
@@ -137,7 +166,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
     {
         public override Expression<Func<Employee, EmployeeWithTopManagerDto, bool>> JoinExpression
             => (e, e2) => e.EmployeeId == e2.TopManagerId;
-        public override Expression<Func<Employee, IQueryable<EmployeeWithTopManagerDto>>>? FromParentToChild(IQueryProvider queryProvider)
+        public override Expression<Func<Employee, IQueryable<EmployeeWithTopManagerDto>>>? FromParentToChild()
         {
             return parent => parent.NavSubOrdinates
                                     .RecursiveUnion(anchorSource => anchorSource.SelectMany(relationManager => relationManager.NavSubOrdinates))

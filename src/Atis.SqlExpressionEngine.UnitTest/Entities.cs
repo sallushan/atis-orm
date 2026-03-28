@@ -153,7 +153,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public string EmployeeId { get; set; }
         public string Degree { get; set; }
         public string University { get; set; }
-        [NavigationProperty(NavigationType.ToChildren, typeof(EmployeeDegreeWithMarksheetRelation))]
+        //[NavigationProperty(NavigationType.ToChildren, typeof(EmployeeDegreeWithMarksheetRelation))]
+        [NavigationLink(NavigationType.ToChildren, nameof(EmployeeDegree.RowId), nameof(Marksheet.EmployeeDegreeRowId))]
         public IQueryable<Marksheet> NavMarksheets { get; set; }
         [NavigationLink(NavigationType.ToParent, nameof(Employee.EmployeeId), nameof(EmployeeDegree.EmployeeId))]
         public Func<Employee> NavEmployee { get; set; }
@@ -383,7 +384,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public System.String FAXNUMBR { get; set; }
     }
 
-    public partial class PID_Master
+    public partial class MSTR_PID
     {
         public System.String PID { get; set; }
         public System.String FNAME { get; set; }
@@ -417,12 +418,20 @@ namespace Atis.SqlExpressionEngine.UnitTest
     }
 
 
+    [DbTable("Person", schema: "dbo")]
     public class Person
     {
+        [DbKey]
+        [DbIdentityColumn]
+        [DbColumn("ID")]
         public int Id { get; set; }
+        [DbColumn("AGE")]
         public int Age { get; set; }
+        [DbColumn("FRST_NM")]
         public string FirstName { get; set; }
+        [DbColumn("LAST_NM")]
         public string LastName { get; set; }
+        [DbColumn("MID_INIT")]
         public string MiddleInitial { get; set; }
         [NavigationLink(NavigationType.ToSingleChild, nameof(Id), nameof(Feet.PersonId))]
         public Func<Feet> NavFeet { get; set; }

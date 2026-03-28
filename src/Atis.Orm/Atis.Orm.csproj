@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>netstandard2.0</TargetFramework>
+		<Title>Atis ORM</Title>
+		<Version>1.0.0</Version>
+		<Authors>AT Integrated Systems</Authors>
+		<Company>AT Integrated Systems</Company>
+		<Product>Atis ORM</Product>
+		<Description>Extremely lightweight ORM which aims to allow developers to write most complex SQL Queries in LINQ.</Description>
+		<Copyright>Copyright (c) AT Integrated Systems</Copyright>
+		<PackageTags>Atis,ORM,Database</PackageTags>
+		<GenerateDocumentationFile>True</GenerateDocumentationFile>
+	</PropertyGroup>
+	<PropertyGroup>
+		<DebugType>portable</DebugType>
+		<!-- Ensures PDBs are generated -->
+		<IncludeSymbols>true</IncludeSymbols>
+		<IncludeSource>true</IncludeSource>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		<!-- Generates symbol packages in the .snupkg format -->
+	</PropertyGroup>
+	<ItemGroup>
+	  <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="9.0.5" />
+	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\Atis.SqlExpressionEngine\Atis.SqlExpressionEngine.csproj" />
+	</ItemGroup>
+
+</Project>

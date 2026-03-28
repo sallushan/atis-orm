@@ -8,6 +8,8 @@ using Atis.SqlExpressionEngine.UnitTest.Converters;
 //using Atis.SqlExpressionEngine.UnitTest.Converters;
 using Atis.SqlExpressionEngine.UnitTest.Preprocessors;
 using Atis.SqlExpressionEngine.UnitTest.Services;
+using System.Diagnostics;
+
 
 //using Atis.SqlExpressionEngine.UnitTest.Services;
 using System.Linq.Expressions;
@@ -24,6 +26,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     {
         protected readonly IQueryProvider queryProvider = new QueryProvider();
         protected readonly DataContext dataContext = new();
+        protected readonly Stopwatch stopwatch = new Stopwatch();
 
         #region base methods
         protected void Test(string testHeading, Expression queryExpression, string expectedResult)
@@ -87,9 +90,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         }
 
-        private SqlExpression? ConvertExpressionToSqlExpression(Expression queryExpression, out Expression updatedQueryExpression)
+        protected SqlExpression? ConvertExpressionToSqlExpression(Expression queryExpression, out Expression updatedQueryExpression)
         {
-            var model = new Model();
+            var model = new Model(new ReflectionService(new ExpressionEvaluator()));
             updatedQueryExpression = PreprocessExpression(queryExpression, model);
             var sqlDataTypeFactory = new SqlDataTypeFactory();
             var reflectionService = new ReflectionService(new ExpressionEvaluator());
@@ -110,10 +113,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         {
             //var stringLengthReplacementVisitor = new StringLengthReplacementVisitor();
             //expression = stringLengthReplacementVisitor.Visit(expression);
-            var queryProvider = new QueryProvider();
+            //var queryProvider = new QueryProvider();
             var reflectionService = new ReflectionService(new ExpressionEvaluator());
-            var navigateToManyPreprocessor = new NavigateToManyPreprocessor(queryProvider, reflectionService);
-            var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService, queryProvider);
+            //var navigateToManyPreprocessor = new NavigateToManyPreprocessor(/*queryProvider,*/ reflectionService);
+            var navigateToManyPreprocessor = new NavigateToManyPreprocessor(model);
+            //var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService/*, queryProvider*/);
+            var navigateToOnePreprocessor = new NavigateToOnePreprocessor(model);
             var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
             //var childJoinReplacementPreprocessor = new ChildJoinReplacementPreprocessor(reflectionService);
             var calculatedPropertyReplacementPreprocessor = new CalculatedPropertyPreprocessor(reflectionService);
