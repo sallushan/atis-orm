@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
@@ -144,6 +145,32 @@ namespace Atis.Orm
                 ?? throw new InvalidOperationException("The query provider does not support asynchronous operations.");
 
             return asyncQueryProvider.ExecuteAsync<Task<int>>(call, cancellationToken);
+        }
+
+        public static async Task<List<T>> ToListAsync<T>(
+            this IQueryable<T> query,
+            CancellationToken cancellationToken = default)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+
+            var asyncQueryProvider = query.Provider as IAsyncQueryProvider
+                ?? throw new InvalidOperationException("The query provider does not support asynchronous operations.");
+
+            var asyncEnumerable = asyncQueryProvider.ExecuteAsync<IAsyncEnumerable<T>>(query.Expression, cancellationToken);
+
+            var list = new List<T>();
+            var enumerator = asyncEnumerable.GetAsyncEnumerator(cancellationToken);
+            try
+            {
+                while (await enumerator.MoveNextAsync())
+                    list.Add(enumerator.Current);
+            }
+            finally
+            {
+                await enumerator.DisposeAsync();
+            }
+            return list;
         }
     }
 }

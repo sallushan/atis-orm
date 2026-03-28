@@ -140,11 +140,6 @@ namespace Atis.SqlExpressionEngine.Services
             return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IGrouping<,>);
         }
 
-        public bool IsQueryableAsyncType(Type type)
-        {
-            throw new NotImplementedException();
-        }
-
         public bool IsPrimitive(Type resultType)
         {
             throw new NotImplementedException();

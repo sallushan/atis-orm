@@ -27,10 +27,10 @@ namespace Atis.Orm
         private static readonly MethodInfo OpenExecuteInternalAsync = typeof(DatabaseAdapter)
             .GetMethod(nameof(ExecuteInternalAsync), BindingFlags.NonPublic | BindingFlags.Instance);
 
-        private readonly IReflectionService reflectionService;
+        private readonly IOrmReflectionService reflectionService;
         private readonly IDbCommunication dbCommunication;
 
-        public DatabaseAdapter(IReflectionService reflectionService, IDbCommunication db)
+        public DatabaseAdapter(IOrmReflectionService reflectionService, IDbCommunication db)
         {
             this.reflectionService = reflectionService ?? throw new ArgumentNullException(nameof(reflectionService));
             this.dbCommunication = db ?? throw new ArgumentNullException(nameof(db));
@@ -48,10 +48,10 @@ namespace Atis.Orm
 
         public TResult ExecuteAsync<TResult>(string query, IEnumerable<DbParameter> dbParameters, Func<IDataReader, object> elementFactory, CancellationToken cancellationToken = default)
         {
-            if (this.reflectionService.IsQueryableAsyncType(typeof(TResult)))
+            if (this.reflectionService.IsAsyncEnumerableType(typeof(TResult)))
             {
                 // Case 1: TResult is IAsyncEnumerable<X>
-                var elementType = this.reflectionService.GetElementType(typeof(TResult));
+                var elementType = this.reflectionService.GetAsyncElementType(typeof(TResult));
                 var method = OpenExecuteEnumerableAsync.MakeGenericMethod(elementType);
                 var result = method.Invoke(this, new object[] { query, dbParameters, elementFactory });
                 return (TResult)result;

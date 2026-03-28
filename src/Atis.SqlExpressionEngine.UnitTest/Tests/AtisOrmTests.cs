@@ -118,7 +118,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         public void ToList_test()
         {
             var expressionEvaluator = new ExpressionEvaluator();
-            var reflectionService = new ReflectionService(expressionEvaluator);
+            var reflectionService = new OrmReflectionService(expressionEvaluator);
             var dbCommunication = new SqlDbCommunication($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
@@ -143,6 +143,42 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
             var results = queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToList();
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{result.EmployeeId}: {result.FirstName}");
+            }
+        }
+
+
+        [TestMethod]
+        public async Task ToListAsync_test()
+        {
+            var expressionEvaluator = new ExpressionEvaluator();
+            var reflectionService = new OrmReflectionService(expressionEvaluator);
+            var dbCommunication = new SqlDbCommunication($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
+            var cacheKeyProvider = new ExpressionCacheKeyProvider();
+            var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
+            var preprocessingRequirementTester = new PreprocessingRequirementTester();
+            var sqlDataTypeFactory = new SqlDataTypeFactory();
+            var parameterMapper = new LambdaParameterToDataSourceMapper();
+            var sqlFactory = new SqlExpressionFactory();
+            var logger = new Services.Logger();
+            var model = new Services.Model(reflectionService);
+            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger };
+            var conversionContext = new ConversionContext(contextExtensions);
+            var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
+            var preprocessor = GetPreprocessorProvider(reflectionService, model);
+            var linqToSqlConverter = new LinqToSqlConverter(reflectionService, expressionConverterProvider, new SqlExpressionPostprocessorProvider(postprocessors: []));
+            var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
+            var dbParameterFactory = new SqlDbParameterFactory();
+            var elementFactoryBuilder = new ElementFactoryBuilder();
+            var queryCompiler = new QueryCompiler(preprocessor, preprocessingRequirementTester, linqToSqlConverter, sqlExpressionTranslator, dbParameterFactory, elementFactoryBuilder);
+            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
+            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
+            var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
+            var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
+            var results = await queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToListAsync();
             foreach (var result in results)
             {
                 Console.WriteLine($"{result.EmployeeId}: {result.FirstName}");

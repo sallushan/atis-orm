@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,7 +13,9 @@ namespace Atis.Orm
     public class DbAsyncEnumerator<T> : IAsyncEnumerator<T>
     {
         private DbDataReader dataReader;
-        private readonly DbCommand command;
+        private DbCommand command;
+        private readonly string sql;
+        private readonly IEnumerable<DbParameter> dbParameters;
         private readonly Func<IDataReader, object> elementFactory;
         private readonly CancellationToken cancellationToken;
         private bool disposed;
@@ -30,9 +33,10 @@ namespace Atis.Orm
                 throw new ArgumentNullException(nameof(elementFactory));
 
             this.db = db ?? throw new ArgumentNullException(nameof(db));
+            this.sql = sql;
+            this.dbParameters = dbParameters;
             this.elementFactory = elementFactory;
             this.cancellationToken = cancellationToken;
-            this.command = db.CreateCommand(sql, dbParameters, CommandType.Text);
         }
 
         public async ValueTask<bool> MoveNextAsync()
@@ -42,6 +46,7 @@ namespace Atis.Orm
             if (this.dataReader == null)
             {
                 await this.db.OpenConnectionAsync(this.cancellationToken);
+                this.command = db.CreateCommand(sql, dbParameters, CommandType.Text);
                 //this.dataReader = await this.db.ExecuteReaderAsync(this.command, CommandBehavior.SequentialAccess, this.cancellationToken);
                 this.dataReader = await this.command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, this.cancellationToken);
             }
@@ -83,7 +88,7 @@ namespace Atis.Orm
                     this.dataReader = null;
                 }
 
-                this.command.Dispose();
+                this.command?.Dispose();
 
                 this.db.CloseConnection();
             }
