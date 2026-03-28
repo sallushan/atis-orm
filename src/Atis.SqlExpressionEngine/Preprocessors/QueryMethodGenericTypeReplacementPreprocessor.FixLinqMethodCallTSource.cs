@@ -9,13 +9,28 @@ namespace Atis.SqlExpressionEngine.Preprocessors
 {
     public partial class QueryMethodGenericTypeReplacementPreprocessor
     {
+        protected virtual bool IsQueryMethod(MethodCallExpression node)
+        {
+            var dt = node.Method.DeclaringType;
+            return dt == typeof(Queryable)
+                || dt == typeof(Enumerable)
+                || (dt == typeof(QueryExtensions)
+                    && node.Method.Name != nameof(QueryExtensions.Schema)
+                    && node.Method.Name != nameof(QueryExtensions.UnionAll));
+        }
+
+        protected virtual Type GetEnumerableType(Type queryableType)
+        {
+            return this.reflectionService.GetElementType(queryableType);
+        }
+
         private class FixLinqMethodCallTSource
         {
-            private readonly IReflectionService reflectionService;
+            private readonly QueryMethodGenericTypeReplacementPreprocessor _owner;
 
-            public FixLinqMethodCallTSource(IReflectionService reflectionService)
+            public FixLinqMethodCallTSource(QueryMethodGenericTypeReplacementPreprocessor owner)
             {
-                this.reflectionService = reflectionService;
+                _owner = owner;
             }
 
             public MethodCallExpression Transform(MethodCallExpression node)
@@ -95,12 +110,12 @@ namespace Atis.SqlExpressionEngine.Preprocessors
 
             private bool IsQueryMethod(MethodCallExpression node)
             {
-                return this.reflectionService.IsQueryMethod(node);
+                return this._owner.IsQueryMethod(node);
             }
 
             private Type GetEnumerableType(Type queryableType)
             {
-                return this.reflectionService.GetElementType(queryableType);
+                return this._owner.GetEnumerableType(queryableType);
             }
 
             private class TypeReplacer : ExpressionVisitor

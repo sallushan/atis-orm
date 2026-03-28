@@ -40,9 +40,9 @@ namespace Atis.SqlExpressionEngine.Preprocessors
         {
             var updatedNode = base.VisitMethodCall(node);
             if (updatedNode is MethodCallExpression methodCallExpression &&
-                    this.reflectionService.IsQueryMethod(methodCallExpression))
+                    this.IsQueryMethod(methodCallExpression))
             {
-                var queryMethodReturnTypeReplacer = new FixLinqMethodCallTSource(this.reflectionService);
+                var queryMethodReturnTypeReplacer = new FixLinqMethodCallTSource(this);
                 var newMethodCall = queryMethodReturnTypeReplacer.Transform(methodCallExpression);
                 return newMethodCall;
             }

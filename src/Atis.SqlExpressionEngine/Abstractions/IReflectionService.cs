@@ -102,8 +102,6 @@ namespace Atis.SqlExpressionEngine.Abstractions
         /// <returns>True if the type is a queryable type; otherwise, false.</returns>
         bool IsQueryableType(Type type);
 
-        bool IsQueryMethod(Expression node);
-
         bool CanEvaluate(Expression expression);
 
         bool IsVariable(MemberExpression expression);

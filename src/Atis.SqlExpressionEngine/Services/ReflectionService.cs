@@ -111,36 +111,6 @@ namespace Atis.SqlExpressionEngine.Services
                                  x.GetGenericTypeDefinition() == typeof(IEnumerable<>));
         }
 
-        public virtual bool IsQueryMethod(Expression node)
-        {
-            return 
-                    (
-                        node is MethodCallExpression methodCallExpression &&
-                        (
-                            (
-                                (methodCallExpression.Method.DeclaringType == typeof(Queryable) ||
-                                methodCallExpression.Method.DeclaringType == typeof(Enumerable))
-                                &&
-                                // union is not a chain method it will close the query
-                                methodCallExpression.Method.Name != nameof(Queryable.Union)
-                            )
-                            ||
-                            this.IsQueryExtensionMethod(methodCallExpression)
-                        )
-                    )
-                    ||
-                    node is ChainedQueryExpression;
-        }
-
-        private bool IsQueryExtensionMethod(MethodCallExpression methodCallExpression)
-        {
-            return methodCallExpression.Method.DeclaringType == typeof(QueryExtensions)
-                    &&
-                    !(methodCallExpression.Method.Name == nameof(QueryExtensions.Schema) || 
-                        methodCallExpression.Method.Name == nameof(QueryExtensions.UnionAll))
-                    ;
-        }
-
         public virtual bool IsVariable(MemberExpression node)
         {
             return this.CanEvaluate(node);
