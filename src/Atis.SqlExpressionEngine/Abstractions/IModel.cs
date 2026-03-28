@@ -1,6 +1,7 @@
 ﻿using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Reflection;
 
 namespace Atis.SqlExpressionEngine.Abstractions
@@ -42,6 +43,8 @@ namespace Atis.SqlExpressionEngine.Abstractions
         /// </summary>
         /// <param name="type">The type of the model.</param>
         /// <returns>The name of the table.</returns>
-        SqlTable GetSqlTable(Type type);
+        SqlTable GetSqlTable(Type type); 
+
+        bool TryGetNavigation(MemberExpression memberExpression, out NavigationInfo navigation);
     }
 }
