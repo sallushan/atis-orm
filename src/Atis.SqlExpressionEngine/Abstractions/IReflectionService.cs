@@ -108,7 +108,6 @@ namespace Atis.SqlExpressionEngine.Abstractions
 
         bool IsEnumerable(object value);
         bool IsGroupingType(Type type);
-        bool IsAggregateMethod(MethodCallExpression methodCallExpression);
         bool IsQueryableAsyncType(Type type);
         bool IsPrimitive(Type resultType);
         object CreateGenericInstance(Type type, Type[] genericTypeArguments, string executionContextSqlString, DbParameter[] dbParameters, DbConnection connectionInfo, bool shouldDisposeConnection, Func<IDataReader, object> elementFactory, DbTransaction transaction);

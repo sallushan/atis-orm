@@ -140,17 +140,6 @@ namespace Atis.SqlExpressionEngine.Services
             return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IGrouping<,>);
         }
 
-        private readonly static string[] aggregateMethodNames = new[] { nameof(Queryable.Count), nameof(Queryable.Max), nameof(Queryable.Min), nameof(Queryable.Sum) };
-
-        public bool IsAggregateMethod(MethodCallExpression methodCallExpression)
-        {
-            return (methodCallExpression.Method.DeclaringType == typeof(Enumerable)
-                    ||
-                    methodCallExpression.Method.DeclaringType == typeof(Queryable))
-                    &&
-                    aggregateMethodNames.Contains(methodCallExpression.Method.Name);
-        }
-
         public bool IsQueryableAsyncType(Type type)
         {
             throw new NotImplementedException();
