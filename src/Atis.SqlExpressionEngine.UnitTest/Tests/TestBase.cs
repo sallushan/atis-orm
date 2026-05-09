@@ -44,6 +44,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 throw;
             }
 
+            //var toStringResult = ObjectGraphVisualizer.Dump(result);
+            //Console.WriteLine(toStringResult);
+
             string resultQuery = null;
             if (result != null)
             {
@@ -98,8 +101,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var reflectionService = new ReflectionService();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
             var sqlFactory = new SqlExpressionFactory();
+            var expressionEvaluator = new ExpressionEvaluator();
             var logger = new Logger();
-            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger };
+            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var conversionContext = new ConversionContext(contextExtensions);
             var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
             var postProcessorProvider = new SqlExpressionPostprocessorProvider(postprocessors: []);

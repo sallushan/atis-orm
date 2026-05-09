@@ -146,17 +146,6 @@ from Asset as a_1
 	where (a_1.SerialNumber = '123')
 ";
 
-
-            var employees = new Queryable<Employee>(this.queryProvider);
-
-            var q = employees
-                    .Select(x => new
-                    {
-                        C1 = x.EmployeeId,
-                        SubordinateCount = x.NavSubOrdinates.Count()
-                    });
-
-
             Test($"Delete Query Multiple Table Navigation Test", queryExpression, expectedResult);
         }
 

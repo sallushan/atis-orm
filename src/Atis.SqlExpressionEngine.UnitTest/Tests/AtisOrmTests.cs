@@ -165,7 +165,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var sqlFactory = new SqlExpressionFactory();
             var logger = new Services.Logger();
             var model = new Services.Model(reflectionService);
-            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger };
+            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var conversionContext = new ConversionContext(contextExtensions);
             var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
             var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, model);

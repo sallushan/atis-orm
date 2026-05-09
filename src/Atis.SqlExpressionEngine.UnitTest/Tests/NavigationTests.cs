@@ -400,5 +400,14 @@ select NavFirstLine_2.RowId as InvoiceFirstLineRowId
 ";
             Test("Navigation in Condition Check for Null Test", q.Expression, expectedResult);
         }
+
+        [TestMethod]
+        public void Navigation_selected_full_object_then_used_in_sub_query()
+        {
+            var invoices = new Queryable<Invoice>(this.queryProvider);
+            var q = invoices.Select(x => x).Select(x => new { x.NavCustomer().CustomerId });
+            string expectedResult = null;
+            Test("Navigation Selected Full Object Then Used In Sub Query Test", q.Expression, expectedResult);
+        }
     }
 }

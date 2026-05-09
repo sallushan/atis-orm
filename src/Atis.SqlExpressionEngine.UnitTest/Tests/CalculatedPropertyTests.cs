@@ -53,7 +53,24 @@ select	a_1.InvoiceId as InvoiceId, a_1.InvoiceDate as InvoiceDate
             Test("Calculated Property With Navigation Test", q.Expression, expectedResult);
         }
 
+        [TestMethod]
+        public void Calculated_property_on_sub_query_level_with_parent_full_select()
+        {
+            var employees = new Queryable<Employee>(new QueryProvider());
+            var q = employees.Select(x => x).Select(x => new { x.CalcFullName });
+            string expectedResult = null;
+            Test("Calculated property on sub query level with parent full select", q.Expression, expectedResult);
+        }
 
+
+        [TestMethod]
+        public void Calculated_property_on_sub_query_level_with_calc_sub_query_select()
+        {
+            var invoices = new Queryable<Invoice>(new QueryProvider());
+            var q = invoices.Select(x => x).Select(x => new { x.CalcInvoiceTotal });
+            string expectedResult = null;
+            Test("Calculated property on sub query level with calc sub query full select", q.Expression, expectedResult);
+        }
 
     }
 }
