@@ -1,10 +1,12 @@
-﻿using Atis.SqlExpressionEngine.SqlExpressions;
+﻿using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 
 namespace Atis.SqlExpressionEngine
@@ -185,6 +187,12 @@ namespace Atis.SqlExpressionEngine
             return sqlExpression as T
                 ??
                 throw new InvalidCastException($"Unable to cast SqlExpression '{sqlExpression.GetType().Name}' to '{typeof(T).Name}'.{exceptionMessage}");
+        }
+
+        public static EntityMetadata GetEntityRequired(this IModel model, Type entityType)
+        {
+            return model.GetEntity(entityType)
+                ?? throw new InvalidOperationException($"Entity metadata for type '{entityType.Name}' not found.");
         }
     }
 }

@@ -243,7 +243,15 @@ namespace Atis.SqlExpressionEngine.Preprocessors
         }
 
         protected virtual bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation)
-            => model.TryGetNavigation(navNode, out navigation);
+        {
+            var entity = this.model.GetEntity(navNode.Expression.Type);
+            if (entity != null)
+            {
+                return entity.Navigations.TryGetValue(navNode.Member.Name, out navigation);
+            }
+            navigation = null;
+            return false;
+        }
 
         protected virtual bool IsSupportedNavigationType(NavigationType navigationType)
             => navigationType == NavigationType.ToParent
@@ -344,15 +352,20 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             //  - x.NavProp
             //  - x.NavProp()  (when NavProp is Func<T>)
             var memberExpression = this.GetMemberExpression(node, stackArray);
-            if (memberExpression != null
-                && model.TryGetNavigation(memberExpression, out var nav)
-                && IsSupportedNavigationType(nav.NavigationType))
+            if (memberExpression != null && memberExpression.Expression != null)
             {
-                parentExpression = GetParentExpression(node, stackArray); // important
-                navigationInfo = nav;
-                return true;
+                var entity = this.model.GetEntity(memberExpression.Expression.Type);
+                if (entity != null)
+                {
+                    if (entity.Navigations.TryGetValue(memberExpression.Member.Name, out var nav)
+                        && IsSupportedNavigationType(nav.NavigationType))
+                    {
+                        parentExpression = GetParentExpression(node, stackArray); // important
+                        navigationInfo = nav;
+                        return true;
+                    }
+                }
             }
-
             parentExpression = null;
             navigationInfo = null;
             return false;

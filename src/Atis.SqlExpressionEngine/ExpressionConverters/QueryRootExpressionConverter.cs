@@ -58,16 +58,15 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         public QueryRootExpressionConverter(IConversionContext context, QueryRootExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
-            this.model = context.GetExtension<IModel>();
+            this.model = context.GetExtensionRequired<IModel>();
         }
 
         /// <inheritdoc />
         public override SqlExpression Convert(SqlExpression[] convertedChildren)
         {
             var sourceType = this.ReflectionService.GetElementType(this.Expression.Type);
-            var sqlTable = this.model.GetSqlTable(sourceType);
-            var tableColumns = this.model.GetTableColumns(sourceType);
-            var table = this.SqlFactory.CreateTable(sqlTable, tableColumns);
+            var entity = this.model.GetEntityRequired(sourceType);
+            var table = this.SqlFactory.CreateTable(entity.Table, entity.SqlColumns);
             var result = this.SqlFactory.CreateSelectQuery(table);
             return result;
         }

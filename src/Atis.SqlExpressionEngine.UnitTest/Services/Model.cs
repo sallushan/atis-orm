@@ -19,7 +19,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
             this.reflectionService = reflectionService;
         }
 
-        public override IReadOnlyList<MemberInfo> GetColumnMembers(Type type)
+        private IReadOnlyList<MemberInfo> GetColumnMembers(Type type)
         {
             return type.GetProperties()
                         .Where(x => x.GetCustomAttribute<NavigationPropertyAttribute>() == null &&
@@ -28,18 +28,64 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
                         .ToArray();
         }
 
-        public override IReadOnlyList<MemberInfo> GetPrimaryKeys(Type type)
+        //public override IReadOnlyList<MemberInfo> GetPrimaryKeys(Type type)
+        //{
+        //    return this.GetColumnMembers(type)
+        //                    .Where(x => x.GetCustomAttribute<PrimaryKeyAttribute>() != null)
+        //                    .ToArray();
+        //}
+
+        //public override IReadOnlyList<TableColumn> GetTableColumns(Type type)
+        //{
+        //    return this.GetColumnMembers(type)
+        //                    .Select(x => new TableColumn(x.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? x.Name, x.Name))
+        //                    .ToArray();
+        //}
+
+        private readonly Dictionary<Type, EntityMetadata> entityMetadataCache = new Dictionary<Type, EntityMetadata>();
+        private readonly Dictionary<EntityMetadata, IDictionary<string, MemberInfo>> entityPropertiesCache = new Dictionary<EntityMetadata, IDictionary<string, MemberInfo>>();
+
+        public override EntityMetadata GetEntity(Type type)
         {
-            return this.GetColumnMembers(type)
-                            .Where(x => x.GetCustomAttribute<PrimaryKeyAttribute>() != null)
+            if (this.entityMetadataCache.TryGetValue(type, out var entityMetadata))
+                return entityMetadata;
+            //return base.GetEntity(type);
+            var columnProperties = this.GetColumnMembers(type);
+            var columns = columnProperties
+                            .Select(x => new TableColumn(x.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? x.Name, x.Name, isPrimaryKey: x.GetCustomAttribute<PrimaryKeyAttribute>() != null))
                             .ToArray();
+            var navigationProperties = type.GetProperties()
+                                                .Select(x => new { Prop = x, NavigationType = this.GetNavigationPropertyType(type, x) })
+                                                .Where(x => x.NavigationType != NavigationPropertyType.None)
+                                                .ToArray();
+            Dictionary<string, NavigationInfo> navigations = new Dictionary<string, NavigationInfo>();
+            foreach (var navigationProperty in navigationProperties)
+            {
+                if (this.TryGetNavigationInternal(type, navigationProperty.Prop, navigationProperty.NavigationType, out var navigationInfo))
+                {
+                    navigations.Add(navigationProperty.Prop.Name, navigationInfo);
+                }
+            }
+            entityMetadata = new EntityMetadata(
+                clrType: type,
+                table: new SqlTable(type.Name),
+                sqlColumns: columns,
+                navigations: navigations
+            );
+            this.entityPropertiesCache.Add(entityMetadata, columnProperties.ToDictionary(x => x.Name, x => x));
+            this.entityMetadataCache.Add(type, entityMetadata);
+            return entityMetadata;
         }
 
-        public override IReadOnlyList<TableColumn> GetTableColumns(Type type)
+        public override MemberInfo GetMember(EntityMetadata entity, TableColumn column)
         {
-            return this.GetColumnMembers(type)
-                            .Select(x => new TableColumn(x.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? x.Name, x.Name))
-                            .ToArray();
+            if (entity is null)
+                throw new ArgumentNullException(nameof(entity));
+            if (column is null)
+                throw new ArgumentNullException(nameof(column));
+            if (this.entityPropertiesCache.TryGetValue(entity, out var columnProperties))
+                return columnProperties.TryGetValue(column.ModelPropertyName, out var member) ? member : null;
+            return null;
         }
 
         private enum NavigationPropertyType
@@ -49,12 +95,18 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
             RelationAttribute
         }
 
-        public override bool TryGetNavigation(MemberExpression memberExpression, out NavigationInfo navigationInfo)
-        {
-            var member = this.ResolveMember(memberExpression);
+        //public bool TryGetNavigation(MemberExpression memberExpression, out NavigationInfo navigationInfo)
+        //{
+        //    var member = this.ResolveMember(memberExpression);
 
-            var modelType = memberExpression.Expression?.Type;
-            var navigationPropertyType = this.GetNavigationPropertyType(memberExpression.Expression?.Type, memberExpression.Member);
+        //    var modelType = memberExpression.Expression?.Type;
+        //    var navigationPropertyType = this.GetNavigationPropertyType(memberExpression.Expression?.Type, memberExpression.Member);
+
+        //    return this.TryGetNavigationInternal(modelType, member, navigationPropertyType, out navigationInfo);
+        //}
+
+        private bool TryGetNavigationInternal(Type modelType, MemberInfo member, NavigationPropertyType navigationPropertyType, out NavigationInfo navigationInfo)
+        {
             if (navigationPropertyType != NavigationPropertyType.None)
             {
                 switch (navigationPropertyType)
@@ -86,7 +138,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
                             if (otherDataSource is null)
                                 throw new InvalidOperationException($"Unable to get navigation data source for navigation property {member.Name}");
                             //parentExpression = this.GetParentExpression(node, stackArray);
-                            navigationInfo = new NavigationInfo(navigationType, relationLambda, otherDataSource ?? throw new InvalidOperationException("otherDataSource is null"), memberExpression.Member.Name);
+                            navigationInfo = new NavigationInfo(navigationType, relationLambda, otherDataSource ?? throw new InvalidOperationException("otherDataSource is null"), member.Name);
                             return true;
                         }
                     case NavigationPropertyType.RelationAttribute:
@@ -105,7 +157,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
                                 joinedSourceParamType = parentEntityType;
                                 joinedSourceType = childEntityType;
                             }
-                            navigationInfo = new NavigationInfo(navigationType, relationLambda, joinedSource: this.CreateJoinedDataSource(joinedSourceParamType, joinedSourceType), memberExpression.Member.Name);
+                            navigationInfo = new NavigationInfo(navigationType, relationLambda, joinedSource: this.CreateJoinedDataSource(joinedSourceParamType, joinedSourceType), member.Name);
                             return true;
                         }
                     default:
@@ -116,7 +168,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
             navigationInfo = null;
             return false;
         }
-            
+
         //private bool IsSupportedNavigationType(NavigationType navigationType)
         //{
         //    return navigationType == NavigationType.ToSingleChild || navigationType == NavigationType.ToParent || navigationType == NavigationType.ToParentOptional;
@@ -165,34 +217,34 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
             return (relation, relationAttribute.NavigationType);
         }
 
-        private MemberExpression GetMemberExpression(Expression navNode, IReadOnlyCollection<Expression> expressionStack)
-        {
-            var node = navNode;
-            if (node is MemberExpression memberExpression &&
-                !(expressionStack.Skip(1).FirstOrDefault() is InvocationExpression))
-            {
-                // x.NavProp
-                return memberExpression;
-            }
-            else if (node is InvocationExpression invocationExpression &&
-                        invocationExpression.Expression is MemberExpression memberExpression2)
-            {
-                // x.NavProp()
-                return memberExpression2;
-            }
-            return null;
-        }
+        //private MemberExpression GetMemberExpression(Expression navNode, IReadOnlyCollection<Expression> expressionStack)
+        //{
+        //    var node = navNode;
+        //    if (node is MemberExpression memberExpression &&
+        //        !(expressionStack.Skip(1).FirstOrDefault() is InvocationExpression))
+        //    {
+        //        // x.NavProp
+        //        return memberExpression;
+        //    }
+        //    else if (node is InvocationExpression invocationExpression &&
+        //                invocationExpression.Expression is MemberExpression memberExpression2)
+        //    {
+        //        // x.NavProp()
+        //        return memberExpression2;
+        //    }
+        //    return null;
+        //}
 
 
-        private MemberInfo ResolveMember(MemberExpression memberExpression)
-        {
-            var resolvedMember = memberExpression.Member;
-            if (memberExpression.Expression != null && memberExpression.Expression.Type != resolvedMember.ReflectedType)
-            {
-                resolvedMember = this.reflectionService.GetPropertyOrField(memberExpression.Expression.Type, resolvedMember.Name);
-            }
-            return resolvedMember;
-        }
+        //private MemberInfo ResolveMember(MemberExpression memberExpression)
+        //{
+        //    var resolvedMember = memberExpression.Member;
+        //    if (memberExpression.Expression != null && memberExpression.Expression.Type != resolvedMember.ReflectedType)
+        //    {
+        //        resolvedMember = this.reflectionService.GetPropertyOrField(memberExpression.Expression.Type, resolvedMember.Name);
+        //    }
+        //    return resolvedMember;
+        //}
 
 
         private (NavigationType navigationType, LambdaExpression relationLambda) GetNavigationTypeAndRelationLambdaFromRelationAttribute(Type modelType, MemberInfo member, out Type parentType, out Type childType)

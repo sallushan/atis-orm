@@ -22,32 +22,22 @@ namespace Atis.SqlExpressionEngine.Services
     ///         Similarly, it assumes that the table name is the same as the type name.
     ///     </para>
     /// </remarks>
-    public abstract class Model : IModel
+    public class Model : IModel
     {
-        /// <inheritdoc />
-        public virtual IReadOnlyList<MemberInfo> GetPrimaryKeys(Type type)
+        public virtual EntityMetadata GetEntity(Type type)
         {
-            return type.GetProperties();
+            var properties = type.GetProperties();
+            return new EntityMetadata(
+                clrType: type,
+                table: new SqlTable(type.Name),
+                sqlColumns: properties.Select(p => new TableColumn(p.Name, p.Name)).ToArray(),
+                navigations: new Dictionary<string, NavigationInfo>() // No navigations by default
+            );
         }
 
-        /// <inheritdoc />
-        public virtual IReadOnlyList<MemberInfo> GetColumnMembers(Type type)
+        public virtual MemberInfo GetMember(EntityMetadata entity, TableColumn column)
         {
-            return type.GetProperties().ToList();
+            return entity.ClrType.GetProperty(column.ModelPropertyName);
         }
-
-        /// <inheritdoc />
-        public virtual IReadOnlyList<TableColumn> GetTableColumns(Type type)
-        {
-            return type.GetProperties().Select(x => new TableColumn(x.Name, x.Name)).ToArray();
-        }
-
-        /// <inheritdoc />
-        public virtual SqlTable GetSqlTable(Type type)
-        {
-            return new SqlTable(type.Name);
-        }
-
-        public abstract bool TryGetNavigation(MemberExpression memberExpression, out NavigationInfo navigation);
     }
 }

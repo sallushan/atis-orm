@@ -43,9 +43,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         {
             var derivedTable = convertedChildren[0].CastTo<SqlDerivedTableExpression>("The first child must be a derived table for bulk insert.");
             var tableType = this.ReflectionService.GetElementType(this.Expression.Arguments[0].Type);
-            var sqlTable = this.model.GetSqlTable(tableType);
-            var tableColumns = this.model.GetTableColumns(tableType);
-            var bulkInsertExpression = this.SqlFactory.CreateInsertInto(sqlTable, tableColumns, derivedTable);
+            var entity = this.model.GetEntityRequired(tableType);
+            var bulkInsertExpression = this.SqlFactory.CreateInsertInto(entity.Table, entity.SqlColumns, derivedTable);
             return bulkInsertExpression;
         }
     }

@@ -74,8 +74,16 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             return childQueryExpr;
         }
 
-        protected bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation)
-            => model.TryGetNavigation(navNode, out navigation);
+        protected bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation) 
+        {
+            var entity = this.model.GetEntity(navNode.Expression.Type);
+            if (entity != null)
+            {
+                return entity.Navigations.TryGetValue(navNode.Member.Name, out navigation);
+            }
+            navigation = null;
+            return false;
+        }
 
         private Expression CreateChildQueryExpression(NavigationInfo nav, MemberExpression navigationNode, Expression parentExpression)
         {
@@ -150,13 +158,6 @@ namespace Atis.SqlExpressionEngine.Preprocessors
         }
 
 
-        //private IQueryable<T> CreateQueryInternal<T>(NavigationInfo navigationInfo, Expression parentExpression)
-        //{
-        //    var predicate = this.CreatePredicate<T>(navigationInfo, parentExpression);
-        //    var query = this.CreateQuery<T>();
-        //    query = query.Where(predicate);
-        //    return query;
-        //}
         private Expression CreateQueryExpressionInternal<T>(NavigationInfo navigationInfo, Expression parentExpression)
         {
             var predicate = this.CreatePredicate<T>(navigationInfo, parentExpression);
