@@ -242,16 +242,16 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             return ienum?.GetGenericArguments()[0];
         }
 
-        protected virtual bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation)
-        {
-            var entity = this.model.GetEntity(navNode.Expression.Type);
-            if (entity != null)
-            {
-                return entity.Navigations.TryGetValue(navNode.Member.Name, out navigation);
-            }
-            navigation = null;
-            return false;
-        }
+        //protected virtual bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation)
+        //{
+        //    var entity = this.model.GetEntity(navNode.Expression.Type);
+        //    if (entity != null)
+        //    {
+        //        return entity.Navigations.TryGetValue(navNode.Member.Name, out navigation);
+        //    }
+        //    navigation = null;
+        //    return false;
+        //}
 
         protected virtual bool IsSupportedNavigationType(NavigationType navigationType)
             => navigationType == NavigationType.ToParent

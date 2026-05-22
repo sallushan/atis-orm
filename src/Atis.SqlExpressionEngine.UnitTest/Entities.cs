@@ -1,4 +1,5 @@
-﻿using Atis.SqlExpressionEngine.UnitTest.Metadata;
+﻿using Atis.Orm.Annotations;
+using Atis.SqlExpressionEngine.UnitTest.Metadata;
 using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.UnitTest

@@ -13,10 +13,12 @@ namespace Atis.SqlExpressionEngine.Preprocessors
     public class NavigationNullEqualityPreprocessor : ExpressionVisitor, IExpressionPreprocessor
     {
         private readonly IModel model;
+        private readonly IReflectionService reflectionService;
 
-        public NavigationNullEqualityPreprocessor(IModel model)
+        public NavigationNullEqualityPreprocessor(IModel model, IReflectionService reflectionService)
         {
             this.model = model ?? throw new ArgumentNullException(nameof(model));
+            this.reflectionService = reflectionService ?? throw new ArgumentNullException(nameof(reflectionService));
         }
 
         /// <inheritdoc />
@@ -96,9 +98,9 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             var primaryKeyOrNormalColumn = entity.SqlColumns.OrderBy(x => x.IsPrimaryKey ? 0 : 1).FirstOrDefault()
                                             ??
                                             throw new InvalidOperationException($"No columns are defined for type '{navigationTableSourceType.FullName}' in the model.");
-            var memberInfo = model.GetMember(entity, primaryKeyOrNormalColumn)
+            var memberInfo = this.reflectionService.GetPropertyOrField(navigationTableSourceType, primaryKeyOrNormalColumn.ModelPropertyName)
                             ??
-                            throw new InvalidOperationException($"MemberInfo was not found through TableColumn '{primaryKeyOrNormalColumn}' for type '{navigationTableSourceType.FullName}' in the model.");
+                            throw new InvalidOperationException($"MemberInfo was not found through TableColumn '{primaryKeyOrNormalColumn.ModelPropertyName}' for type '{navigationTableSourceType.FullName}' in the model.");
             return memberInfo;
         }
     }

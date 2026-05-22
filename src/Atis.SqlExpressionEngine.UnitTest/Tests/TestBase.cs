@@ -135,7 +135,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             //var concreteParameterPreprocessor = new ConcreteParameterReplacementPreprocessor(new QueryPartsIdentifier(), reflectionService);
             var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
             var customMethodReplacementPreprocessor = new CustomBusinessMethodPreprocessor();
-            var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model);
+            var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model, reflectionService);
             var preprocessor = new ExpressionPreprocessorProvider([queryVariablePreprocessor, methodInterfaceTypeReplacementPreprocessor, navigateToManyPreprocessor, navigateToOnePreprocessor, /*childJoinReplacementPreprocessor, */calculatedPropertyReplacementPreprocessor, specificationPreprocessor, convertPreprocessor, allToAnyRewriterPreprocessor, inValuesReplacementPreprocessor, customMethodReplacementPreprocessor,
                 navigationEqualityPreprocessor
                 /*, concreteParameterPreprocessor*/]);

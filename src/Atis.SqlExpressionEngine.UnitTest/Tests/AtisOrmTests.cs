@@ -23,7 +23,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             var query = queryProvider.DataSet<TestEntities.Employee>();
             var result = query.Select(x => new { EmpId = x.EmployeeId, NameParts = new { x.FirstName, x.LastName }, x.HireDate }).Top(5);
-            
+
             var sqlExpression = ConvertExpressionToSqlExpression(result.Expression, out var updatedQueryExpression);
 
             if (sqlExpression is SqlDerivedTableExpression derivedTable)
@@ -37,7 +37,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
                 var elementFactoryBuilder = new ElementFactoryBuilder();
                 var elementFactory = elementFactoryBuilder.CreateElementFactory(updatedQueryExpression, derivedTable);
-                
+
                 using var conn = new SqlConnection($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = sql;
@@ -122,7 +122,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var dbCommunication = new SqlDbCommunication($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
-            var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);            
+            var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
             var preprocessingRequirementTester = new PreprocessingRequirementTester();
             var sqlDataTypeFactory = new SqlDataTypeFactory();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
@@ -205,11 +205,27 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             //var concreteParameterPreprocessor = new ConcreteParameterReplacementPreprocessor(new QueryPartsIdentifier(), reflectionService);
             var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
             var customMethodReplacementPreprocessor = new CustomBusinessMethodPreprocessor();
-            var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model);
+            var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model, reflectionService);
             var preprocessor = new ExpressionPreprocessorProvider([queryVariablePreprocessor, methodInterfaceTypeReplacementPreprocessor, navigateToManyPreprocessor, navigateToOnePreprocessor, /*childJoinReplacementPreprocessor, */calculatedPropertyReplacementPreprocessor, specificationPreprocessor, convertPreprocessor, allToAnyRewriterPreprocessor, inValuesReplacementPreprocessor, customMethodReplacementPreprocessor,
                 navigationEqualityPreprocessor
                 /*, concreteParameterPreprocessor*/]);
             return preprocessor;
+        }
+
+        [TestMethod]
+        public void DataContext_CreateQuery_Test()
+        {
+            var dbCommunication = new SqlDbCommunication($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            var dbParameterFactory = new SqlDbParameterFactory();
+            var logger = new Services.Logger();
+            var customPreprocessors = new[] { new CustomBusinessMethodPreprocessor() };
+            var dataContext = new OrmDbContext(dbCommunication, dbParameterFactory, logger, customPreprocessors);
+            var invoices = dataContext.CreateQuery<TestEntities.Employee>();
+            var results = invoices.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToList();
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{result.EmployeeId}: {result.FirstName}");
+            }
         }
     }
 }

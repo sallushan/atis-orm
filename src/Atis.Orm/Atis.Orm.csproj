@@ -18,6 +18,7 @@
 		<IncludeSymbols>true</IncludeSymbols>
 		<IncludeSource>true</IncludeSource>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		<UserSecretsId>a7239b99-fadf-48f2-b605-0d313cc91f5e</UserSecretsId>
 		<!-- Generates symbol packages in the .snupkg format -->
 	</PropertyGroup>
 	<ItemGroup>

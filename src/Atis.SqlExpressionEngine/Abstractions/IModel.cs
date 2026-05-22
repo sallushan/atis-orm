@@ -9,6 +9,5 @@ namespace Atis.SqlExpressionEngine.Abstractions
     public interface IModel
     {
         EntityMetadata GetEntity(Type type);
-        MemberInfo GetMember(EntityMetadata entity, TableColumn column);
     }
 }

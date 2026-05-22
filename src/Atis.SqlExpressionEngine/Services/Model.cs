@@ -31,7 +31,8 @@ namespace Atis.SqlExpressionEngine.Services
                 clrType: type,
                 table: new SqlTable(type.Name),
                 sqlColumns: properties.Select(p => new TableColumn(p.Name, p.Name)).ToArray(),
-                navigations: new Dictionary<string, NavigationInfo>() // No navigations by default
+                navigations: new Dictionary<string, NavigationInfo>(), // No navigations by default
+                calculatedProperties: new Dictionary<string, LambdaExpression>() // No calculated properties by default
             );
         }
 

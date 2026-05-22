@@ -1,4 +1,6 @@
 ﻿using Atis.Expressions;
+using Atis.Orm;
+using Atis.Orm.Annotations;
 using Atis.SqlExpressionEngine.ExpressionExtensions;
 using Atis.SqlExpressionEngine.UnitTest.Metadata;
 using System.Linq.Expressions;

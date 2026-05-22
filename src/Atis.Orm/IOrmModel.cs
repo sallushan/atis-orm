@@ -1,0 +1,16 @@
+﻿using Atis.SqlExpressionEngine;
+using Atis.SqlExpressionEngine.Abstractions;
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace Atis.Orm
+{
+    public interface IOrmModel : IModel
+    {
+        EntityMetadata GetOrAdd(Type type, Func<Type, EntityMetadata> factory);
+        void Add(EntityMetadata metadata);
+        bool Contains(Type type);
+        bool TryGet(Type type, out EntityMetadata metadata);
+    }
+}
