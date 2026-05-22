@@ -33,6 +33,7 @@ namespace Atis.Orm
             this.dbParameterFactory = dbParameterFactory;
             this.logger = logger;
             this.customPreprocessors = customPreprocessors;
+            this.customConverterFactories = new List<IExpressionConverterFactory<Expression, SqlExpression>>();
         }
 
         private IEntityMetadataBuilder _metadataBuilder;
