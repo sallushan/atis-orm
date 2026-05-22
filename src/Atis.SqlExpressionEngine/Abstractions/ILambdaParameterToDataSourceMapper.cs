@@ -7,9 +7,9 @@ namespace Atis.SqlExpressionEngine.Abstractions
     public interface ILambdaParameterToDataSourceMapper
     {
         SqlExpression GetDataSourceByParameterExpression(ParameterExpression parameterExpression);
-        SqlExpression GetQueryByParameterName(string parameterName);
         void RemoveParameterMap(ParameterExpression parameterExpression);
         bool TrySetParameterMap(ParameterExpression parameterExpression, Func<SqlExpression> sqlExpressionExtractor);
-        //void UpdateExpression(SqlExpression oldSqlExpression, SqlExpression newSqlExpression);
+
+        // we had GetQueryByParameterName, but it was not used and it was not efficient, so we removed it.
     }
 }

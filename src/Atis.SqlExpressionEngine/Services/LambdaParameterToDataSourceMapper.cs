@@ -47,21 +47,6 @@ namespace Atis.SqlExpressionEngine.Services
             return sqlExpressionExtractor();
         }
 
-        /// <inheritdoc />
-        public SqlExpression GetQueryByParameterName(string parameterName)
-        {
-            var parameterExpression = parameterMap.Keys.FirstOrDefault(x => x.Name == parameterName)
-                                        ?? throw new InvalidOperationException($"No parameter found with name '{parameterName}'");
-            return GetDataSourceByParameterExpression(parameterExpression);
-        }
-
-        //public void UpdateExpression(SqlExpression oldSqlExpression, SqlExpression newSqlExpression)
-        //{
-        //    var matchedKeys = this.parameterMap.Where(x => x.Value == oldSqlExpression).ToArray();
-        //    foreach (var kv in matchedKeys)
-        //    {
-        //        this.parameterMap[kv.Key] = newSqlExpression;
-        //    }
-        //}
+        // Previously we had GetQueryByParametersName, but it was not used and it was not efficient, so we removed it.
     }
 }
