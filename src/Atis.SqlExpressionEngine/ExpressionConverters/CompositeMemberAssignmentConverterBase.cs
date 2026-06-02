@@ -14,7 +14,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     /// <typeparam name="T"></typeparam>
     public abstract class CompositeMemberAssignmentConverterBase<T> : LinqToNonSqlQueryConverterBase<T> where T : Expression
     {
-        protected CompositeMemberAssignmentConverterBase(IConversionContext context, T expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        protected CompositeMemberAssignmentConverterBase(LinqToSqlExpressionConverterDependencies dependencies, T expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 

@@ -21,17 +21,18 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// Initializes a new instance of the <see cref="CastExpressionConverterFactory"/> class.
         /// </summary>
         /// <param name="context">The conversion context.</param>
-        public CastExpressionConverterFactory(IConversionContext context) : base(context)
+        public CastExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is UnaryExpression unaryExpression && 
                     (expression.NodeType == ExpressionType.Convert || expression.NodeType == ExpressionType.TypeAs))
             {
-                converter = new CastExpressionConverter(this.Context, unaryExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new CastExpressionConverter(d, unaryExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -48,11 +49,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <summary>
         /// Initializes a new instance of the <see cref="CastExpressionConverter"/> class.
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="converterDependencies">The conversion dependencies.</param>
         /// <param name="expression">The unary expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public CastExpressionConverter(IConversionContext context, UnaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public CastExpressionConverter(LinqToSqlExpressionConverterDependencies converterDependencies, UnaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(converterDependencies, expression, converterStack)
         {
         }
 

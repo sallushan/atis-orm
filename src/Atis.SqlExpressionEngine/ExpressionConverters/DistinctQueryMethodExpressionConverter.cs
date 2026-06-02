@@ -11,14 +11,15 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class DistinctQueryMethodExpressionConverterFactory : QueryMethodExpressionConverterFactoryBase
     {
-        public DistinctQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public DistinctQueryMethodExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(IConverterDependencies converterDependencies, MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
         {
-            return new DistinctQueryMethodExpressionConverter(Context, methodCallExpression, converterStack);
+            var dependencies = this.GetConverterDependencies(converterDependencies);
+            return new DistinctQueryMethodExpressionConverter(dependencies, methodCallExpression, converterStack);
         }
 
         /// <inheritdoc />
@@ -28,7 +29,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class DistinctQueryMethodExpressionConverter : QueryMethodExpressionConverterBase
     {
-        public DistinctQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
+        public DistinctQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(dependencies, expression, converterStack)
         {
         }
 

@@ -19,8 +19,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <summary>
         /// Initializes a new instance of the <see cref="JoinQueryMethodExpressionConverterFactory"/> class.
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public JoinQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public JoinQueryMethodExpressionConverterFactory() : base()
         {
         }
 
@@ -34,9 +33,10 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         }
 
         /// <inheritdoc />
-        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(IConverterDependencies converterDependencies, MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
         {
-            return new JoinQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+            var dependencies = this.GetConverterDependencies(converterDependencies);
+            return new JoinQueryMethodExpressionConverter(dependencies, methodCallExpression, converterStack);
         }
     }
 
@@ -52,11 +52,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="JoinQueryMethodExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The converter dependencies.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public JoinQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public JoinQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

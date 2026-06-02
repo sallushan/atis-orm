@@ -1,4 +1,5 @@
-﻿using Atis.SqlExpressionEngine.SqlExpressions;
+﻿using Atis.Expressions;
+using Atis.SqlExpressionEngine.SqlExpressions;
 using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.Abstractions

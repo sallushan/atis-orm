@@ -2,6 +2,7 @@
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 
@@ -19,8 +20,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="QueryMethodExpressionConverterFactoryBase"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public QueryMethodExpressionConverterFactoryBase(IConversionContext context) : base(context)
+        public QueryMethodExpressionConverterFactoryBase() : base()
         {
         }
 
@@ -38,17 +38,18 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Creates the appropriate converter for the specified method call expression.
         ///     </para>
         /// </summary>
+        /// <param name="converterDependencies">The dependencies required for creating the converter.</param>
         /// <param name="methodCallExpression">The method call expression for which to create the converter.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
         /// <returns>The created expression converter.</returns>
-        protected abstract ExpressionConverterBase<Expression, SqlExpression> CreateConverter(MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack);
+        protected abstract ExpressionConverterBase<Expression, SqlExpression> CreateConverter(IConverterDependencies converterDependencies, MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack);
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpression && this.IsQueryMethodCall(methodCallExpression))
             {
-                converter = this.CreateConverter(methodCallExpression, converterStack);
+                converter = this.CreateConverter(converterDependencies, methodCallExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -69,11 +70,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="QueryMethodExpressionConverterBase"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        protected QueryMethodExpressionConverterBase(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        protected QueryMethodExpressionConverterBase(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

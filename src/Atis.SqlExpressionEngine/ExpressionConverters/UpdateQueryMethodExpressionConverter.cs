@@ -10,18 +10,19 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class UpdateQueryMethodExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
     {
-        public UpdateQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public UpdateQueryMethodExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpression && 
                     methodCallExpression.Method.Name == nameof(QueryExtensions.Update) &&
                     methodCallExpression.Method.DeclaringType == typeof(QueryExtensions))
             {
-                converter = new UpdateQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new UpdateQueryMethodExpressionConverter(d, methodCallExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -30,7 +31,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     }
     public class UpdateQueryMethodExpressionConverter : DataManipulationQueryMethodExpressionConverterBase
     {
-        public UpdateQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
+        public UpdateQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
         {
         }
 

@@ -6,9 +6,11 @@ using System.Text;
 
 namespace Atis.Expressions
 {
+    // Transient
+
     /// <summary>
     /// Represents a visitor that traverses source expressions and converts them to destination expressions
-    /// using an <see cref="ExpressionConverterProvider{TSourceExpression, TDestinationExpression}"/>.
+    /// using an <see cref="ExpressionTreeConverter{TSourceExpression, TDestinationExpression}"/>.
     /// Implements a read-only stack to manage converted expressions during the traversal.
     /// </summary>
     /// <remarks>
@@ -30,22 +32,22 @@ namespace Atis.Expressions
         protected virtual Stack<TDestinationExpression> ConvertedExpressionStack { get; } = new Stack<TDestinationExpression>();
 
         /// <summary>
-        /// Gets the <see cref="IExpressionConverterProvider{TSourceExpression, TDestinationExpression}"/> responsible
+        /// Gets the <see cref="IExpressionTreeConverter{TSourceExpression, TDestinationExpression}"/> responsible
         /// for managing the conversion process.
         /// </summary>
-        public virtual IExpressionConverterProvider<TSourceExpression, TDestinationExpression> ConverterProvider { get; }
+        public virtual IExpressionTreeConverter<TSourceExpression, TDestinationExpression> ExpressionTreeConverter { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ExpressionConverterVisitor{TSourceExpression, TDestinationExpression}"/> class
         /// with the specified converter provider.
         /// </summary>
-        /// <param name="converterProvider">
-        /// The <see cref="IExpressionConverterProvider{TSourceExpression, TDestinationExpression}"/> to use for expression conversion.
+        /// <param name="treeConverter">
+        /// The <see cref="IExpressionTreeConverter{TSourceExpression, TDestinationExpression}"/> to use for expression conversion.
         /// </param>
-        /// <exception cref="ArgumentNullException">Thrown if <paramref name="converterProvider"/> is <c>null</c>.</exception>
-        public ExpressionConverterVisitor(IExpressionConverterProvider<TSourceExpression, TDestinationExpression> converterProvider)
+        /// <exception cref="ArgumentNullException">Thrown if <paramref name="treeConverter"/> is <c>null</c>.</exception>
+        public ExpressionConverterVisitor(IExpressionTreeConverter<TSourceExpression, TDestinationExpression> treeConverter)
         {
-            this.ConverterProvider = converterProvider ?? throw new ArgumentNullException(nameof(converterProvider));
+            this.ExpressionTreeConverter = treeConverter ?? throw new ArgumentNullException(nameof(treeConverter));
         }
 
         /// <summary>
@@ -54,10 +56,13 @@ namespace Atis.Expressions
         /// <returns>The most recently converted expression.</returns>
         public TDestinationExpression GetConvertedExpression() => this.ConvertedExpressionStack.Pop();
 
-        /// <summary>
-        /// Clears the stack.
-        /// </summary>
-        public void Initialize() => this.ConvertedExpressionStack.Clear();
+        ///// <summary>
+        ///// Clears the stack.
+        ///// </summary>
+        //public void Initialize()
+        //{
+        //    this.ConvertedExpressionStack.Clear();
+        //}
 
         /// <summary>
         /// Visits the specified source expression, applies the base visitor, and converts the expression if applicable.
@@ -74,14 +79,14 @@ namespace Atis.Expressions
             if (node == null) return null;
 
             // Attempt to override the child node conversion
-            if (this.ConverterProvider.TryOverrideChildConversion(node, out var convertedChild))
+            if (this.ExpressionTreeConverter.TryOverrideChildConversion(node, out var convertedChild))
             {
                 this.ConvertedExpressionStack.Push(convertedChild);
                 return node;
             }
 
             // Notify the provider to prepare for visiting the node
-            this.ConverterProvider.OnBeforeVisit(node);
+            this.ExpressionTreeConverter.OnBeforeVisit(node);
 
             // Visit the node using the base visitor
             var beforeConversionCount = this.ConvertedExpressionStack.Count;
@@ -90,7 +95,7 @@ namespace Atis.Expressions
             {
                 // Convert the visited expression and push it onto the stack
                 var convertedChildren = this.PopChildren(beforeConversionCount);
-                var convertedExpression = this.ConverterProvider.Convert(visitedExpression, convertedChildren);
+                var convertedExpression = this.ExpressionTreeConverter.Convert(visitedExpression, convertedChildren);
                 if (this.ConvertedExpressionStack.Count != beforeConversionCount)
                 {
                     throw new InvalidOperationException($"Number of expected converted expressions on stack are not matching for Node Type '{visitedExpression.GetType().Name}'. This can happen because the number expressions are not correctly being popped in the converter.");

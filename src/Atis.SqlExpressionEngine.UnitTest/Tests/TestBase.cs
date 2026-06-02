@@ -1,4 +1,5 @@
 ﻿using Atis.Expressions;
+using Atis.Orm;
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.Preprocessors;
 using Atis.SqlExpressionEngine.Services;
@@ -103,11 +104,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var sqlFactory = new SqlExpressionFactory();
             var expressionEvaluator = new ExpressionEvaluator();
             var logger = new Logger();
-            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
-            var conversionContext = new ConversionContext(contextExtensions);
-            var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: [new SqlFunctionConverterFactory(conversionContext)]);
+            var serviceCollection = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
+            var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
+            var treeConverterFactory = new LinqToSqlExpressionTreeConverterFactory(converterServiceProvider, userProvidedFactories: [new SqlFunctionConverterFactory()]);
             var postProcessorProvider = new SqlExpressionPostprocessorProvider(postprocessors: []);
-            var linqToSqlConverter = new LinqToSqlConverter(reflectionService, expressionConverterProvider, postProcessorProvider);
+            var linqToSqlConverter = new LinqToSqlConverter(treeConverterFactory, postProcessorProvider);
 
             return linqToSqlConverter.Convert(updatedQueryExpression); // Let exception bubble up
         }

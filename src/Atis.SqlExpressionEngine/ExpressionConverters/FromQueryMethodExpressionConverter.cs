@@ -20,19 +20,19 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="FromQueryMethodExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public FromQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public FromQueryMethodExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpression &&
                     methodCallExpression.Method.Name == nameof(QueryExtensions.From) &&
                     methodCallExpression.Method.DeclaringType == typeof(QueryExtensions))
             {
-                converter = new FromQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new FromQueryMethodExpressionConverter(dependencies, methodCallExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -50,11 +50,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <summary>
         /// Initializes a new instance of the <see cref="FromQueryMethodExpressionConverter"/> class.
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public FromQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public FromQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

@@ -13,19 +13,20 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     {
         private readonly IReflectionService reflectionService;
 
-        public AggregateStringFunctionConverterFactory(IConversionContext context) : base(context)
+        public AggregateStringFunctionConverterFactory(IReflectionService reflectionService) : base()
         {
-            this.reflectionService = this.Context.GetExtensionRequired<IReflectionService>();
+            this.reflectionService = reflectionService ?? throw new ArgumentNullException(nameof(reflectionService));
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpr &&
                 (this.IsConcatMethodCall(methodCallExpr) ||
                 this.IsJoinMethodCall(methodCallExpr)))
             {
-                converter = new AggregateStringFunctionConverter(this.Context, methodCallExpr, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new AggregateStringFunctionConverter(dependencies, methodCallExpr, converterStack);
                 return true;
             }
             converter = null;
@@ -80,8 +81,12 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class AggregateStringFunctionConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
     {
-        public AggregateStringFunctionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
+        private readonly LinqToSqlExpressionConverterDependencies dependencies;
+
+        public AggregateStringFunctionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) 
+            : base(dependencies, expression, converterStack)
         {
+            this.dependencies = dependencies;
         }
 
         public override bool TryCreateChildConverter(Expression childNode, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> childConverter)
@@ -89,7 +94,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             if ((this.Expression.Method.Name == nameof(string.Join) && childNode == this.Expression.Arguments[1]) ||
                 (this.Expression.Method.Name == nameof(string.Concat) && childNode == this.Expression.Arguments[0]))
             {
-                childConverter = new GroupBySelectMethodCallForStringAggregateConverter(this.Context, (MethodCallExpression)childNode, converterStack);
+                childConverter = new GroupBySelectMethodCallForStringAggregateConverter(this.dependencies, (MethodCallExpression)childNode, converterStack);
                 return true;
             }
             return base.TryCreateChildConverter(childNode, converterStack, out childConverter);
@@ -118,7 +123,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
         private class GroupBySelectMethodCallForStringAggregateConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
         {
-            public GroupBySelectMethodCallForStringAggregateConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+            public GroupBySelectMethodCallForStringAggregateConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
             {
             }
 

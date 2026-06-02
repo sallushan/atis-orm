@@ -1,8 +1,6 @@
 ﻿using Atis.Expressions;
-using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
-using System.Linq;
 using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.ExpressionConverters
@@ -19,8 +17,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="ParameterExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public ParameterExpressionConverterFactory(IConversionContext context) : base(context)
+        public ParameterExpressionConverterFactory() : base()
         {
         }
 
@@ -33,11 +30,12 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <param name="converterStack">The current stack of converters in use, which may influence the creation of the new converter.</param>
         /// <param name="converter">When this method returns, contains the created expression converter if the creation was successful; otherwise, <c>null</c>.</param>
         /// <returns><c>true</c> if a suitable converter was successfully created; otherwise, <c>false</c>.</returns>
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is ParameterExpression parameterExpression)
             {
-                converter = new ParameterExpressionConverter(this.Context, parameterExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new ParameterExpressionConverter(d, parameterExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -52,20 +50,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     /// </summary>
     public class ParameterExpressionConverter : LinqToNonSqlQueryConverterBase<ParameterExpression>
     {
-        private readonly ILambdaParameterToDataSourceMapper parameterMapper;
-
         /// <summary>
         ///     <para>
         ///         Initializes a new instance of the <see cref="ParameterExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The source expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public ParameterExpressionConverter(IConversionContext context, ParameterExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public ParameterExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, ParameterExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
-            this.parameterMapper = context.GetExtensionRequired<ILambdaParameterToDataSourceMapper>();
         }
 
         /// <summary>
@@ -78,7 +73,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <inheritdoc />
         public override SqlExpression Convert(SqlExpression[] convertedChildren)
         {
-            var sqlExpression = this.parameterMapper.GetDataSourceByParameterExpression(this.Expression)
+            var sqlExpression = this.ParameterMapper.GetDataSourceByParameterExpression(this.Expression)
                                     ??
                                     throw new InvalidOperationException($"No Parameter Mapping found for ParameterExpression '{this.Expression}'.");
 

@@ -18,8 +18,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="GroupByQueryMethodExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public GroupByQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public GroupByQueryMethodExpressionConverterFactory() : base()
         {
         }
 
@@ -30,9 +29,10 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         }
 
         /// <inheritdoc />
-        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(IConverterDependencies converterDependencies, MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
         {
-            return new GroupByQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+            var dependencies = this.GetConverterDependencies(converterDependencies);
+            return new GroupByQueryMethodExpressionConverter(dependencies, methodCallExpression, converterStack);
         }
     }
 
@@ -48,11 +48,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="GroupByQueryMethodExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The converter dependencies.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public GroupByQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public GroupByQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

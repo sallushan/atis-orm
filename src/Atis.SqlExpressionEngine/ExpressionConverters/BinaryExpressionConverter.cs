@@ -18,17 +18,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="BinaryExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public BinaryExpressionConverterFactory(IConversionContext context) : base(context)
+        public BinaryExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc/>
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is BinaryExpression binaryExpression)
             {
-                converter = new BinaryExpressionConverter(this.Context, binaryExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new BinaryExpressionConverter(d, binaryExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -47,11 +47,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="BinaryExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="converterDependencies">The conversion dependencies.</param>
         /// <param name="expression">The binary expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public BinaryExpressionConverter(IConversionContext context, BinaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public BinaryExpressionConverter(LinqToSqlExpressionConverterDependencies converterDependencies, BinaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(converterDependencies, expression, converterStack)
         {
         }
 

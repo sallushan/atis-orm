@@ -15,17 +15,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <summary>
         /// Initializes a new instance of the <see cref="ConstantExpressionConverterFactory"/> class.
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public ConstantExpressionConverterFactory(IConversionContext context) : base(context)
+        public ConstantExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is ConstantExpression constExpression)
             {
-                converter = new ConstantExpressionConverter(this.Context, constExpression, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new ConstantExpressionConverter(dependencies, constExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -43,11 +43,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <summary>
         /// Initializes a new instance of the <see cref="ConstantExpressionConverter"/> class.
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="constantExpression">The constant expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public ConstantExpressionConverter(IConversionContext context, ConstantExpression constantExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, constantExpression, converterStack)
+        public ConstantExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, ConstantExpression constantExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, constantExpression, converterStack)
         {
         }
 

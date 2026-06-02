@@ -10,15 +10,16 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class NotExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<UnaryExpression>
     {
-        public NotExpressionConverterFactory(IConversionContext context) : base(context)
+        public NotExpressionConverterFactory() : base()
         {
         }
 
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is UnaryExpression unaryExpression && unaryExpression.NodeType == ExpressionType.Not)
             {
-                converter = new NotExpressionConverter(Context, unaryExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new NotExpressionConverter(d, unaryExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -28,7 +29,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class NotExpressionConverter : LinqToNonSqlQueryConverterBase<UnaryExpression>
     {
-        public NotExpressionConverter(IConversionContext context, UnaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public NotExpressionConverter(LinqToSqlExpressionConverterDependencies context, UnaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
         {
         }
 

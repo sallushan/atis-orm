@@ -9,6 +9,23 @@ using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
+    public class LinqToSqlExpressionConverterDependencies
+    {
+        public LinqToSqlExpressionConverterDependencies(ISqlExpressionFactory sqlFactory, IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, ILambdaParameterToDataSourceMapper lambdaParamMapper, ILogger logger)
+        {
+            this.SqlFactory = sqlFactory ?? throw new ArgumentNullException(nameof(sqlFactory));
+            this.ReflectionService = reflectionService ?? throw new ArgumentNullException(nameof(reflectionService));
+            this.ExpressionEvaluator = expressionEvaluator ?? throw new ArgumentNullException(nameof(expressionEvaluator));
+            this.LambdaParameterMapper = lambdaParamMapper ?? throw new ArgumentNullException(nameof(lambdaParamMapper));
+            this.Logger = logger;
+        }
+        public ISqlExpressionFactory SqlFactory { get; }
+        public IReflectionService ReflectionService { get; }
+        public IExpressionEvaluator ExpressionEvaluator { get; }
+        public ILambdaParameterToDataSourceMapper LambdaParameterMapper { get; }
+        public ILogger Logger { get; }
+    }
+
     public interface ILinqToSqlExpressionConverterBase
     {
         bool IsQueryConverter { get; }
@@ -28,39 +45,36 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="LinqToNonSqlQueryConverterBase{TSource}"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion context.</param>
         /// <param name="expression">The source expression to be converted.</param>
         /// <param name="converters">The stack of converters representing the parent chain for context-aware conversion.</param>
-        protected LinqToSqlExpressionConverterBase(IConversionContext context, TSource expression, ExpressionConverterBase<Expression, SqlExpression>[] converters)
+        protected LinqToSqlExpressionConverterBase(LinqToSqlExpressionConverterDependencies dependencies, TSource expression, ExpressionConverterBase<Expression, SqlExpression>[] converters)
             : base(expression, converters)
         {
-            this.Context = context;
-            this.SqlFactory = this.Context.GetExtensionRequired<ISqlExpressionFactory>();
-            this.ReflectionService = this.Context.GetExtensionRequired<IReflectionService>();
-            this.ExpressionEvaluator = this.Context.GetExtensionRequired<IExpressionEvaluator>();
-            this.parameterMapper = this.Context.GetExtensionRequired<ILambdaParameterToDataSourceMapper>();
-            this.logger = this.Context.GetExtension<ILogger>();
+            this.ConverterDependencies = dependencies ?? throw new ArgumentNullException(nameof(dependencies));
         }
 
-        private readonly ILambdaParameterToDataSourceMapper parameterMapper;
-        private readonly ILogger logger;
+        protected void LogIndent() => Logger?.Indent();
+        protected void LogUnindent() => Logger?.Unindent();
+        protected void Log(string text) => Logger?.Log(text);
 
-        protected void LogIndent() => logger?.Indent();
-        protected void LogUnindent() => logger?.Unindent();
-        protected void Log(string text) => logger?.Log(text);
+        protected LinqToSqlExpressionConverterDependencies ConverterDependencies { get; }
 
-        /// <summary>
-        ///     <para>
-        ///         Gets the conversion context for the current conversion process.
-        ///     </para>
-        /// </summary>
-        public IConversionContext Context { get; }
+
+        ///// <summary>
+        /////     <para>
+        /////         Gets the conversion context for the current conversion process.
+        /////     </para>
+        ///// </summary>
+        //public IConversionContext Context { get; }
         /// <summary>
         /// 
         /// </summary>
-        public ISqlExpressionFactory SqlFactory { get; }
-        public IReflectionService ReflectionService { get; }
-        public IExpressionEvaluator ExpressionEvaluator { get; }
+        public ISqlExpressionFactory SqlFactory => this.ConverterDependencies.SqlFactory;
+        public IReflectionService ReflectionService => this.ConverterDependencies.ReflectionService;
+        public IExpressionEvaluator ExpressionEvaluator => this.ConverterDependencies.ExpressionEvaluator;
+        public ILambdaParameterToDataSourceMapper ParameterMapper => this.ConverterDependencies.LambdaParameterMapper;
+        public ILogger Logger => this.ConverterDependencies.Logger;
         protected HashSet<ParameterExpression> MappedParameters { get; } = new HashSet<ParameterExpression>();
 
         /// <summary>
@@ -96,8 +110,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         //}
         protected void MapParameter(ParameterExpression parameterExpression, Func<SqlExpression> sqlExpressionExtractor)
         {
-            this.parameterMapper.RemoveParameterMap(parameterExpression);
-            this.parameterMapper.TrySetParameterMap(parameterExpression, sqlExpressionExtractor);
+            this.ParameterMapper.RemoveParameterMap(parameterExpression);
+            this.ParameterMapper.TrySetParameterMap(parameterExpression, sqlExpressionExtractor);
             this.MappedParameters.Add(parameterExpression);
         }
 
@@ -249,7 +263,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         {
             foreach (var mappedParameter in this.MappedParameters)
             {
-                this.parameterMapper.RemoveParameterMap(mappedParameter);
+                this.ParameterMapper.RemoveParameterMap(mappedParameter);
             }
             base.OnAfterVisit();
         }
@@ -257,7 +271,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public abstract class LinqToSqlQueryConverterBase<TSource> : LinqToSqlExpressionConverterBase<TSource> where TSource : Expression
     {
-        protected LinqToSqlQueryConverterBase(IConversionContext context, TSource expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        protected LinqToSqlQueryConverterBase(LinqToSqlExpressionConverterDependencies dependencies, TSource expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 
@@ -266,7 +280,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public abstract class LinqToNonSqlQueryConverterBase<TSource> : LinqToSqlExpressionConverterBase<TSource> where TSource : Expression
     {
-        protected LinqToNonSqlQueryConverterBase(IConversionContext context, TSource expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        protected LinqToNonSqlQueryConverterBase(LinqToSqlExpressionConverterDependencies dependencies, TSource expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 

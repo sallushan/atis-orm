@@ -5,37 +5,94 @@ using System.Text;
 
 namespace Atis.Expressions
 {
+    // Transient
     /// <summary>
-    /// Provides functionality to convert expressions from a source type to a destination type
+    /// Provides functionality to convert a full expression tree from a source type to a destination type
     /// using a set of factories and a stack of converters.
     /// </summary>
     /// <typeparam name="TSourceExpression">The type of the source expression to convert.</typeparam>
     /// <typeparam name="TDestinationExpression">The type of the destination expression after conversion.</typeparam>
-    public class ExpressionConverterProvider<TSourceExpression, TDestinationExpression> : IExpressionConverterProvider<TSourceExpression, TDestinationExpression>
+    public abstract class ExpressionTreeConverter<TSourceExpression, TDestinationExpression> : IExpressionTreeConverter<TSourceExpression, TDestinationExpression>
         where TDestinationExpression : class
         where TSourceExpression : class
     {
         /// <summary>
         /// Gets the list of factories used to create expression converters.
         /// </summary>
-        protected virtual List<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> Factories { get; } =
-            new List<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>>();
+        protected virtual IReadOnlyList<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> Factories { get; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ExpressionConverterProvider{TSourceExpression, TDestinationExpression}"/> class
+        /// Gets the dependency provider that provides information and services for the conversion process.
+        /// </summary>
+        protected IExpressionConverterDependencyProvider ConverterDependencyProvider { get; }
+
+        private readonly ConverterDependencies dependencyContainer = new ConverterDependencies();
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ExpressionTreeConverter{TSourceExpression, TDestinationExpression}"/> class
         /// with the specified factories.
         /// </summary>
-        /// <param name="factories">The factories to use for creating expression converters.</param>
-        public ExpressionConverterProvider(IEnumerable<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> factories)
+        /// <param name="converterDependencyProvider">The dependency provider that provides information and services for the conversion process.</param>
+        /// <param name="userProvidedFactories">The factories to use for creating expression converters.</param>
+        public ExpressionTreeConverter(IExpressionConverterDependencyProvider converterDependencyProvider, IEnumerable<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> userProvidedFactories)
         {
-            if (factories != null)
-                this.Factories.AddRange(factories);
+            this.ConverterDependencyProvider = converterDependencyProvider ?? throw new ArgumentNullException(nameof(converterDependencyProvider));
+            var factories = new List<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>>();
+            if (userProvidedFactories != null)
+                factories.AddRange(userProvidedFactories);
+            var standardFactories = this.GetDefaultFactories();
+            if (standardFactories != null)
+                factories.AddRange(standardFactories);
+            if (factories.Count == 0)
+                throw new InvalidOperationException("No Converter Factories have been defined for the Expression Tree Converter. Please provide at least one factory either through the constructor or by overriding the GetDefaultFactories method.");
+            this.Factories = factories;
+            this.InitializeConversionContext();
         }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <returns></returns>
+        protected abstract IReadOnlyList<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> GetDefaultFactories();
 
         /// <summary>
         /// Gets the stack of converters used during the conversion process.
         /// </summary>
         protected virtual Stack<ExpressionConverterBase<TSourceExpression, TDestinationExpression>> ConverterStack { get; } = new Stack<ExpressionConverterBase<TSourceExpression, TDestinationExpression>>();
+
+        protected virtual void ClearDependencyContainer() => dependencyContainer.Clear();
+        protected virtual bool ContainsDependency(Type type) => dependencyContainer.ContainsType(type);
+        protected virtual void AddDependency(Type type, object dependency) => dependencyContainer.Add(type, dependency);
+
+        /// <summary>
+        /// 
+        /// </summary>
+        protected virtual void InitializeConversionContext()
+        {
+            this.ClearDependencyContainer();
+            foreach (var factory in this.Factories)
+            {
+                var converterDependencyTypes = factory.GetConverterDependencyTypes();
+                if (converterDependencyTypes != null)
+                {
+                    foreach (var dependencyType in converterDependencyTypes)
+                    {
+                        try
+                        {
+                            var dependency = this.ConverterDependencyProvider.GetDependencyRequired(dependencyType)
+                                                                ??
+                                                                throw new InvalidOperationException($"Converter Dependency Provider return null for Dependency Type '{dependencyType}' for Expression Converter Factory '{factory.GetType()}'");
+                            if (!this.ContainsDependency(dependencyType))
+                                this.AddDependency(dependencyType, dependency);
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new InvalidOperationException($"An error occurred while extracting dependencies for converter factory '{factory.GetType().Name}' for dependency type '{dependencyType.Name}'.", ex);
+                        }
+                    }
+                }
+            }
+        }
 
         
         /// <summary>
@@ -71,7 +128,7 @@ namespace Atis.Expressions
             for (var i = 0; i < this.Factories.Count; i++)
             {
                 var factory = this.Factories[i];
-                if (factory.TryCreate(sourceExpression, converterStack, out converter))
+                if (factory.TryCreate(this.dependencyContainer, sourceExpression, converterStack, out converter))
                 {
                     break;
                 }
@@ -83,6 +140,7 @@ namespace Atis.Expressions
         /// Gets the current converter at the top of the converter stack.
         /// </summary>
         protected virtual ExpressionConverterBase<TSourceExpression, TDestinationExpression> CurrentConverter => this.ConverterStack.Count > 0 ? this.ConverterStack.Peek() : null;
+
 
         /// <inheritdoc />
         public virtual TDestinationExpression Convert(TSourceExpression sourceExpression, TDestinationExpression[] convertedChildren)

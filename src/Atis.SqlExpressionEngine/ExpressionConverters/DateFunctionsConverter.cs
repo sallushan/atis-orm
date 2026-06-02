@@ -23,16 +23,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             nameof(DateTime.AddTicks),
         };
 
-        public DateFunctionsConverterFactory(IConversionContext context) : base(context) { }
+        public DateFunctionsConverterFactory() : base() { }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCall &&
                 methodCall.Method.DeclaringType == typeof(DateTime) &&
                 SupportedMethods.Contains(methodCall.Method.Name))
             {
-                converter = new DateFunctionsConverter(this.Context, methodCall, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new DateFunctionsConverter(dependencies, methodCall, converterStack);
                 return true;
             }
 
@@ -49,10 +50,10 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     public class DateFunctionsConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
     {
         public DateFunctionsConverter(
-            IConversionContext context,
+            LinqToSqlExpressionConverterDependencies dependencies,
             MethodCallExpression expression,
             ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

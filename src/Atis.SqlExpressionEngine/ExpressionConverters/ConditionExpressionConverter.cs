@@ -17,17 +17,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="ConditionalExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public ConditionalExpressionConverterFactory(IConversionContext context) : base(context)
+        public ConditionalExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc/>
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is ConditionalExpression conditionExpression)
             {
-                converter = new ConditionalExpressionConverter(this.Context, conditionExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new ConditionalExpressionConverter(d, conditionExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -47,11 +47,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="ConditionalExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="converterDependencies">The conversion dependencies.</param>
         /// <param name="expression">The conditional expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public ConditionalExpressionConverter(IConversionContext context, ConditionalExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public ConditionalExpressionConverter(LinqToSqlExpressionConverterDependencies converterDependencies, ConditionalExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(converterDependencies, expression, converterStack)
         {
         }
 

@@ -20,18 +20,18 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="DefaultIfEmptyExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public DefaultIfEmptyExpressionConverterFactory(IConversionContext context) : base(context)
+        public DefaultIfEmptyExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpression && 
                 methodCallExpression.Method.Name == nameof(Queryable.DefaultIfEmpty))
             {
-                converter = new DefaultIfEmptyExpressionConverter(this.Context, methodCallExpression, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new DefaultIfEmptyExpressionConverter(dependencies, methodCallExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -51,11 +51,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="DefaultIfEmptyExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public DefaultIfEmptyExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public DefaultIfEmptyExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

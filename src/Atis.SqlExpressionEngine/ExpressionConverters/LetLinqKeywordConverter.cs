@@ -11,12 +11,12 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class LetLinqKeywordConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
     {
-        public LetLinqKeywordConverterFactory(IConversionContext context) : base(context)
+        public LetLinqKeywordConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (converterStack.Length > 0 &&
                 expression is MethodCallExpression methodCall &&                // a method call
@@ -30,7 +30,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 lambda.Body is NewExpression newExpression &&                   // p1 => new { 
                 newExpression.Arguments[0] == lambda.Parameters[0])             // p1 => new { p1, ....
             {
-                converter = new LetLinqKeywordConverter(this.Context, methodCall, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new LetLinqKeywordConverter(dependencies, methodCall, converterStack);
                 return true;
             }
             converter = null;
@@ -40,7 +41,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class LetLinqKeywordConverter : QueryMethodExpressionConverterBase
     {
-        public LetLinqKeywordConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public LetLinqKeywordConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
         

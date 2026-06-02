@@ -13,13 +13,14 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class InValuesExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<InValuesExpression>
     {
-        public InValuesExpressionConverterFactory(IConversionContext context) : base(context) { }
+        public InValuesExpressionConverterFactory() : base() { }
 
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is InValuesExpression inExpr)
             {
-                converter = new InValuesExpressionConverter(this.Context, inExpr, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new InValuesExpressionConverter(dependencies, inExpr, converterStack);
                 return true;
             }
 
@@ -35,7 +36,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     /// </summary>
     public class InValuesExpressionConverter : LinqToNonSqlQueryConverterBase<InValuesExpression>
     {
-        public InValuesExpressionConverter(IConversionContext context, InValuesExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public InValuesExpressionConverter(LinqToSqlExpressionConverterDependencies context, InValuesExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
         }

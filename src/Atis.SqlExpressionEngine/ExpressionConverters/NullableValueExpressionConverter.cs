@@ -18,20 +18,20 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="NullableValueExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public NullableValueExpressionConverterFactory(IConversionContext context) : base(context)
+        public NullableValueExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MemberExpression memberExpression &&
                         memberExpression.Member.Name == "Value" &&
                         memberExpression.Member.DeclaringType != null &&
                         Nullable.GetUnderlyingType(memberExpression.Member.DeclaringType) != null)
             {
-                converter = new NullableValueExpressionConverter(this.Context, memberExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new NullableValueExpressionConverter(d, memberExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -54,7 +54,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <param name="context">The conversion context.</param>
         /// <param name="expression">The source expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public NullableValueExpressionConverter(IConversionContext context, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public NullableValueExpressionConverter(LinqToSqlExpressionConverterDependencies context, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
         }

@@ -2,6 +2,7 @@
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 
@@ -19,19 +20,25 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="DataSetQueryMethodExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public DataSetQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public DataSetQueryMethodExpressionConverterFactory() : base()
         {
         }
 
+        public override IReadOnlyList<Type> GetConverterDependencyTypes()
+        {
+            return base.GetConverterDependencyTypes().Concat(new[] { typeof(IModel) }).ToArray();
+        }
+
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpression &&
                     methodCallExpression.Method.Name == nameof(QueryExtensions.DataSet) &&
                     methodCallExpression.Method.DeclaringType == typeof(QueryExtensions))
             {
-                converter = new DataSetQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+                var model = converterDependencies.GetRequired<IModel>();
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new DataSetQueryMethodExpressionConverter(model, d, methodCallExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -53,13 +60,13 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="DataSetQueryMethodExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion context.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public DataSetQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public DataSetQueryMethodExpressionConverter(IModel model, LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
-            this.model = context.GetExtensionRequired<IModel>();
+            this.model = model;
         }
 
         /// <inheritdoc />

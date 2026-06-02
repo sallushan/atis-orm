@@ -3,6 +3,7 @@ using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.ExpressionExtensions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 
@@ -20,17 +21,23 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="QueryRootExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public QueryRootExpressionConverterFactory(IConversionContext context) : base(context)
+        public QueryRootExpressionConverterFactory() : base()
         {
         }
 
+        public override IReadOnlyList<Type> GetConverterDependencyTypes()
+        {
+            return base.GetConverterDependencyTypes().Concat(new[] { typeof(IModel) }).ToArray();
+        }
+
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is QueryRootExpression queryRootExpression)
             {
-                converter = new QueryRootExpressionConverter(this.Context, queryRootExpression, converterStack);
+                var model = converterDependencies.GetRequired<IModel>();
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new QueryRootExpressionConverter(model, d, queryRootExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -52,13 +59,14 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="QueryRootExpressionConverter"/> class.
         ///     </para>
         /// </summary>
+        /// <param name="model">The model instance.</param>
         /// <param name="context">The conversion context.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public QueryRootExpressionConverter(IConversionContext context, QueryRootExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public QueryRootExpressionConverter(IModel model, LinqToSqlExpressionConverterDependencies context, QueryRootExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
-            this.model = context.GetExtensionRequired<IModel>();
+            this.model = model;
         }
 
         /// <inheritdoc />

@@ -8,18 +8,19 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class RecursiveUnionQueryMethodExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
     {
-        public RecursiveUnionQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public RecursiveUnionQueryMethodExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpression &&
                 methodCallExpression.Method.Name == nameof(QueryExtensions.RecursiveUnion) &&
                     methodCallExpression.Method.DeclaringType == typeof(QueryExtensions))
             {
-                converter = new RecursiveUnionQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new RecursiveUnionQueryMethodExpressionConverter(d, methodCallExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -31,7 +32,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     {
         private SqlDerivedTableExpression sourceQueryAsDerivedTable;
 
-        public RecursiveUnionQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public RecursiveUnionQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 

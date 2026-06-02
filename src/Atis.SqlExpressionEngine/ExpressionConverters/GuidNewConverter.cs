@@ -10,18 +10,19 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class GuidNewConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
     {
-        public GuidNewConverterFactory(IConversionContext context) : base(context)
+        public GuidNewConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCall &&
                 methodCall.Method.Name == nameof(Guid.NewGuid) &&
                 methodCall.Method.DeclaringType == typeof(Guid))
             {
-                converter = new GuidNewConverter(Context, methodCall, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new GuidNewConverter(dependencies, methodCall, converterStack);
                 return true;
             }
             converter = null;
@@ -31,7 +32,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class GuidNewConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
     {
-        public GuidNewConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public GuidNewConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 

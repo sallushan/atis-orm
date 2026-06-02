@@ -22,8 +22,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="NavigationJoinCallExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public NavigationJoinCallExpressionConverterFactory(IConversionContext context) : base(context)
+        public NavigationJoinCallExpressionConverterFactory() : base()
         {
         }
 
@@ -36,11 +35,12 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <param name="converterStack">The current stack of converters in use, which may influence the creation of the new converter.</param>
         /// <param name="converter">When this method returns, contains the created expression converter if the creation was successful; otherwise, <c>null</c>.</param>
         /// <returns><c>true</c> if a suitable converter was successfully created; otherwise, <c>false</c>.</returns>
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is NavigationJoinCallExpression navigationExpression)
             {
-                converter = new NavigationJoinCallExpressionConverter(this.Context, navigationExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new NavigationJoinCallExpressionConverter(d, navigationExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -67,7 +67,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <param name="context">The conversion context.</param>
         /// <param name="expression">The source expression to be converted.</param>
         /// <param name="converters">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public NavigationJoinCallExpressionConverter(IConversionContext context, NavigationJoinCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters)
+        public NavigationJoinCallExpressionConverter(LinqToSqlExpressionConverterDependencies context, NavigationJoinCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters)
             : base(context, expression, converters)
         {
         }

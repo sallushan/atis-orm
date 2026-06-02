@@ -18,17 +18,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="LambdaExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public LambdaExpressionConverterFactory(IConversionContext context) : base(context)
+        public LambdaExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is LambdaExpression lambdaExpression)
             {
-                converter = new LambdaExpressionConverter(this.Context, lambdaExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new LambdaExpressionConverter(d, lambdaExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -51,7 +51,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <param name="context">The conversion context.</param>
         /// <param name="expression">The LambdaExpression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public LambdaExpressionConverter(IConversionContext context, LambdaExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public LambdaExpressionConverter(LinqToSqlExpressionConverterDependencies context, LambdaExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
             

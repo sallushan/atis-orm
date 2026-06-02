@@ -8,45 +8,46 @@ using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine
 {
+    // singleton
     public class LinqToSqlConverter : ILinqToSqlConverter
     {
-        private readonly LinqToSqlConverterInternal linqToSqlConverterInternal;
+        private readonly ILinqToSqlExpressionTreeConverterFactory treeConverterFactory;
+        private readonly ISqlExpressionPostprocessorProvider postProcessorProvider;
 
-        public LinqToSqlConverter(IReflectionService reflectionService, IExpressionConverterProvider<Expression, SqlExpression> expressionConverterProvider, ISqlExpressionPostprocessorProvider postProcessorProvider)
+        public LinqToSqlConverter(ILinqToSqlExpressionTreeConverterFactory treeConverterFactory, ISqlExpressionPostprocessorProvider postProcessorProvider)
         {
-            this.linqToSqlConverterInternal = new LinqToSqlConverterInternal(reflectionService, expressionConverterProvider, postProcessorProvider);
+            this.treeConverterFactory = treeConverterFactory ?? throw new ArgumentNullException(nameof(treeConverterFactory));
+            this.postProcessorProvider = postProcessorProvider;
         }
 
+        /// <inheritdoc />
         public virtual SqlExpression Convert(Expression expression)
         {
+            var treeConverter = this.treeConverterFactory.Create();
+            var visitor = new ExpressionConverterVisitor<Expression, SqlExpression>(treeConverter);
+            var linqToSqlConverterInternal = new LinqToSqlConverterInternal(visitor);
             var sqlExpression = linqToSqlConverterInternal.Convert(expression);
+            if (this.postProcessorProvider != null)
+                sqlExpression = this.postProcessorProvider.Postprocess(sqlExpression);
             return sqlExpression;
         }
 
         private class LinqToSqlConverterInternal : ExpressionVisitor
         {
             private readonly ExpressionConverterVisitor<Expression, SqlExpression> visitor;
-            private readonly IExpressionConverterProvider<Expression, SqlExpression> expressionConverterProvider;
 
-            private readonly ISqlExpressionPostprocessorProvider postprocessorProvider;
-
-            public LinqToSqlConverterInternal(IReflectionService reflectionService, IExpressionConverterProvider<Expression, SqlExpression> expressionConverterProvider, ISqlExpressionPostprocessorProvider postProcessorProvider)
+            public LinqToSqlConverterInternal(ExpressionConverterVisitor<Expression, SqlExpression> visitor)
             {
-                this.visitor = new ExpressionConverterVisitor<Expression, SqlExpression>(expressionConverterProvider);
-                this.postprocessorProvider = postProcessorProvider;
-                this.expressionConverterProvider = expressionConverterProvider;
+                this.visitor = visitor ?? throw new ArgumentNullException(nameof(visitor));
             }
 
             public SqlExpression Convert(Expression expression)
             {
-                this.visitor.Initialize();
+                //this.visitor.Initialize();
 
                 this.Visit(expression);
 
                 var sqlExpression = this.visitor.GetConvertedExpression();
-
-                if (this.postprocessorProvider != null)
-                    sqlExpression = this.postprocessorProvider.Postprocess(sqlExpression);
 
                 return sqlExpression;
             }

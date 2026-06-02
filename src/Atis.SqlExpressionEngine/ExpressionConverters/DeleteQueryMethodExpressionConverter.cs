@@ -9,14 +9,15 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class DeleteQueryMethodExpressionConverterFactory : QueryMethodExpressionConverterFactoryBase
     {
-        public DeleteQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public DeleteQueryMethodExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(IConverterDependencies converterDependencies, MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
         {
-            return new DeleteQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+            var dependencies = this.GetConverterDependencies(converterDependencies);
+            return new DeleteQueryMethodExpressionConverter(dependencies, methodCallExpression, converterStack);
         }
 
         /// <inheritdoc />
@@ -28,7 +29,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     }
     public class DeleteQueryMethodExpressionConverter : DataManipulationQueryMethodExpressionConverterBase
     {
-        public DeleteQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
+        public DeleteQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(dependencies, expression, converterStack)
         {
         }
 

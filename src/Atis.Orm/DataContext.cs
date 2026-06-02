@@ -20,7 +20,7 @@ namespace Atis.Orm
     {
         private readonly IDbCommunication dbCommunication;
         private readonly IDbParameterFactory dbParameterFactory;
-        private readonly ILogger logger;
+        private readonly ILogger _logger;
         private readonly List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories;
         private readonly IReadOnlyList<IExpressionPreprocessor> customPreprocessors;
 
@@ -31,7 +31,7 @@ namespace Atis.Orm
         {
             this.dbCommunication = dbCommunication;
             this.dbParameterFactory = dbParameterFactory;
-            this.logger = logger;
+            this._logger = logger;
             this.customPreprocessors = customPreprocessors;
             this.customConverterFactories = new List<IExpressionConverterFactory<Expression, SqlExpression>>();
         }
@@ -120,24 +120,24 @@ namespace Atis.Orm
             var expressionEvaluator = new ExpressionEvaluator();
             var reflectionService = new OrmReflectionService();
             this._metadataBuilder = new EntityMetadataBuilder(reflectionService);
-            var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
             var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
             var preprocessingRequirementTester = new PreprocessingRequirementTester();
             var sqlDataTypeFactory = new SqlDataTypeFactory();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
             var sqlFactory = new SqlExpressionFactory();
-            this._ormModel = new OrmModel();
-            var contextExtensions = new object[] { sqlDataTypeFactory, sqlFactory, this._ormModel, parameterMapper, reflectionService, logger, expressionEvaluator };
-            var conversionContext = new ConversionContext(contextExtensions);
-            this.OnConversionContextInitialized(conversionContext, this.customConverterFactories);
-            var expressionConverterProvider = new LinqToSqlExpressionConverterProvider(conversionContext, factories: this.customConverterFactories);
-            var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, this._ormModel);
-            var linqToSqlConverter = new LinqToSqlConverter(reflectionService, expressionConverterProvider, new SqlExpressionPostprocessorProvider(null));
+            this._ormModel = new OrmModel();            
+            var converterDependencies = new List<object> { sqlDataTypeFactory, sqlFactory, this._ormModel, parameterMapper, reflectionService, this._logger, expressionEvaluator };
+            this.OnCustomFactoriesInitialize(this.customConverterFactories);
+            var dependencyProvider = new ExpressionConverterDependencyProviderByCollection(converterDependencies);
+            var converterProviderFactory = new LinqToSqlExpressionTreeConverterFactory(dependencyProvider, userProvidedFactories: this.customConverterFactories);
+            var linqToSqlConverter = new LinqToSqlConverter(converterProviderFactory, new SqlExpressionPostprocessorProvider(null));
             var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
             var elementFactoryBuilder = new ElementFactoryBuilder();
+            var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, this._ormModel);
             var queryCompiler = new QueryCompiler(preprocessor, preprocessingRequirementTester, linqToSqlConverter, sqlExpressionTranslator, this.dbParameterFactory, elementFactoryBuilder);
             var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
+            var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
             this._queryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
         }
@@ -145,9 +145,8 @@ namespace Atis.Orm
         /// <summary>
         /// 
         /// </summary>
-        /// <param name="conversionContext"></param>
         /// <param name="customConverterFactories"></param>
-        protected virtual void OnConversionContextInitialized(ConversionContext conversionContext, List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
+        protected virtual void OnCustomFactoriesInitialize(List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
         {
             // do nothing
         }

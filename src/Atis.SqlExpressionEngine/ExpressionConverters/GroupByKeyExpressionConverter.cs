@@ -2,6 +2,7 @@
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 
@@ -21,10 +22,9 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="GroupByKeyExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public GroupByKeyExpressionConverterFactory(IConversionContext context) : base(context)
+        public GroupByKeyExpressionConverterFactory(IReflectionService reflectionService) : base()
         {
-            this.reflectionService = context.GetExtensionRequired<IReflectionService>();
+            this.reflectionService = reflectionService;
         }
 
 
@@ -49,13 +49,14 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MemberExpression memberExpr)
             {
                 if (this.IsGroupByKeyMember(memberExpr))
                 {
-                    converter = new GroupByKeyExpressionConverter(this.Context, memberExpr, converterStack);
+                    var dependencies = this.GetConverterDependencies(converterDependencies);
+                    converter = new GroupByKeyExpressionConverter(dependencies, memberExpr, converterStack);
                     return true;
                 }
             }
@@ -76,11 +77,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="GroupByKeyExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="converterDependencies">The conversion context.</param>
         /// <param name="expression">The expression to be converted.</param>
         /// <param name="converterStack">The stack of converters in use.</param>
-        public GroupByKeyExpressionConverter(IConversionContext context, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public GroupByKeyExpressionConverter(LinqToSqlExpressionConverterDependencies converterDependencies, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(converterDependencies, expression, converterStack)
         {
         }
 

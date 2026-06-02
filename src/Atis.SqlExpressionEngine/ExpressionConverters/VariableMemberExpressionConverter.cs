@@ -20,19 +20,19 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="VariableMemberExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public VariableMemberExpressionConverterFactory(IConversionContext context) : base(context)
+        public VariableMemberExpressionConverterFactory(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator ) : base()
         {
-            this.reflectionService = context.GetExtensionRequired<IReflectionService>();
-            this.expressionEvaluator = context.GetExtensionRequired<IExpressionEvaluator>();
+            this.reflectionService = reflectionService;
+            this.expressionEvaluator = expressionEvaluator;
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MemberExpression memberExpr && IsVariableMemberExpression(memberExpr))
             {
-                converter = new VariableMemberExpressionConverter(this.Context, memberExpr, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new VariableMemberExpressionConverter(d, memberExpr, converterStack);
                 return true;
             }
             converter = null;
@@ -64,11 +64,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="VariableMemberExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The member expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public VariableMemberExpressionConverter(IConversionContext context, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public VariableMemberExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

@@ -10,16 +10,17 @@ namespace Atis.SqlExpressionEngine.UnitTest.Converters
 {
     public class SqlFunctionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
     {
-        public SqlFunctionConverterFactory(IConversionContext context) : base(context)
+        public SqlFunctionConverterFactory() : base()
         {
         }
 
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression>? converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression>? converter)
         {
             if (expression is MethodCallExpression methodCallExpression &&
                 Attribute.IsDefined(methodCallExpression.Method, typeof(SqlFunctionAttribute)))
             {
-                converter = new SqlFunctionConverter(this.Context, methodCallExpression, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new SqlFunctionConverter(dependencies, methodCallExpression, converterStack);
                 return true;
             }
 
@@ -30,7 +31,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Converters
 
     public class SqlFunctionConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
     {
-        public SqlFunctionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public SqlFunctionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) 
+            : base(dependencies, expression, converters)
         {
         }
 

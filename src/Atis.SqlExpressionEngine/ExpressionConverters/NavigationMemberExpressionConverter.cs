@@ -11,16 +11,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class NavigationMemberExpressionConverterFacotry : LinqToSqlExpressionConverterFactoryBase<NavigationMemberExpression>
     {
-        public NavigationMemberExpressionConverterFacotry(IConversionContext context) : base(context)
+        public NavigationMemberExpressionConverterFacotry() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is NavigationMemberExpression navMember)
             {
-                converter = new NavigationMemberExpressionConverter(this.Context, navMember, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new NavigationMemberExpressionConverter(d, navMember, converterStack);
                 return true;
             }
             converter = null;
@@ -30,7 +31,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class NavigationMemberExpressionConverter : LinqToNonSqlQueryConverterBase<NavigationMemberExpression>
     {
-        public NavigationMemberExpressionConverter(IConversionContext context, NavigationMemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) 
+        public NavigationMemberExpressionConverter(LinqToSqlExpressionConverterDependencies context, NavigationMemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) 
             : base(context, expression, converters)
         {
         }

@@ -2,13 +2,14 @@
 
 namespace Atis.Expressions
 {
+    // Transient
     /// <summary>
     /// Defines the contract for a provider that manages the conversion of expressions
     /// from a source type to a destination type.
     /// </summary>
     /// <typeparam name="TSourceExpression">The type of the source expression to convert.</typeparam>
     /// <typeparam name="TDestinationExpression">The type of the destination expression after conversion.</typeparam>
-    public interface IExpressionConverterProvider<TSourceExpression, TDestinationExpression>
+    public interface IExpressionTreeConverter<TSourceExpression, TDestinationExpression>
         where TSourceExpression : class
         where TDestinationExpression : class
     {

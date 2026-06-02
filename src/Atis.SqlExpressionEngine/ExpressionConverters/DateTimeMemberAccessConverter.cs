@@ -24,15 +24,22 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             nameof(DateTime.Date),
         };
 
-        public DateTimeMemberAccessConverterFactory(IConversionContext context) : base(context) { }
+        public DateTimeMemberAccessConverterFactory() : base() { }
 
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override IReadOnlyList<Type> GetConverterDependencyTypes()
+        {
+            return base.GetConverterDependencyTypes().Concat(new[] { typeof(ISqlDataTypeFactory) }).ToArray();
+        }
+
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MemberExpression member &&
                 member.Member.DeclaringType == typeof(DateTime) &&
                 SupportedProperties.Contains(member.Member.Name))
             {
-                converter = new DateTimeMemberAccessConverter(this.Context, member, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                var sqlDataTypeFactory = converterDependencies.GetRequired<ISqlDataTypeFactory>();
+                converter = new DateTimeMemberAccessConverter(sqlDataTypeFactory, dependencies, member, converterStack);
                 return true;
             }
 
@@ -63,12 +70,13 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         private readonly ISqlDataTypeFactory sqlDataTypeFactory;
 
         public DateTimeMemberAccessConverter(
-            IConversionContext context,
+            ISqlDataTypeFactory sqlDataTypeFactory,
+            LinqToSqlExpressionConverterDependencies converterDependencies,
             MemberExpression expression,
             ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+            : base(converterDependencies, expression, converterStack)
         {
-            this.sqlDataTypeFactory = this.Context.GetExtensionRequired<ISqlDataTypeFactory>();
+            this.sqlDataTypeFactory = sqlDataTypeFactory;
         }
 
         /// <inheritdoc />

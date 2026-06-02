@@ -19,20 +19,20 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="TakeAfterSkipQueryMethodExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public TakeAfterSkipQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public TakeAfterSkipQueryMethodExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpr &&
                 methodCallExpr.Method.Name == nameof(Queryable.Take) &&
                 methodCallExpr.Arguments.Count > 0 && methodCallExpr.Arguments[0] is MethodCallExpression childMethodCall &&
                 childMethodCall.Method.Name == nameof(Queryable.Skip))
             {
-                converter = new TakeAfterSkipQueryMethodExpressionConverter(this.Context, methodCallExpr, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new TakeAfterSkipQueryMethodExpressionConverter(d, methodCallExpr, converterStack);
                 return true;
             }
             converter = null;
@@ -55,7 +55,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <param name="context">The conversion context.</param>
         /// <param name="expression">The method call expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public TakeAfterSkipQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public TakeAfterSkipQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
         }

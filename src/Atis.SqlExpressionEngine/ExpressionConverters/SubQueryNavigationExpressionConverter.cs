@@ -19,17 +19,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="SubQueryNavigationExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public SubQueryNavigationExpressionConverterFactory(IConversionContext context) : base(context)
+        public SubQueryNavigationExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is SubQueryNavigationExpression subQueryNavigationExpression)
             {
-                converter = new SubQueryNavigationExpressionConverter(Context, subQueryNavigationExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new SubQueryNavigationExpressionConverter(d, subQueryNavigationExpression, converterStack);
                 return true;
             }
             else
@@ -52,10 +52,10 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="SubQueryNavigationExpressionConverter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
+        /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The source expression to be converted.</param>
         /// <param name="converters">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public SubQueryNavigationExpressionConverter(IConversionContext context, SubQueryNavigationExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public SubQueryNavigationExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, SubQueryNavigationExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 

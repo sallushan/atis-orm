@@ -11,18 +11,25 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class BulkInsertConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
     {
-        public BulkInsertConverterFactory(IConversionContext context) : base(context)
+        public BulkInsertConverterFactory() : base()
         {
         }
 
+        public override IReadOnlyList<Type> GetConverterDependencyTypes()
+        {
+            return base.GetConverterDependencyTypes().Concat(new[] { typeof(IModel) }).ToArray();
+        }
+
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies dependencyContainer, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCall &&
                 methodCall.Method.Name == nameof(QueryExtensions.BulkInsert) &&
                 methodCall.Method.DeclaringType == typeof(QueryExtensions))
             {
-                converter = new BulkInsertConverter(this.Context, methodCall, converterStack);
+                var dependencies = this.GetConverterDependencies(dependencyContainer);
+                var model = dependencyContainer.GetRequired<IModel>();
+                converter = new BulkInsertConverter(model, dependencies, methodCall, converterStack);
                 return true;
             }
             converter = null;
@@ -33,9 +40,9 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     {
         private readonly IModel model;
 
-        public BulkInsertConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public BulkInsertConverter(IModel model, LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
-            this.model = this.Context.GetExtensionRequired<IModel>();
+            this.model = model;
         }
 
         /// <inheritdoc />

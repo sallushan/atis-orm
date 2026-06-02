@@ -21,12 +21,12 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             typeof(bool),
         });
 
-        public GetValueOrDefaultConverterFactory(IConversionContext context) : base(context)
+        public GetValueOrDefaultConverterFactory() : base()
         {
         }
 
         /// <inheritdoc/>
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCall &&
                 methodCall.Method.Name == "GetValueOrDefault" &&
@@ -34,7 +34,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 methodCall.Method.DeclaringType.GetGenericTypeDefinition() == typeof(Nullable<>) &&
                 supportedTypes.Contains(methodCall.Type))
             {
-                converter = new GetValueOrDefaultConverter(this.Context, methodCall, converterStack);
+                var dependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new GetValueOrDefaultConverter(dependencies, methodCall, converterStack);
                 return true;
             }
             converter = null;
@@ -44,7 +45,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class GetValueOrDefaultConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
     {
-        public GetValueOrDefaultConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public GetValueOrDefaultConverter(LinqToSqlExpressionConverterDependencies context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
         }

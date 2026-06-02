@@ -15,8 +15,14 @@ namespace Atis.Expressions
         where TDestination : class
     {
         /// <summary>
+        /// 
+        /// </summary>
+        /// <returns></returns>
+        IReadOnlyList<Type> GetConverterDependencyTypes();
+        /// <summary>
         /// Attempts to create an expression converter for the specified source expression.
         /// </summary>
+        /// <param name="dependencyContainer">The dependency container that provides information and services for the conversion process.</param>
         /// <param name="expression">The source expression for which the converter is being created.</param>
         /// <param name="convertersStack">
         /// The current stack of converters in use, which may influence the creation of the new converter.
@@ -27,7 +33,7 @@ namespace Atis.Expressions
         /// <returns>
         /// <c>true</c> if a suitable converter was successfully created; otherwise, <c>false</c>.
         /// </returns>
-        bool TryCreate(TSource expression, ExpressionConverterBase<TSource, TDestination>[] convertersStack, out ExpressionConverterBase<TSource, TDestination> converter);
+        bool TryCreate(IConverterDependencies dependencyContainer, TSource expression, ExpressionConverterBase<TSource, TDestination>[] convertersStack, out ExpressionConverterBase<TSource, TDestination> converter);
     }
 
 }

@@ -11,16 +11,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class StandaloneSelectQueryMethodExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
     {
-        public StandaloneSelectQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public StandaloneSelectQueryMethodExpressionConverterFactory() : base()
         {
         }
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MethodCallExpression methodCallExpression &&
                     methodCallExpression.Method.Name == nameof(QueryExtensions.Select) &&
                     methodCallExpression.Method.DeclaringType == typeof(QueryExtensions))
             {
-                converter = new StandaloneSelectQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new StandaloneSelectQueryMethodExpressionConverter(d, methodCallExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -30,8 +31,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class StandaloneSelectQueryMethodExpressionConverter : LinqToSqlQueryConverterBase<MethodCallExpression>
     {
-        public StandaloneSelectQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
-            : base(context, expression, converterStack)
+        public StandaloneSelectQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+            : base(dependencies, expression, converterStack)
         {
         }
 

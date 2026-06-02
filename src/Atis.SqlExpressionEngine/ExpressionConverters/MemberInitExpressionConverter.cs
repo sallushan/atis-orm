@@ -20,17 +20,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="MemberInitExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="context">The conversion context.</param>
-        public MemberInitExpressionConverterFactory(IConversionContext context) : base(context)
+        public MemberInitExpressionConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MemberInitExpression memberInitExpression)
             {
-                converter = new MemberInitExpressionConverter(this.Context, memberInitExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new MemberInitExpressionConverter(d, memberInitExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -53,7 +53,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <param name="context">The conversion context.</param>
         /// <param name="expression">The <see cref="MemberInitExpression"/> to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public MemberInitExpressionConverter(IConversionContext context, MemberInitExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public MemberInitExpressionConverter(LinqToSqlExpressionConverterDependencies context, MemberInitExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(context, expression, converterStack)
         {
         }

@@ -12,12 +12,12 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class StringCompareToConverterFactory : LinqToSqlExpressionConverterFactoryBase<BinaryExpression>
     {
-        public StringCompareToConverterFactory(IConversionContext context) : base(context)
+        public StringCompareToConverterFactory() : base()
         {
         }
 
         /// <inheritdoc />
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is BinaryExpression binaryExpression &&
                 (binaryExpression.NodeType == ExpressionType.GreaterThan ||
@@ -34,7 +34,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 binaryExpression.Right is ConstantExpression constantExpression &&
                 (constantExpression.Value?.Equals(0) == true || constantExpression.Value?.Equals(1) == true))
             {
-                converter = new StringCompareToConverter(Context, binaryExpression, converterStack);
+                var d = this.GetConverterDependencies(converterDependencies);
+                converter = new StringCompareToConverter(d, binaryExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -44,7 +45,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class StringCompareToConverter : LinqToNonSqlQueryConverterBase<BinaryExpression>
     {
-        public StringCompareToConverter(IConversionContext context, BinaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public StringCompareToConverter(LinqToSqlExpressionConverterDependencies dependencies, BinaryExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 
@@ -53,7 +54,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         {
             if (childNode == this.Expression.Left && childNode is MethodCallExpression stringCompareMethodCall)
             {
-                childConverter = new StringCompareMethodConverter(Context, stringCompareMethodCall, converterStack);
+                childConverter = new StringCompareMethodConverter(this.ConverterDependencies, stringCompareMethodCall, converterStack);
                 return true;
             }
             return base.TryCreateChildConverter(childNode, converterStack, out childConverter);
@@ -133,7 +134,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
         private class StringCompareMethodConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
         {
-            public StringCompareMethodConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+            public StringCompareMethodConverter(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) 
+                : base(dependencies, expression, converters)
             {
             }
 

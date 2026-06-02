@@ -74,7 +74,7 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             return childQueryExpr;
         }
 
-        protected bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation) 
+        private bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation) 
         {
             var entity = this.model.GetEntity(navNode.Expression.Type);
             if (entity != null)

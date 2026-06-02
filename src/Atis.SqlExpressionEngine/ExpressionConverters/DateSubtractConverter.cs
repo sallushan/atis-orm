@@ -24,12 +24,12 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 nameof(TimeSpan.Ticks),
             });
 
-        public DateSubtractConverterFactory(IConversionContext context) : base(context)
+        public DateSubtractConverterFactory() : base()
         {
         }
 
         /// <inheritdoc/>
-        public override bool TryCreate(Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
+        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             if (expression is MemberExpression memberExpression &&
                 supportedMembers.Contains(memberExpression.Member.Name) &&
@@ -37,7 +37,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 methodCallExpression.Method.DeclaringType == typeof(DateTime) &&
                 methodCallExpression.Method.Name == nameof(DateTime.Subtract))
             {
-                converter = new DateSubtractConverter(this.Context, memberExpression, converterStack);
+                var linqConverterDependencies = this.GetConverterDependencies(converterDependencies);
+                converter = new DateSubtractConverter(linqConverterDependencies, memberExpression, converterStack);
                 return true;
             }
             converter = null;
@@ -47,7 +48,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class DateSubtractConverter : LinqToNonSqlQueryConverterBase<MemberExpression>
     {
-        public DateSubtractConverter(IConversionContext context, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        public DateSubtractConverter(LinqToSqlExpressionConverterDependencies converterDependencies, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(converterDependencies, expression, converters)
         {
         }
 
@@ -56,7 +57,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         {
             if (childNode == this.Expression.Expression && childNode is MethodCallExpression methodCallExpression)
             {
-                childConverter = new DateSubtractMethodCallConverter(this.Context, methodCallExpression, converterStack);
+                childConverter = new DateSubtractMethodCallConverter(this.ConverterDependencies, methodCallExpression, converterStack);
                 return true;
             }
             return base.TryCreateChildConverter(childNode, converterStack, out childConverter);
@@ -106,7 +107,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
         private class DateSubtractMethodCallConverter : LinqToNonSqlQueryConverterBase<MethodCallExpression>
         {
-            public DateSubtractMethodCallConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+            public DateSubtractMethodCallConverter(LinqToSqlExpressionConverterDependencies converterDependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(converterDependencies, expression, converters)
             {
             }
 

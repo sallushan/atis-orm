@@ -19,12 +19,12 @@ namespace Atis.SqlExpressionEngine.UnitTest
         {
         }
 
-        protected override void OnConversionContextInitialized(ConversionContext conversionContext, List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
+        protected override void OnCustomFactoriesInitialize(List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
         {
-            var sqlFunctionConverterFactory = new SqlFunctionConverterFactory(conversionContext);
+            var sqlFunctionConverterFactory = new SqlFunctionConverterFactory();
             customConverterFactories?.Add(sqlFunctionConverterFactory);
 
-            base.OnConversionContextInitialized(conversionContext, customConverterFactories);
+            base.OnCustomFactoriesInitialize(customConverterFactories);
         }
     }
 }

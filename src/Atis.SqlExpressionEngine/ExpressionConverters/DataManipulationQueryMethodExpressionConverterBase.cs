@@ -12,7 +12,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     {
         private SqlSelectExpression sourceQuery;
 
-        protected DataManipulationQueryMethodExpressionConverterBase(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(context, expression, converters)
+        protected DataManipulationQueryMethodExpressionConverterBase(LinqToSqlExpressionConverterDependencies dependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converters) : base(dependencies, expression, converters)
         {
         }
 

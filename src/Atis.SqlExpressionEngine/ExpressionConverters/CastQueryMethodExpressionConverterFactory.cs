@@ -11,13 +11,14 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class CastQueryMethodExpressionConverterFactory : QueryMethodExpressionConverterFactoryBase
     {
-        public CastQueryMethodExpressionConverterFactory(IConversionContext context) : base(context)
+        public CastQueryMethodExpressionConverterFactory() : base()
         {
         }
 
-        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        protected override ExpressionConverterBase<Expression, SqlExpression> CreateConverter(IConverterDependencies converterDependencies, MethodCallExpression methodCallExpression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
         {
-            return new CastQueryMethodExpressionConverter(this.Context, methodCallExpression, converterStack);
+            var d = this.GetConverterDependencies(converterDependencies);
+            return new CastQueryMethodExpressionConverter(d, methodCallExpression, converterStack);
         }
 
         protected override bool IsQueryMethodCall(MethodCallExpression methodCallExpression)
@@ -30,7 +31,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
     public class CastQueryMethodExpressionConverter : QueryMethodExpressionConverterBase
     {
-        public CastQueryMethodExpressionConverter(IConversionContext context, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
+        public CastQueryMethodExpressionConverter(LinqToSqlExpressionConverterDependencies converterDependencies, MethodCallExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) 
+            : base(converterDependencies, expression, converterStack)
         {
         }
 
