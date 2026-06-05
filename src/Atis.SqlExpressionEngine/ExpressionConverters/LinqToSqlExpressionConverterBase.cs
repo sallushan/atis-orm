@@ -11,17 +11,15 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class LinqToSqlExpressionConverterDependencies
     {
-        public LinqToSqlExpressionConverterDependencies(ISqlExpressionFactory sqlFactory, IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, ILambdaParameterToDataSourceMapper lambdaParamMapper, ILogger logger)
+        public LinqToSqlExpressionConverterDependencies(ISqlExpressionFactory sqlFactory, IReflectionService reflectionService, ILambdaParameterToDataSourceMapper lambdaParamMapper, ILogger logger)
         {
             this.SqlFactory = sqlFactory ?? throw new ArgumentNullException(nameof(sqlFactory));
             this.ReflectionService = reflectionService ?? throw new ArgumentNullException(nameof(reflectionService));
-            this.ExpressionEvaluator = expressionEvaluator ?? throw new ArgumentNullException(nameof(expressionEvaluator));
             this.LambdaParameterMapper = lambdaParamMapper ?? throw new ArgumentNullException(nameof(lambdaParamMapper));
             this.Logger = logger;
         }
         public ISqlExpressionFactory SqlFactory { get; }
         public IReflectionService ReflectionService { get; }
-        public IExpressionEvaluator ExpressionEvaluator { get; }
         public ILambdaParameterToDataSourceMapper LambdaParameterMapper { get; }
         public ILogger Logger { get; }
     }
@@ -72,7 +70,6 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// </summary>
         public ISqlExpressionFactory SqlFactory => this.ConverterDependencies.SqlFactory;
         public IReflectionService ReflectionService => this.ConverterDependencies.ReflectionService;
-        public IExpressionEvaluator ExpressionEvaluator => this.ConverterDependencies.ExpressionEvaluator;
         public ILambdaParameterToDataSourceMapper ParameterMapper => this.ConverterDependencies.LambdaParameterMapper;
         public ILogger Logger => this.ConverterDependencies.Logger;
         protected HashSet<ParameterExpression> MappedParameters { get; } = new HashSet<ParameterExpression>();

@@ -30,14 +30,17 @@ namespace Atis.Orm
         /// <inheritdoc />
         protected override bool TryGetCalculatedExpression(MemberExpression memberExpression, out LambdaExpression calculatedPropertyExpression)
         {
-            var modelType = memberExpression.Type;
-            var metadata = this.model.GetEntity(modelType);
-            if (metadata != null)
+            var modelType = memberExpression.Expression?.Type;
+            if (modelType != null)
             {
-                if (metadata.CalculatedProperties.TryGetValue(memberExpression.Member.Name, out var lambdaExpression))
+                var metadata = this.model.GetEntity(modelType);
+                if (metadata != null)
                 {
-                    calculatedPropertyExpression = lambdaExpression;
-                    return true;
+                    if (metadata.CalculatedProperties.TryGetValue(memberExpression.Member.Name, out var lambdaExpression))
+                    {
+                        calculatedPropertyExpression = lambdaExpression;
+                        return true;
+                    }
                 }
             }
             calculatedPropertyExpression = null;

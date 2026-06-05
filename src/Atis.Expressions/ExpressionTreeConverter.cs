@@ -12,7 +12,7 @@ namespace Atis.Expressions
     /// </summary>
     /// <typeparam name="TSourceExpression">The type of the source expression to convert.</typeparam>
     /// <typeparam name="TDestinationExpression">The type of the destination expression after conversion.</typeparam>
-    public abstract class ExpressionTreeConverter<TSourceExpression, TDestinationExpression> : IExpressionTreeConverter<TSourceExpression, TDestinationExpression>
+    public class ExpressionTreeConverter<TSourceExpression, TDestinationExpression> : IExpressionTreeConverter<TSourceExpression, TDestinationExpression>
         where TDestinationExpression : class
         where TSourceExpression : class
     {
@@ -33,27 +33,15 @@ namespace Atis.Expressions
         /// with the specified factories.
         /// </summary>
         /// <param name="converterDependencyProvider">The dependency provider that provides information and services for the conversion process.</param>
-        /// <param name="userProvidedFactories">The factories to use for creating expression converters.</param>
-        public ExpressionTreeConverter(IExpressionConverterDependencyProvider converterDependencyProvider, IEnumerable<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> userProvidedFactories)
+        /// <param name="converterFactories">The factories to use for creating expression converters.</param>
+        public ExpressionTreeConverter(IExpressionConverterDependencyProvider converterDependencyProvider, IEnumerable<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> converterFactories)
         {
             this.ConverterDependencyProvider = converterDependencyProvider ?? throw new ArgumentNullException(nameof(converterDependencyProvider));
-            var factories = new List<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>>();
-            if (userProvidedFactories != null)
-                factories.AddRange(userProvidedFactories);
-            var standardFactories = this.GetDefaultFactories();
-            if (standardFactories != null)
-                factories.AddRange(standardFactories);
-            if (factories.Count == 0)
-                throw new InvalidOperationException("No Converter Factories have been defined for the Expression Tree Converter. Please provide at least one factory either through the constructor or by overriding the GetDefaultFactories method.");
-            this.Factories = factories;
+            if (converterFactories is null || !converterFactories.Any())
+                throw new ArgumentNullException(nameof(converterFactories));
+            this.Factories = new List<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>>(converterFactories);
             this.InitializeConversionContext();
         }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <returns></returns>
-        protected abstract IReadOnlyList<IExpressionConverterFactory<TSourceExpression, TDestinationExpression>> GetDefaultFactories();
 
         /// <summary>
         /// Gets the stack of converters used during the conversion process.

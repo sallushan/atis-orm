@@ -1,9 +1,11 @@
 ﻿using Atis.Expressions;
 using Atis.SqlExpressionEngine;
 using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.ExpressionConverters;
 using Atis.SqlExpressionEngine.Preprocessors;
 using Atis.SqlExpressionEngine.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,25 +18,37 @@ namespace Atis.Orm
     /// <summary>
     /// 
     /// </summary>
-    public class DataContext
+    public class DataContext : IDisposable
     {
-        private readonly IDbCommunication dbCommunication;
-        private readonly IDbParameterFactory dbParameterFactory;
-        private readonly ILogger _logger;
-        private readonly List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories;
-        private readonly IReadOnlyList<IExpressionPreprocessor> customPreprocessors;
+        private readonly DataContextConfiguration _config;
+        private IServiceScope _serviceScope;
+        private IServiceProvider _serviceProvider;
 
-        /// <summary>
-        /// 
-        /// </summary>
-        public DataContext(IDbCommunication dbCommunication, IDbParameterFactory dbParameterFactory, ILogger logger, IReadOnlyList<IExpressionPreprocessor> customPreprocessors)
+        protected DataContext() : this(new DataContextConfiguration()) { }
+
+        public DataContext(DataContextConfiguration config)
         {
-            this.dbCommunication = dbCommunication;
-            this.dbParameterFactory = dbParameterFactory;
-            this._logger = logger;
-            this.customPreprocessors = customPreprocessors;
-            this.customConverterFactories = new List<IExpressionConverterFactory<Expression, SqlExpression>>();
+            _config = config ?? throw new ArgumentNullException(nameof(config));
         }
+
+        private IServiceProvider ServiceProvider
+        {
+            get
+            {
+                if (_serviceProvider == null)
+                {
+                    OnConfiguring(_config);
+                    _serviceScope = OrmServiceManager.Instance
+                        .GetOrAdd(_config)
+                        .GetRequiredService<IServiceScopeFactory>()
+                        .CreateScope();
+                    _serviceProvider = _serviceScope.ServiceProvider;
+                }
+                return _serviceProvider;
+            }
+        }
+
+        protected virtual void OnConfiguring(DataContextConfiguration config) { }
 
         private IEntityMetadataBuilder _metadataBuilder;
         /// <summary>
@@ -46,11 +60,7 @@ namespace Atis.Orm
             {
                 if (this._metadataBuilder is null)
                 {
-                    this.Initialize();
-                    if (this._metadataBuilder is null)
-                    {
-                        throw new InvalidOperationException("Metadata builder is not initialized properly.");
-                    }
+                    this._metadataBuilder = this.ServiceProvider.GetRequiredService<IEntityMetadataBuilder>();
                 }
                 return this._metadataBuilder;
             }
@@ -65,13 +75,7 @@ namespace Atis.Orm
             get
             {
                 if (this._ormModel is null)
-                {
-                    this.Initialize();
-                    if (this._ormModel is null)
-                    {
-                        throw new InvalidOperationException("ORM model is not initialized properly.");
-                    }
-                }
+                    this._ormModel = this.ServiceProvider.GetRequiredService<IOrmModel>();
                 return this._ormModel;
             }
         }
@@ -86,12 +90,7 @@ namespace Atis.Orm
             {
                 if (this._queryProvider is null)
                 {
-                    this.Initialize();
-
-                    if (this._queryProvider is null)
-                    {
-                        throw new InvalidOperationException("Query provider is not initialized properly.");
-                    }
+                    this._queryProvider = this.ServiceProvider.GetRequiredService<IAsyncQueryProvider>();
                 }
                 return this._queryProvider;
             }
@@ -109,67 +108,7 @@ namespace Atis.Orm
             return new OrmQueryable<T>(this.QueryProvider);
         }
 
-        // IMPORTANT: below method is only because we haven't implemented the DI injection yet.
-        // And they are subject to change.
-
-        /// <summary>
-        /// 
-        /// </summary>
-        protected virtual void Initialize()
-        {
-            var expressionEvaluator = new ExpressionEvaluator();
-            var reflectionService = new OrmReflectionService();
-            this._metadataBuilder = new EntityMetadataBuilder(reflectionService);
-            var cacheKeyProvider = new ExpressionCacheKeyProvider();
-            var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
-            var preprocessingRequirementTester = new PreprocessingRequirementTester();
-            var sqlDataTypeFactory = new SqlDataTypeFactory();
-            var parameterMapper = new LambdaParameterToDataSourceMapper();
-            var sqlFactory = new SqlExpressionFactory();
-            this._ormModel = new OrmModel();            
-            var converterDependencies = new List<object> { sqlDataTypeFactory, sqlFactory, this._ormModel, parameterMapper, reflectionService, this._logger, expressionEvaluator };
-            this.OnCustomFactoriesInitialize(this.customConverterFactories);
-            var dependencyProvider = new ExpressionConverterDependencyProviderByCollection(converterDependencies);
-            var converterProviderFactory = new LinqToSqlExpressionTreeConverterFactory(dependencyProvider, userProvidedFactories: this.customConverterFactories);
-            var linqToSqlConverter = new LinqToSqlConverter(converterProviderFactory, new SqlExpressionPostprocessorProvider(null));
-            var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
-            var elementFactoryBuilder = new ElementFactoryBuilder();
-            var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, this._ormModel);
-            var queryCompiler = new QueryCompiler(preprocessor, preprocessingRequirementTester, linqToSqlConverter, sqlExpressionTranslator, this.dbParameterFactory, elementFactoryBuilder);
-            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
-            var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
-            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
-            this._queryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="customConverterFactories"></param>
-        protected virtual void OnCustomFactoriesInitialize(List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
-        {
-            // do nothing
-        }
-
-        private IExpressionPreprocessorProvider GetPreprocessorProvider(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, IModel model)
-        {
-            var navigateToManyPreprocessor = new NavigateToManyPreprocessor(model);
-            var navigateToOnePreprocessor = new NavigateToOnePreprocessor(model);
-            var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
-            var calculatedPropertyReplacementPreprocessor = new OrmCalculatedPropertyPreprocessor(model);
-            var specificationPreprocessor = new SpecificationCallRewriterPreprocessor(reflectionService, expressionEvaluator);
-            var convertPreprocessor = new ConvertExpressionReplacementPreprocessor();
-            var allToAnyRewriterPreprocessor = new AllToAnyRewriterPreprocessor();
-            var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(expressionEvaluator);
-            var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
-            var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model, reflectionService);
-            var preprocessors = new List<IExpressionPreprocessor>(new IExpressionPreprocessor[] { queryVariablePreprocessor, methodInterfaceTypeReplacementPreprocessor, navigateToManyPreprocessor, navigateToOnePreprocessor, calculatedPropertyReplacementPreprocessor, specificationPreprocessor, convertPreprocessor, allToAnyRewriterPreprocessor, inValuesReplacementPreprocessor, navigationEqualityPreprocessor });
-            if (this.customPreprocessors != null && this.customPreprocessors.Count > 0)
-            {
-                preprocessors.AddRange(this.customPreprocessors);
-            }
-            var preprocessor = new ExpressionPreprocessorProvider(preprocessors);
-            return preprocessor;
-        }
+        /// <inheritdoc />
+        public void Dispose() => _serviceScope?.Dispose();
     }
 }

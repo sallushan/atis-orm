@@ -7,8 +7,8 @@ using System.Text;
 
 namespace Atis.SqlExpressionEngine.Abstractions
 {
-    public interface ILinqToSqlExpressionTreeConverterFactory
-    {
-        IExpressionTreeConverter<Expression, SqlExpression> Create();
-    }
+    //public interface ILinqToSqlExpressionTreeConverterFactory
+    //{
+    //    IExpressionTreeConverter<Expression, SqlExpression> Create();
+    //}
 }

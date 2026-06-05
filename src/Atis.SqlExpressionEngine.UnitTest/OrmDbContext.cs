@@ -10,21 +10,28 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
+using Atis.Orm.SqlServer;
 
 namespace Atis.SqlExpressionEngine.UnitTest
 {
     internal class OrmDbContext : DataContext
     {
-        public OrmDbContext(IDbCommunication dbCommunication, IDbParameterFactory dbParameterFactory, ILogger logger, IReadOnlyList<IExpressionPreprocessor> customPreprocessors) : base(dbCommunication, dbParameterFactory, logger, customPreprocessors)
+        public OrmDbContext()
         {
         }
 
-        protected override void OnCustomFactoriesInitialize(List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
-        {
-            var sqlFunctionConverterFactory = new SqlFunctionConverterFactory();
-            customConverterFactories?.Add(sqlFunctionConverterFactory);
+        //protected override void OnCustomFactoriesInitialize(List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
+        //{
+        //    var sqlFunctionConverterFactory = new SqlFunctionConverterFactory();
+        //    customConverterFactories?.Add(sqlFunctionConverterFactory);
 
-            base.OnCustomFactoriesInitialize(customConverterFactories);
+        //    base.OnCustomFactoriesInitialize(customConverterFactories);
+        //}
+
+        protected override void OnConfiguring(DataContextConfiguration config)
+        {
+            config.UseSqlServer($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            config.UseUnitTestCustomConverters();
         }
     }
 }

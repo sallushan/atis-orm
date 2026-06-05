@@ -39,8 +39,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         {
             if (memberExpression.Member.Name == "Key")
             {
-                var parentType = memberExpression.Expression.Type;
-                if (this.reflectionService.IsGroupingType(parentType))
+                var parentType = memberExpression.Expression?.Type;
+                if (parentType != null && this.reflectionService.IsGroupingType(parentType))
                 {
                     return true;
                 }

@@ -16,8 +16,9 @@ namespace Atis.Orm
         private readonly IDbParameterFactory dbParameterFactory;
         private readonly IPreprocessingRequirementTester preprocessingRequirementTester;
         private readonly IElementFactoryBuilder elementFactoryBuilder;
+        private readonly ILogger logger;
 
-        public QueryCompiler(IExpressionPreprocessorProvider preprocessor, IPreprocessingRequirementTester preprocessingRequirementTester, ILinqToSqlConverter linqToSqlConverter, ISqlExpressionTranslator sqlExpressionTranslator, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
+        public QueryCompiler(IExpressionPreprocessorProvider preprocessor, IPreprocessingRequirementTester preprocessingRequirementTester, ILinqToSqlConverter linqToSqlConverter, ISqlExpressionTranslator sqlExpressionTranslator, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder, ILogger logger)
         {
             this.linqToSqlConverter = linqToSqlConverter;
             this.preprocessor = preprocessor;
@@ -25,6 +26,7 @@ namespace Atis.Orm
             this.dbParameterFactory = dbParameterFactory;
             this.preprocessingRequirementTester = preprocessingRequirementTester;
             this.elementFactoryBuilder = elementFactoryBuilder;
+            this.logger = logger;
         }
 
         public ICompiledQuery Compile(Expression expression)
@@ -32,7 +34,11 @@ namespace Atis.Orm
             if (expression is null)
                 throw new ArgumentNullException(nameof(expression));
 
+            this.logger.Log("Before preprocessing:");
+            this.logger.Log(expression.ToString());
             var preprocessedExpression = this.PreprocessExpression(expression);
+            this.logger.Log("After preprocessing:");
+            this.logger.Log(preprocessedExpression.ToString());
             var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, preprocessedExpression);
             var sqlExpression = this.ConvertExpressionToSqlExpression(preprocessedExpression);
             var isNonQuery = sqlExpression is SqlUpdateExpression || sqlExpression is SqlInsertIntoExpression || sqlExpression is SqlDeleteExpression;

@@ -63,10 +63,10 @@ namespace Atis.Orm
             foreach (var calcProperty in calculatedPropertiesArray)
             {
                 var exprPropName = calcProperty.CalcAttr.ExpressionPropertyName;
-                var exprProperty = type.GetProperty(exprPropName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                var exprProperty = type.GetMember(exprPropName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static).FirstOrDefault();
                 if (exprProperty != null)
                 {
-                    if (exprProperty.GetValue(null) is LambdaExpression exprPropertyValue)
+                    if (this.reflectionService.GetPropertyOrFieldValue(instance: null, exprProperty) is LambdaExpression exprPropertyValue)
                     {
                         calculatedProperties.Add(calcProperty.Prop.Name, exprPropertyValue);
                     }

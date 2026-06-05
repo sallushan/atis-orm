@@ -43,7 +43,6 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             return new LinqToSqlExpressionConverterDependencies(
                 sqlFactory: converterDependencies.GetRequired<ISqlExpressionFactory>(),
                 reflectionService: converterDependencies.GetRequired<IReflectionService>(),
-                expressionEvaluator: converterDependencies.GetRequired<IExpressionEvaluator>(),
                 lambdaParamMapper: converterDependencies.GetRequired<ILambdaParameterToDataSourceMapper>(),
                 logger: converterDependencies.GetRequired<ILogger>()
             );

@@ -12,7 +12,6 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     /// </summary>
     public class VariableMemberExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MemberExpression>
     {
-        private readonly IReflectionService reflectionService;
         private readonly IExpressionEvaluator expressionEvaluator;
 
         /// <summary>
@@ -20,9 +19,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///         Initializes a new instance of the <see cref="VariableMemberExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        public VariableMemberExpressionConverterFactory(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator ) : base()
+        public VariableMemberExpressionConverterFactory(IExpressionEvaluator expressionEvaluator ) : base()
         {
-            this.reflectionService = reflectionService;
             this.expressionEvaluator = expressionEvaluator;
         }
 
@@ -32,7 +30,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             if (expression is MemberExpression memberExpr && IsVariableMemberExpression(memberExpr))
             {
                 var d = this.GetConverterDependencies(converterDependencies);
-                converter = new VariableMemberExpressionConverter(d, memberExpr, converterStack);
+                converter = new VariableMemberExpressionConverter(this.expressionEvaluator, d, memberExpr, converterStack);
                 return true;
             }
             converter = null;
@@ -59,17 +57,21 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     /// </summary>
     public class VariableMemberExpressionConverter : LinqToNonSqlQueryConverterBase<MemberExpression>
     {
+        private readonly IExpressionEvaluator expressionEvaluator;
+
         /// <summary>
         ///     <para>
         ///         Initializes a new instance of the <see cref="VariableMemberExpressionConverter"/> class.
         ///     </para>
         /// </summary>
+        /// <param name="expressionEvaluator">The expression evaluator.</param>
         /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The member expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public VariableMemberExpressionConverter(LinqToSqlExpressionConverterDependencies dependencies, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public VariableMemberExpressionConverter(IExpressionEvaluator expressionEvaluator, LinqToSqlExpressionConverterDependencies dependencies, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(dependencies, expression, converterStack)
         {
+            this.expressionEvaluator = expressionEvaluator;
         }
 
         /// <inheritdoc />
@@ -101,7 +103,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <returns>Value from the specified member expression.</returns>
         protected virtual object GetVariableValue(MemberExpression memberExpression)
         {
-            return this.ExpressionEvaluator.Evaluate(memberExpression);
+            return this.expressionEvaluator.Evaluate(memberExpression);
         }
 
         /// <inheritdoc />

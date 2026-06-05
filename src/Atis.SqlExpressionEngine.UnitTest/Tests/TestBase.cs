@@ -1,6 +1,7 @@
 ﻿using Atis.Expressions;
 using Atis.Orm;
 using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.ExpressionConverters;
 using Atis.SqlExpressionEngine.Preprocessors;
 using Atis.SqlExpressionEngine.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
@@ -103,12 +104,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var parameterMapper = new LambdaParameterToDataSourceMapper();
             var sqlFactory = new SqlExpressionFactory();
             var expressionEvaluator = new ExpressionEvaluator();
-            var logger = new Logger();
+            var logger = new Services.Logger();
             var serviceCollection = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
-            var treeConverterFactory = new LinqToSqlExpressionTreeConverterFactory(converterServiceProvider, userProvidedFactories: [new SqlFunctionConverterFactory()]);
+            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, userProvidedFactories: [new SqlFunctionConverterFactory()]);
+            var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
             var postProcessorProvider = new SqlExpressionPostprocessorProvider(postprocessors: []);
-            var linqToSqlConverter = new LinqToSqlConverter(treeConverterFactory, postProcessorProvider);
+            var linqToSqlConverter = new LinqToSqlConverter(treeConverter, postProcessorProvider);
 
             return linqToSqlConverter.Convert(updatedQueryExpression); // Let exception bubble up
         }
@@ -116,30 +118,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         protected Expression PreprocessExpression(Expression expression, IModel model)
         {
-            //var stringLengthReplacementVisitor = new StringLengthReplacementVisitor();
-            //expression = stringLengthReplacementVisitor.Visit(expression);
-            //var queryProvider = new QueryProvider();
             var expressionEvaluator = new ExpressionEvaluator();
             var reflectionService = new ReflectionService();
-            //var navigateToManyPreprocessor = new NavigateToManyPreprocessor(/*queryProvider,*/ reflectionService);
-            var navigateToManyPreprocessor = new NavigateToManyPreprocessor(model);
-            //var navigateToOnePreprocessor = new NavigateToOnePreprocessor(reflectionService/*, queryProvider*/);
-            var navigateToOnePreprocessor = new NavigateToOnePreprocessor(model);
-            var queryVariablePreprocessor = new QueryVariableReplacementPreprocessor();
-            //var childJoinReplacementPreprocessor = new ChildJoinReplacementPreprocessor(reflectionService);
-            var calculatedPropertyReplacementPreprocessor = new CalculatedPropertyPreprocessor(reflectionService);
-            var specificationPreprocessor = new SpecificationCallRewriterPreprocessor(reflectionService, expressionEvaluator);
-            var convertPreprocessor = new ConvertExpressionReplacementPreprocessor();
-            var allToAnyRewriterPreprocessor = new AllToAnyRewriterPreprocessor();
-            var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(expressionEvaluator);
-            //var nonPrimitivePropertyReplacementPreprocessor = new NonPrimitiveCalculatedPropertyPreprocessor(reflectionService);
-            //var concreteParameterPreprocessor = new ConcreteParameterReplacementPreprocessor(new QueryPartsIdentifier(), reflectionService);
-            var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
-            var customMethodReplacementPreprocessor = new CustomBusinessMethodPreprocessor();
-            var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model, reflectionService);
-            var preprocessor = new ExpressionPreprocessorProvider([queryVariablePreprocessor, methodInterfaceTypeReplacementPreprocessor, navigateToManyPreprocessor, navigateToOnePreprocessor, /*childJoinReplacementPreprocessor, */calculatedPropertyReplacementPreprocessor, specificationPreprocessor, convertPreprocessor, allToAnyRewriterPreprocessor, inValuesReplacementPreprocessor, customMethodReplacementPreprocessor,
-                navigationEqualityPreprocessor
-                /*, concreteParameterPreprocessor*/]);
+            var preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: new[] { new CustomBusinessMethodPreprocessor() });
             expression = preprocessor.Preprocess(expression);
             return expression;
         }

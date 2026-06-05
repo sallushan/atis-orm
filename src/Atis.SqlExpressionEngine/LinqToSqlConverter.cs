@@ -8,22 +8,20 @@ using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine
 {
-    // singleton
     public class LinqToSqlConverter : ILinqToSqlConverter
     {
-        private readonly ILinqToSqlExpressionTreeConverterFactory treeConverterFactory;
+        private readonly IExpressionTreeConverter<Expression, SqlExpression> treeConverter;
         private readonly ISqlExpressionPostprocessorProvider postProcessorProvider;
 
-        public LinqToSqlConverter(ILinqToSqlExpressionTreeConverterFactory treeConverterFactory, ISqlExpressionPostprocessorProvider postProcessorProvider)
+        public LinqToSqlConverter(IExpressionTreeConverter<Expression, SqlExpression> treeConverter, ISqlExpressionPostprocessorProvider postProcessorProvider)
         {
-            this.treeConverterFactory = treeConverterFactory ?? throw new ArgumentNullException(nameof(treeConverterFactory));
+            this.treeConverter = treeConverter;
             this.postProcessorProvider = postProcessorProvider;
         }
 
         /// <inheritdoc />
         public virtual SqlExpression Convert(Expression expression)
         {
-            var treeConverter = this.treeConverterFactory.Create();
             var visitor = new ExpressionConverterVisitor<Expression, SqlExpression>(treeConverter);
             var linqToSqlConverterInternal = new LinqToSqlConverterInternal(visitor);
             var sqlExpression = linqToSqlConverterInternal.Convert(expression);
