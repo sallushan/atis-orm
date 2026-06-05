@@ -15,14 +15,14 @@ namespace Atis.SqlExpressionEngine.UnitTest
 {
     public static class UnitTestDataContextConfigurationExtensions
     {
-        public static DataContextConfiguration UseUnitTestCustomConverters(this DataContextConfiguration config)
+        public static DataContextConfiguration UseUnitTestCustomization(this DataContextConfiguration config)
         {
-            config.AddOrUpdateExtension(new UnitTestCustomConvertersExtension());
+            config.AddOrUpdateExtension(new UnitTestCustomizationContextExtension());
             return config;
         }
     }
 
-    public class UnitTestCustomConvertersExtension : IServiceContextExtension
+    public class UnitTestCustomizationContextExtension : IServiceContextExtension
     {
         public void AddServices(IServiceCollection services)
         {

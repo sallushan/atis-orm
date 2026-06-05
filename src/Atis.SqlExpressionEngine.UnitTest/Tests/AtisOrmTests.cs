@@ -205,5 +205,18 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 Console.WriteLine($"{result.EmployeeId}: {result.FirstName}");
             }
         }
+
+
+        [TestMethod]
+        public void DataContext_Custom_Business_Method_test()
+        {
+            var dataContext = new OrmDbContext();
+            var invoices = dataContext.CreateQuery<TestEntities.Employee>();
+            var results = invoices.Select(x => new { x.FirstName, x.EmployeeId, FullName = GeneralTranslationTests.FullName(x.FirstName, x.LastName) }).Take(10).ToList();
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{result.EmployeeId}: {result.FullName}");
+            }
+        }
     }
 }

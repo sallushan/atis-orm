@@ -20,18 +20,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
         {
         }
 
-        //protected override void OnCustomFactoriesInitialize(List<IExpressionConverterFactory<Expression, SqlExpression>> customConverterFactories)
-        //{
-        //    var sqlFunctionConverterFactory = new SqlFunctionConverterFactory();
-        //    customConverterFactories?.Add(sqlFunctionConverterFactory);
-
-        //    base.OnCustomFactoriesInitialize(customConverterFactories);
-        //}
-
         protected override void OnConfiguring(DataContextConfiguration config)
         {
             config.UseSqlServer($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
-            config.UseUnitTestCustomConverters();
+            config.UseUnitTestCustomization();
         }
     }
 }
