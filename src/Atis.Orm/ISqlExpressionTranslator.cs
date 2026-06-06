@@ -4,6 +4,6 @@ namespace Atis.Orm
 {
     public interface ISqlExpressionTranslator
     {
-        TranslationResult Translate(SqlExpression sqlExpression);
+        SqlTranslationResult Translate(SqlExpression sqlExpression);
     }
 }

@@ -1,5 +1,7 @@
 ﻿using Atis.Orm.Annotations;
 using Atis.SqlExpressionEngine.UnitTest.Metadata;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.UnitTest
@@ -422,7 +424,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
     [DbTable("Person", schema: "dbo")]
     public class Person
     {
-        [DbKey]
+        [PrimaryKey]
         [DbIdentityColumn]
         [DbColumn("ID")]
         public int Id { get; set; }
@@ -472,5 +474,19 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public string SiteId { get; set; }
         public string ModuleName { get; set; }
         public string AuthorizationUserId { get; set; }
+    }
+
+    [Table("SLS_ORD")]
+    public class SalesOrderWithSystemAnnotation
+    {
+        [Key]
+        [Column("ROW_ID")]
+        public Guid RowId { get; set; }
+        [Column("ORD_ID")]
+        public string SalesOrderId { get; set; }
+        [Column("ORD_DT")]
+        public DateTime? OrderDate { get; set; }
+        [Column("CST_NM")]
+        public string CustomerName { get; set; }
     }
 }

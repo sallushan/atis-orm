@@ -13,15 +13,16 @@ using System.Text;
 
 namespace Atis.Orm
 {
+    public enum NavigationPropertyType
+    {
+        None,
+        EntityRelationClass,
+        RelationAttribute
+    }
+
     /// <inheritdoc />
     public class EntityMetadataBuilder : IEntityMetadataBuilder
     {
-        private enum NavigationPropertyType
-        {
-            None,
-            EntityRelationClass,
-            RelationAttribute
-        }
         private readonly static MethodInfo createJoinedDataSourceOpenMethodInfo = typeof(EntityMetadataBuilder).GetMethod(nameof(CreateJoinedDataSourceGen), BindingFlags.NonPublic | BindingFlags.Instance)
                                                                                     ??
                                                                                     throw new InvalidOperationException($"Failed to get method info for {nameof(CreateJoinedDataSourceGen)}");
@@ -41,7 +42,7 @@ namespace Atis.Orm
         {
             var columnProperties = this.GetColumnMembers(type);
             var columns = columnProperties
-                            .Select(x => new TableColumn(x.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? x.Name, x.Name, isPrimaryKey: x.GetCustomAttribute<PrimaryKeyAttribute>() != null))
+                            .Select(x => new TableColumn(this.GetColumnName(x), x.Name, isPrimaryKey: x.GetCustomAttribute<PrimaryKeyAttribute>() != null))
                             .ToArray();
             var navigationProperties = type.GetProperties()
                                                 .Select(x => new { Prop = x, NavigationType = this.GetNavigationPropertyType(type, x) })
@@ -57,24 +58,18 @@ namespace Atis.Orm
             }
             Dictionary<string, LambdaExpression> calculatedProperties = new Dictionary<string, LambdaExpression>();
             var calculatedPropertiesArray = type.GetProperties()
-                                            .Select(x => new { Prop = x, CalcAttr = x.GetCustomAttribute<CalculatedPropertyAttribute>() })
-                                            .Where(x => x.CalcAttr != null)
+                                            .Where(x => this.IsCalculatedProperty(x))
                                             .ToArray();
             foreach (var calcProperty in calculatedPropertiesArray)
             {
-                var exprPropName = calcProperty.CalcAttr.ExpressionPropertyName;
-                var exprProperty = type.GetMember(exprPropName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static).FirstOrDefault();
-                if (exprProperty != null)
-                {
-                    if (this.reflectionService.GetPropertyOrFieldValue(instance: null, exprProperty) is LambdaExpression exprPropertyValue)
-                    {
-                        calculatedProperties.Add(calcProperty.Prop.Name, exprPropertyValue);
-                    }
-                }
+                if (this.TryGetCalculatedPropertyExpression(type, calcProperty, out var exprPropertyValue))
+                    calculatedProperties.Add(calcProperty.Name, exprPropertyValue);
+                
             }
+
             var entityMetadata = new EntityMetadata(
                 clrType: type,
-                table: new SqlTable(type.Name),
+                table: this.GetSqlTable(type),
                 sqlColumns: columns,
                 navigations: navigations,
                 calculatedProperties: calculatedProperties
@@ -82,12 +77,44 @@ namespace Atis.Orm
             return entityMetadata;
         }
 
-        private IReadOnlyList<MemberInfo> GetColumnMembers(Type type)
+        protected virtual SqlTable GetSqlTable(Type type)
+        {
+            var dbTableAttribute = type.GetCustomAttribute<DbTableAttribute>();
+            return new SqlTable(dbTableAttribute?.TableName ?? type.Name, dbTableAttribute?.Schema, dbTableAttribute?.Database, dbTableAttribute?.Server);
+        }
+
+        protected virtual bool IsCalculatedProperty(PropertyInfo propertyInfo)
+            => propertyInfo.GetCustomAttribute<CalculatedPropertyAttribute>() != null;
+
+        protected virtual bool TryGetCalculatedPropertyExpression(Type type, PropertyInfo calcProperty, out LambdaExpression expression)
+        {
+            var calcAttr = calcProperty.GetCustomAttribute<CalculatedPropertyAttribute>();
+            var exprPropName = calcAttr.ExpressionPropertyName;
+            var exprProperty = type.GetMember(exprPropName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static).FirstOrDefault();
+            if (exprProperty != null)
+            {
+                if (this.reflectionService.GetPropertyOrFieldValue(instance: null, exprProperty) is LambdaExpression exprPropertyValue)
+                {
+                    expression = exprPropertyValue;
+                    return true;
+                }
+            }
+            expression = null;
+            return false;
+        }
+
+        protected virtual bool IsSchemaRelatedProperty(PropertyInfo propertyInfo)
+            => propertyInfo.GetCustomAttribute<NavigationPropertyAttribute>() == null &&
+                                        propertyInfo.GetCustomAttribute<CalculatedPropertyAttribute>() == null &&
+                                        propertyInfo.GetCustomAttribute<NavigationLinkAttribute>() == null;
+
+        protected virtual string GetColumnName(PropertyInfo propertyInfo)
+            => propertyInfo.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? propertyInfo.Name;
+
+        private IReadOnlyList<PropertyInfo> GetColumnMembers(Type type)
         {
             return type.GetProperties()
-                        .Where(x => x.GetCustomAttribute<NavigationPropertyAttribute>() == null &&
-                                        x.GetCustomAttribute<CalculatedPropertyAttribute>() == null &&
-                                        x.GetCustomAttribute<NavigationLinkAttribute>() == null)
+                        .Where(x => IsSchemaRelatedProperty(x))
                         .ToArray();
         }
 
@@ -155,7 +182,7 @@ namespace Atis.Orm
             return false;
         }
 
-        private NavigationPropertyType GetNavigationPropertyType(Type modelType, MemberInfo member)
+        protected virtual NavigationPropertyType GetNavigationPropertyType(Type modelType, MemberInfo member)
         {
             var navPropAttribute = this.GetCustomAttribute<NavigationPropertyAttribute>(modelType, member);
             if (navPropAttribute != null)

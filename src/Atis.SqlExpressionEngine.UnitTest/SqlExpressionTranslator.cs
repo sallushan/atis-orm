@@ -587,7 +587,9 @@ namespace Atis.SqlExpressionEngine.UnitTest
 
         private string TranslateSqlTableExpression(SqlTableExpression sqlTableExpression)
         {
-            return sqlTableExpression.SqlTable.TableName;
+            var t = sqlTableExpression.SqlTable;
+            var tableParts = new[] { t.Server, t.Database, t.Schema, t.TableName };
+            return string.Join(".", tableParts.Where(x => !string.IsNullOrEmpty(x)));
         }
 
         private string TranslateLogicalExpression(SqlExpression sqlExpression)

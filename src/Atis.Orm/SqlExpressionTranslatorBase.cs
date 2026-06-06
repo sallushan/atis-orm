@@ -31,8 +31,8 @@ namespace Atis.Orm
         ///     </para>
         /// </summary>
         /// <param name="sqlExpression">The SQL expression to translate.</param>
-        /// <returns>A <see cref="TranslationResult"/> containing the SQL string and parameters.</returns>
-        public TranslationResult Translate(SqlExpression sqlExpression)
+        /// <returns>A <see cref="SqlTranslationResult"/> containing the SQL string and parameters.</returns>
+        public SqlTranslationResult Translate(SqlExpression sqlExpression)
         {
             this.Parameters.Clear();
             this.parameterCounter = 0;
@@ -40,7 +40,7 @@ namespace Atis.Orm
 
             var sql = this.TranslateExpression(sqlExpression);
 
-            return new TranslationResult(sql, this.Parameters);
+            return new SqlTranslationResult(sql, this.Parameters);
         }
 
         #region Parameter and Alias Helpers
@@ -402,7 +402,9 @@ namespace Atis.Orm
         /// </summary>
         protected virtual string TranslateTable(SqlTableExpression node)
         {
-            return node.SqlTable.TableName;
+            var t = node.SqlTable;
+            var tableParts = new [] { t.Server, t.Database, t.Schema, t.TableName };
+            return string.Join(".", tableParts.Where(x => !string.IsNullOrEmpty(x)));
         }
 
         /// <summary>

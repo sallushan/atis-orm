@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
-namespace Atis.SqlExpressionEngine.UnitTest.Metadata
+namespace Atis.Orm.Annotations
 {
     [AttributeUsage(AttributeTargets.Class)]
     public class DbTableAttribute : Attribute

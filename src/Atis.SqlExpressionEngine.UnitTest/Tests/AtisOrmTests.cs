@@ -139,7 +139,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
             var dbParameterFactory = new SqlDbParameterFactory();
             var elementFactoryBuilder = new ElementFactoryBuilder();
-            var queryCompiler = new QueryCompiler(preprocessor, preprocessingRequirementTester, linqToSqlConverter, sqlExpressionTranslator, dbParameterFactory, elementFactoryBuilder, logger);
+            var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
+            var queryCompiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, dbParameterFactory, elementFactoryBuilder);
             var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
             var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
@@ -176,7 +177,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var sqlExpressionTranslator = new SqlExpressionTranslatorBase();
             var dbParameterFactory = new SqlDbParameterFactory();
             var elementFactoryBuilder = new ElementFactoryBuilder();
-            var queryCompiler = new QueryCompiler(preprocessor, preprocessingRequirementTester, linqToSqlConverter, sqlExpressionTranslator, dbParameterFactory, elementFactoryBuilder, logger);
+            var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
+            var queryCompiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, dbParameterFactory, elementFactoryBuilder);
             var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
             var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
@@ -197,7 +199,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         [TestMethod]
         public void DataContext_CreateQuery_Test()
         {
-            var dataContext = new OrmDbContext();
+            using var dataContext = new OrmDbContext();
             var invoices = dataContext.CreateQuery<TestEntities.Employee>();
             var results = invoices.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToList();
             foreach (var result in results)
@@ -210,13 +212,26 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         [TestMethod]
         public void DataContext_Custom_Business_Method_test()
         {
-            var dataContext = new OrmDbContext();
+            using var dataContext = new OrmDbContext();
             var invoices = dataContext.CreateQuery<TestEntities.Employee>();
             var results = invoices.Select(x => new { x.FirstName, x.EmployeeId, FullName = GeneralTranslationTests.FullName(x.FirstName, x.LastName) }).Take(10).ToList();
             foreach (var result in results)
             {
                 Console.WriteLine($"{result.EmployeeId}: {result.FullName}");
             }
+        }
+
+        [TestMethod]
+        public void DataContext_Annotation_Customization_Test()
+        {
+            var config = new DataContextConfiguration();
+            config.AddOrUpdateExtension(new ComponentAnnotationExtension());
+            using var dbc = new OrmDbContext(config);
+            var salesOrders = dbc.CreateQuery<SalesOrderWithSystemAnnotation>();
+            var date = new DateTime(2020, 1, 1);
+            var q = salesOrders.Where(x => x.OrderDate >= date);
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
         }
     }
 }

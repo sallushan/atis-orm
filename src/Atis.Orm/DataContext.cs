@@ -108,6 +108,15 @@ namespace Atis.Orm
             return new OrmQueryable<T>(this.QueryProvider);
         }
 
+        public string TranslateToSql<T>(IQueryable<T> query)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            var queryTranslator = this.ServiceProvider.GetRequiredService<IQueryTranslator>();
+            var queryTranslationResult = queryTranslator.Translate(query.Expression);
+            return queryTranslationResult.SqlTranslation.Sql;
+        }
+
         /// <inheritdoc />
         public void Dispose() => _serviceScope?.Dispose();
     }

@@ -10,23 +10,17 @@ namespace Atis.Orm
 {
     public class QueryCompiler : IQueryCompiler
     {
-        private readonly ILinqToSqlConverter linqToSqlConverter;
-        private readonly IExpressionPreprocessorProvider preprocessor;
-        private readonly ISqlExpressionTranslator sqlExpressionTranslator;
+        private readonly IQueryTranslator queryTranslator;
         private readonly IDbParameterFactory dbParameterFactory;
         private readonly IPreprocessingRequirementTester preprocessingRequirementTester;
         private readonly IElementFactoryBuilder elementFactoryBuilder;
-        private readonly ILogger logger;
 
-        public QueryCompiler(IExpressionPreprocessorProvider preprocessor, IPreprocessingRequirementTester preprocessingRequirementTester, ILinqToSqlConverter linqToSqlConverter, ISqlExpressionTranslator sqlExpressionTranslator, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder, ILogger logger)
+        public QueryCompiler(IQueryTranslator queryTranslator, IPreprocessingRequirementTester preprocessingRequirementTester, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
         {
-            this.linqToSqlConverter = linqToSqlConverter;
-            this.preprocessor = preprocessor;
-            this.sqlExpressionTranslator = sqlExpressionTranslator;
-            this.dbParameterFactory = dbParameterFactory;
+            this.queryTranslator = queryTranslator;
             this.preprocessingRequirementTester = preprocessingRequirementTester;
+            this.dbParameterFactory = dbParameterFactory;
             this.elementFactoryBuilder = elementFactoryBuilder;
-            this.logger = logger;
         }
 
         public ICompiledQuery Compile(Expression expression)
@@ -34,45 +28,24 @@ namespace Atis.Orm
             if (expression is null)
                 throw new ArgumentNullException(nameof(expression));
 
-            this.logger.Log("Before preprocessing:");
-            this.logger.Log(expression.ToString());
-            var preprocessedExpression = this.PreprocessExpression(expression);
-            this.logger.Log("After preprocessing:");
-            this.logger.Log(preprocessedExpression.ToString());
-            var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, preprocessedExpression);
-            var sqlExpression = this.ConvertExpressionToSqlExpression(preprocessedExpression);
-            var isNonQuery = sqlExpression is SqlUpdateExpression || sqlExpression is SqlInsertIntoExpression || sqlExpression is SqlDeleteExpression;
-            Func<IDataReader, object> elementFactory = this.CreateElementFactory(expression, sqlExpression);
-            var translationResult = this.TranslateSqlExpression(sqlExpression);
-            var compiledQuery = new CompiledQuery(translationResult.Sql, translationResult.QueryParameters, this.dbParameterFactory, isNonQuery, elementFactory, isPreprocessingRequired);
+            var queryTranslationResult = this.queryTranslator.Translate(expression);
+            var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, queryTranslationResult.PreprocessedExpression);
+            var isNonQuery = queryTranslationResult.SqlExpression is SqlUpdateExpression || queryTranslationResult.SqlExpression is SqlInsertIntoExpression || queryTranslationResult.SqlExpression is SqlDeleteExpression;
+            Func<IDataReader, object> elementFactory = this.CreateElementFactory(expression, queryTranslationResult.SqlExpression);
+            var compiledQuery = new CompiledQuery(queryTranslationResult.SqlTranslation.Sql, queryTranslationResult.SqlTranslation.QueryParameters, this.dbParameterFactory, isNonQuery, elementFactory, isPreprocessingRequired);
             return compiledQuery;
         }
 
-        protected virtual Func<IDataReader, object> CreateElementFactory(Expression expression, SqlExpression sqlExpression)
+        private Func<IDataReader, object> CreateElementFactory(Expression expression, SqlExpression sqlExpression)
         {
             return this.elementFactoryBuilder.CreateElementFactory(expression, sqlExpression);
         }
 
-        protected virtual bool DeterminePreprocessingRequirement(Expression originalExpression, Expression preprocessedExpression)
+        private bool DeterminePreprocessingRequirement(Expression originalExpression, Expression preprocessedExpression)
         {
             if (originalExpression == preprocessedExpression)
                 return false;
             return this.preprocessingRequirementTester.IsPreprocessingRequired(originalExpression, preprocessedExpression);
-        }
-
-        protected virtual TranslationResult TranslateSqlExpression(SqlExpression sqlExpression)
-        {
-            return this.sqlExpressionTranslator.Translate(sqlExpression);
-        }
-
-        protected virtual SqlExpression ConvertExpressionToSqlExpression(Expression preprocessedExpression)
-        {
-            return this.linqToSqlConverter.Convert(preprocessedExpression);
-        }
-
-        protected virtual Expression PreprocessExpression(Expression expression)
-        {
-            return this.preprocessor?.Preprocess(expression) ?? expression;
         }
     }
 }

@@ -16,6 +16,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
 {
     internal class OrmDbContext : DataContext
     {
+        public OrmDbContext(DataContextConfiguration config) : base(config) { }
+
         public OrmDbContext()
         {
         }

@@ -504,12 +504,12 @@ select	a_1.CountryID as CountryId, ConcatAggregate(a_1.StudentType) as StudentTy
 select a_3.Id as Id, a_3.Age as Age, a_3.FirstName as FirstName, a_3.LastName as LastName, a_3.MiddleInitial as MiddleInitial
 	from (
 			select a_1.FRST_NM as Col1
-			from Person as a_1
+			from dbo.Person as a_1
 			group by a_1.FRST_NM
 		) as a_2
 			outer apply (
 				select top (1) a_4.ID as Id, a_4.AGE as Age, a_4.FRST_NM as FirstName, a_4.LAST_NM as LastName, a_4.MID_INIT as MiddleInitial
-				from Person as a_4
+				from dbo.Person as a_4
 				where (a_2.Col1 = a_4.FRST_NM)
 				order by a_4.FRST_NM asc, a_4.LAST_NM asc
 			) as a_3
@@ -537,7 +537,7 @@ select top (1) a_4.FirstName as FirstName, a_4.FullName as FullName
 			select a_2.FirstName as Col1
 			from (
 					select a_1.FRST_NM as FirstName, ((((a_1.FRST_NM + ' ') + a_1.MID_INIT) + ' ') + a_1.LAST_NM) as FullName
-					from Person as a_1
+					from dbo.Person as a_1
 				) as a_2
 			group by a_2.FirstName
 		) as a_3
@@ -545,7 +545,7 @@ select top (1) a_4.FirstName as FirstName, a_4.FullName as FullName
 				select top (1) a_5.FirstName as FirstName, a_5.FullName as FullName
 				from (
 						select a_1.FRST_NM as FirstName, ((((a_1.FRST_NM + ' ') + a_1.MID_INIT) + ' ') + a_1.LAST_NM) as FullName
-						from Person as a_1
+						from dbo.Person as a_1
 					) as a_5
 				where (a_3.Col1 = a_5.FirstName)
 			) as a_4
@@ -570,7 +570,7 @@ select (
 					select a_3.FirstName as FirstName, a_3.Id as Id
 					from (
 							select a_1.LAST_NM as LastName, a_1.FRST_NM as FirstName, a_1.ID as Id
-							from Person as a_1
+							from dbo.Person as a_1
 							where ((a_1.MID_INIT = 'Q') and (a_1.AGE = 20))
 						) as a_3
 					where (a_2.LastName = a_3.LastName)
@@ -578,7 +578,7 @@ select (
 		) as Col1
 	from (
 			select a_1.LAST_NM as LastName, a_1.FRST_NM as FirstName, a_1.ID as Id
-			from Person as a_1
+			from dbo.Person as a_1
 			where ((a_1.MID_INIT = 'Q') and (a_1.AGE = 20))
 		) as a_2
 	group by a_2.LastName
@@ -588,7 +588,7 @@ select (
 					select a_3.FirstName as FirstName, a_3.Id as Id
 					from (
 							select a_1.LAST_NM as LastName, a_1.FRST_NM as FirstName, a_1.ID as Id
-							from Person as a_1
+							from dbo.Person as a_1
 							where ((a_1.MID_INIT = 'Q') and (a_1.AGE = 20))
 						) as a_3
 					where (a_2.LastName = a_3.LastName)
@@ -618,12 +618,12 @@ select a_2.Style as Key, (
 			select top (1) a_5.Style as Col1
 			from (
 					select a_4.Id as Id, a_4.Age as Age, a_4.Style as Style, a_4.PersonId as PersonId
-					from Person as a_3
+					from dbo.Person as a_3
 							inner join Shoes as a_4 on (a_3.Age = a_4.Age)
 					where (a_2.Style = a_4.Style)
 				) as a_5
 		) as Style, Count(1) as Count
-	from Person as a_1
+	from dbo.Person as a_1
 			inner join Shoes as a_2 on (a_1.Age = a_2.Age)
 	group by a_2.Style
 ";
@@ -641,10 +641,10 @@ select a_2.Style as Key, (
             string expectedResult = @"
 select (
 			select top (1) a_2.LAST_NM as Col1
-			from Person as a_2
+			from dbo.Person as a_2
 			where (a_1.FRST_NM = a_2.FRST_NM)
 		) as Col1
-	from Person as a_1
+	from dbo.Person as a_1
 	group by a_1.FRST_NM
 	order by Col1 asc
 ";
@@ -663,11 +663,11 @@ select (
             string expectedResult = @"
 select (
 			select top (1) a_2.MID_INIT as Col1
-			from Person as a_2
+			from dbo.Person as a_2
 			where (a_2.AGE = 20)
 				 and (a_1.ID = a_2.ID)
 		) as Col1
-	from Person as a_1
+	from dbo.Person as a_1
 	where (a_1.AGE = 20)
 	group by a_1.ID
 	order by Col1 asc
@@ -700,9 +700,9 @@ select (
                             });
             string expectedResult = @"
 select Person_3.LAST_NM as LastName, NavFeet_2.Size as Size, Min(NavFeet_2.Size) as Min
-	from Person as a_1
+	from dbo.Person as a_1
 			left join Feet as NavFeet_2 on (a_1.ID = NavFeet_2.PersonId)
-			left join Person as Person_3 on (Person_3.ID = NavFeet_2.Id)
+			left join dbo.Person as Person_3 on (Person_3.ID = NavFeet_2.Id)
 	where (((NavFeet_2.Size = 11) and (a_1.MID_INIT is not null)) and (NavFeet_2.Id <> 1))
 	group by NavFeet_2.Size, Person_3.LAST_NM
 ";
@@ -754,7 +754,7 @@ select a_2.Id as Id, a_3.Age as Age, a_3.Style as Style, Queryable: {
 						select a_5.Id as Id, a_5.Age as Age, a_5.Style as Style, a_5.PersonId as PersonId
 						from (
 								select a_1.ID as Id, a_1.AGE as Age, a_1.FRST_NM as FirstName, a_1.LAST_NM as LastName, a_1.MID_INIT as MiddleInitial
-								from Person as a_1
+								from dbo.Person as a_1
 							) as a_4
 								inner join Shoes as a_5 on (a_4.Age = a_5.Age)
 						where (((a_2.Id = a_4.Id) and (a_3.Style = a_5.Style)) and (a_3.Age = a_5.Age))
@@ -763,7 +763,7 @@ select a_2.Id as Id, a_3.Age as Age, a_3.Style as Style, Queryable: {
 		} as Values
 	from (
 			select a_1.ID as Id, a_1.AGE as Age, a_1.FRST_NM as FirstName, a_1.LAST_NM as LastName, a_1.MID_INIT as MiddleInitial
-			from Person as a_1
+			from dbo.Person as a_1
 		) as a_2
 			inner join Shoes as a_3 on (a_2.Age = a_3.Age)
 	group by a_2.Id, a_3.Style, a_3.Age
