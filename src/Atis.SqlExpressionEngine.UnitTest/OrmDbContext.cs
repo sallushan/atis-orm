@@ -27,5 +27,15 @@ namespace Atis.SqlExpressionEngine.UnitTest
             config.UseSqlServer($"Server=.;Database={TestDatabaseSetup.DatabaseName};Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
             config.UseUnitTestCustomization();
         }
+
+        internal static int _onModelCreatingCallCount = 0;
+        protected override void OnModelCreating(ModelBuilder mb)
+        {
+            _onModelCreatingCallCount++;
+
+            mb.Entity<SimulatedExternalEntity>("SIM_EXT_TBL")
+                    .Column(x => x.PrimaryKey, "PK")
+                    .Column(x => x.SomeOtherField, "FLD2");
+        }
     }
 }

@@ -12,5 +12,6 @@ namespace Atis.Orm
         void Add(EntityMetadata metadata);
         bool Contains(Type type);
         bool TryGet(Type type, out EntityMetadata metadata);
+        void EnsureModelInitialized(Action modelInitializer);
     }
 }

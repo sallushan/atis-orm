@@ -489,4 +489,11 @@ namespace Atis.SqlExpressionEngine.UnitTest
         [Column("CST_NM")]
         public string CustomerName { get; set; }
     }
+
+    // we'll set the mapping for this entity from OnModelCreating
+    public class SimulatedExternalEntity
+    {
+        public int PrimaryKey { get; set; }
+        public string SomeOtherField { get; set; } 
+    }
 }

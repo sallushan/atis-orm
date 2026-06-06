@@ -49,6 +49,8 @@ namespace Atis.Orm
         }
 
         protected virtual void OnConfiguring(DataContextConfiguration config) { }
+        protected virtual void OnModelCreating(ModelBuilder mb) { }
+
 
         private IEntityMetadataBuilder _metadataBuilder;
         /// <summary>
@@ -70,15 +72,25 @@ namespace Atis.Orm
         /// <summary>
         /// 
         /// </summary>
-        protected IOrmModel OrmModel
+        protected IOrmModel Model
         {
             get
             {
                 if (this._ormModel is null)
+                {
                     this._ormModel = this.ServiceProvider.GetRequiredService<IOrmModel>();
+                    this._ormModel.EnsureModelInitialized(() =>
+                    {
+                        var metadataBuilder = this.ServiceProvider.GetRequiredService<IEntityMetadataBuilder>();
+                        var mb = new ModelBuilder(metadataBuilder, this._ormModel);
+                        this.OnModelCreating(mb);
+                        mb.Build();
+                    });
+                }
                 return this._ormModel;
             }
         }
+
 
         private IAsyncQueryProvider _queryProvider;
         /// <summary>
@@ -104,7 +116,7 @@ namespace Atis.Orm
         /// <returns></returns>
         public virtual IQueryable<T> CreateQuery<T>()
         {
-            this.OrmModel.GetOrAdd(typeof(T), t => this.MetadataBuilder.Build(t));
+            this.Model.GetOrAdd(typeof(T), t => this.MetadataBuilder.Build(t));
             return new OrmQueryable<T>(this.QueryProvider);
         }
 

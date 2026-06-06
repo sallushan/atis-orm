@@ -125,7 +125,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             return expression;
         }
 
-        private void ValidateQueryResults(string convertedQuery, string expectedQuery)
+        public static void ValidateQueryResults(string convertedQuery, string expectedQuery)
         {
             convertedQuery = SimplifyQuery(convertedQuery);
             expectedQuery = SimplifyQuery(expectedQuery);
@@ -139,7 +139,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             }
         }
 
-        private string SimplifyQuery(string query)
+        private static string SimplifyQuery(string query)
         {
             query = query.Trim();
             if (query.StartsWith("("))

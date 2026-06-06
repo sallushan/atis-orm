@@ -12,6 +12,8 @@ namespace Atis.Orm
     public class OrmModel : IOrmModel
     {
         private readonly ConcurrentDictionary<Type, EntityMetadata> metadataMap = new ConcurrentDictionary<Type, EntityMetadata>();
+        private volatile bool _modelCreated = false;
+        private readonly object _modelCreatedLock = new object();
 
         /// <inheritdoc />
         public void Add(EntityMetadata metadata)
@@ -25,6 +27,24 @@ namespace Atis.Orm
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
             return this.metadataMap.ContainsKey(type);
+        }
+
+        public void EnsureModelInitialized(Action modelInitializer)
+        {
+            // this is double-check locking pattern and intentional,
+            // first check: fast path, avoids acquiring the lock
+            // second check: to block two threads simultaneously going through same code
+            if (!_modelCreated)
+            {
+                lock (_modelCreatedLock)
+                {
+                    if (!_modelCreated)
+                    {
+                        modelInitializer();
+                        _modelCreated = true;
+                    }
+                }
+            }
         }
 
         /// <inheritdoc/>

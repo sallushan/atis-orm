@@ -1,4 +1,5 @@
-﻿using Atis.Expressions;
+﻿using Atis.DependencyInjection;
+using Atis.Expressions;
 using Atis.Orm;
 using Atis.Orm.SqlServer;
 using Atis.SqlExpressionEngine.Abstractions;
@@ -9,6 +10,7 @@ using Atis.SqlExpressionEngine.SqlExpressions;
 using Atis.SqlExpressionEngine.UnitTest.Converters;
 using Atis.SqlExpressionEngine.UnitTest.Preprocessors;
 using Microsoft.Data.SqlClient;
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
@@ -232,6 +234,57 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var q = salesOrders.Where(x => x.OrderDate >= date);
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
+            var expectedResult = @"
+SELECT t1.ROW_ID AS RowId, t1.ORD_ID AS SalesOrderId, t1.ORD_DT AS OrderDate, t1.CST_NM AS CustomerName
+FROM SLS_ORD AS t1
+WHERE (t1.ORD_DT >= @p0)
+";
+            ValidateQueryResults(queryResult, expectedResult);
+        }
+
+        [TestMethod]
+        public void DataContext_OnModelCreating_Test()
+        {
+            var config = new DataContextConfiguration();
+            using var dbc = new OrmDbContext(config);
+            var externalEntity = dbc.CreateQuery<SimulatedExternalEntity>();
+            var q = externalEntity.Where(x => x.PrimaryKey == 1);
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
+            string expectedResult = @"
+SELECT t1.PK AS PrimaryKey, t1.FLD2 AS SomeOtherField
+FROM SIM_EXT_TBL AS t1
+WHERE (t1.PK = @p0)
+";
+            ValidateQueryResults(queryResult, expectedResult);
+        }
+
+        [TestMethod]
+        public void OnModelCreating_IsCalledOnlyOnce()
+        {
+            // this is a hack to clear the cache, if this test is executed with other
+            // tests, OrmDbContext will be initialized and Model will be created
+
+            var f = typeof(ServiceManagerBase).GetField("_serviceProviderCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            if (f is null)
+            {
+                Console.WriteLine("Warning! _serviceProviderCache field was not found in ServiceManagerBase");
+            }
+            else
+            {
+                ((ConcurrentDictionary<int, IServiceProvider>)f.GetValue(null)).Clear();
+            }
+            OrmDbContext._onModelCreatingCallCount = 0;
+
+            using var ctx1 = new OrmDbContext();
+            using var ctx2 = new OrmDbContext();
+            using var ctx3 = new OrmDbContext();
+
+            var q1 = ctx1.CreateQuery<SimulatedExternalEntity>().Where(x => x.PrimaryKey == 1);
+            var q2 = ctx2.CreateQuery<SimulatedExternalEntity>().Where(x => x.PrimaryKey == 1);
+            var q3 = ctx3.CreateQuery<SimulatedExternalEntity>().Where(x => x.PrimaryKey == 1);
+
+            Assert.AreEqual(1, OrmDbContext._onModelCreatingCallCount);
         }
     }
 }
