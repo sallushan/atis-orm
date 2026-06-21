@@ -1,10 +1,7 @@
-﻿using Atis.SqlExpressionEngine;
-using Atis.SqlExpressionEngine.SqlExpressions;
+using Atis.SqlExpressionEngine;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
-using System.Text;
 
 namespace Atis.Orm
 {
@@ -14,19 +11,121 @@ namespace Atis.Orm
 
         internal EntityBuilder(MutableEntityMetadata mutable)
         {
-            _mutable = mutable;
+            _mutable = mutable ?? throw new ArgumentNullException(nameof(mutable));
         }
 
-        public EntityBuilder<T> Column(Expression<Func<T, object>> property, string columnName)
+        public EntityBuilder<T> ToTable(string tableName)
+            => this.ToTable(tableName, schema: null, database: null, server: null);
+
+        public EntityBuilder<T> ToTable(string tableName, string schema)
+            => this.ToTable(tableName, schema, database: null, server: null);
+
+        public EntityBuilder<T> ToTable(string tableName, string schema, string database, string server)
         {
-            var memberName = ((property.Body as MemberExpression)
-                             ?? (MemberExpression)((UnaryExpression)property.Body).Operand).Member.Name;
-            var existing = _mutable.SqlColumns.FirstOrDefault(x => x.ModelPropertyName == memberName);
-            var isPrimaryKey = existing?.IsPrimaryKey ?? false;
-            if (existing != null)
-                _mutable.SqlColumns.Remove(existing);
-            _mutable.SqlColumns.Add(new TableColumn(columnName, memberName, isPrimaryKey));
+            _mutable.TableName = tableName ?? throw new ArgumentNullException(nameof(tableName));
+            _mutable.Schema = schema;
+            _mutable.Database = database;
+            _mutable.Server = server;
             return this;
+        }
+
+        public ColumnBuilder<T> Column(Expression<Func<T, object>> property, string columnName)
+        {
+            return this.Column(property).SetColumnName(columnName);
+        }
+
+        public ColumnBuilder<T> Column(Expression<Func<T, object>> property)
+        {
+            if (property == null) throw new ArgumentNullException(nameof(property));
+            var memberName = MemberNameExtractor.GetMemberName(property);
+            return new ColumnBuilder<T>(_mutable, memberName);
+        }
+
+        public EntityBuilder<T> HasKey(Expression<Func<T, object>> property)
+        {
+            if (property == null) throw new ArgumentNullException(nameof(property));
+
+            this.Column(property).MarkAsKey();
+
+            return this;
+        }
+
+        /// <summary>
+        ///     Configures a calculated property. The property name is taken from <paramref name="property"/>
+        ///     and the calculation from <paramref name="expression"/>.
+        /// </summary>
+        public EntityBuilder<T> Calculated<TResult>(Expression<Func<T, TResult>> property, Expression<Func<T, TResult>> expression)
+        {
+            if (property == null) throw new ArgumentNullException(nameof(property));
+            if (expression == null) throw new ArgumentNullException(nameof(expression));
+
+            var memberName = MemberNameExtractor.GetMemberName(property);
+            _mutable.RemoveColumn(memberName);
+            _mutable.CalculatedProperties[memberName] = expression;
+            return this;
+        }
+
+        // Navigations — ToChildren (one-to-many)
+
+        public EntityBuilder<T> HasMany<C>(Expression<Func<T, IEnumerable<C>>> nav, Expression<Func<T, object>> parentKey, Expression<Func<C, object>> childKey)
+        {
+            var memberName = MemberNameExtractor.GetMemberName(nav);
+            var joinCondition = JoinConditionFactory.Create(typeof(T), MemberNameExtractor.GetMemberName(parentKey), typeof(C), MemberNameExtractor.GetMemberName(childKey));
+            this.AddNavigation<C>(NavigationType.ToChildren, memberName, joinCondition);
+            return this;
+        }
+
+        public EntityBuilder<T> HasMany<C>(Expression<Func<T, IEnumerable<C>>> nav, Expression<Func<T, C, bool>> joinCondition)
+        {
+            if (joinCondition == null) throw new ArgumentNullException(nameof(joinCondition));
+            var memberName = MemberNameExtractor.GetMemberName(nav);
+            this.AddNavigation<C>(NavigationType.ToChildren, memberName, joinCondition);
+            return this;
+        }
+
+        // Navigations — ToSingleChild (one-to-one, this entity is principal)
+
+        public EntityBuilder<T> HasChild<C>(Expression<Func<T, C>> nav, Expression<Func<T, object>> parentKey, Expression<Func<C, object>> childKey)
+        {
+            var memberName = MemberNameExtractor.GetMemberName(nav);
+            var joinCondition = JoinConditionFactory.Create(typeof(T), MemberNameExtractor.GetMemberName(parentKey), typeof(C), MemberNameExtractor.GetMemberName(childKey));
+            this.AddNavigation<C>(NavigationType.ToSingleChild, memberName, joinCondition);
+            return this;
+        }
+
+        public EntityBuilder<T> HasChild<C>(Expression<Func<T, C>> nav, Expression<Func<T, C, bool>> joinCondition)
+        {
+            if (joinCondition == null) throw new ArgumentNullException(nameof(joinCondition));
+            var memberName = MemberNameExtractor.GetMemberName(nav);
+            this.AddNavigation<C>(NavigationType.ToSingleChild, memberName, joinCondition);
+            return this;
+        }
+
+        // Navigations — ToParent (many-to-one); .Optional() promotes to ToParentOptional
+
+        public ParentNavigationBuilder<T> HasParent<P>(Expression<Func<T, P>> nav, Expression<Func<P, object>> parentKey, Expression<Func<T, object>> childKey)
+        {
+            var memberName = MemberNameExtractor.GetMemberName(nav);
+            var joinCondition = JoinConditionFactory.Create(typeof(P), MemberNameExtractor.GetMemberName(parentKey), typeof(T), MemberNameExtractor.GetMemberName(childKey));
+            var mutableNav = this.AddNavigation<P>(NavigationType.ToParent, memberName, joinCondition);
+            return new ParentNavigationBuilder<T>(mutableNav);
+        }
+
+        public ParentNavigationBuilder<T> HasParent<P>(Expression<Func<T, P>> nav, Expression<Func<P, T, bool>> joinCondition)
+        {
+            if (joinCondition == null) throw new ArgumentNullException(nameof(joinCondition));
+            var memberName = MemberNameExtractor.GetMemberName(nav);
+            var mutableNav = this.AddNavigation<P>(NavigationType.ToParent, memberName, joinCondition);
+            return new ParentNavigationBuilder<T>(mutableNav);
+        }
+
+        private MutableNavigationInfo AddNavigation<TTarget>(NavigationType navigationType, string propertyName, LambdaExpression joinCondition)
+        {
+            this._mutable.RemoveColumn(propertyName);
+            var joinedSource = NavigationDataSourceFactory.Create(typeof(T), typeof(TTarget));
+            var nav = new MutableNavigationInfo(navigationType, joinCondition, joinedSource, propertyName);
+            this._mutable.Navigations[propertyName] = nav;
+            return nav;
         }
 
         internal EntityMetadata Build() => _mutable.Build();

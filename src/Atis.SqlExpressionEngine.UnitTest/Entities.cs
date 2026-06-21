@@ -494,6 +494,35 @@ namespace Atis.SqlExpressionEngine.UnitTest
     public class SimulatedExternalEntity
     {
         public int PrimaryKey { get; set; }
-        public string SomeOtherField { get; set; } 
+        public string SomeOtherField { get; set; }
+    }
+
+    // The following three entities carry NO annotations; they are mapped entirely
+    // through the fluent API in OnModelCreating (table/column names, keys,
+    // navigations and a calculated property).
+    public class FluentAuthor
+    {
+        public int Id { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+        public int CountryId { get; set; }
+        public IQueryable<FluentBook> Books { get; set; }
+        public FluentBook PrimaryBook { get; set; }
+        public FluentCountry Country { get; set; }
+        public string FullName { get; set; }
+    }
+
+    public class FluentBook
+    {
+        public int Id { get; set; }
+        public string Title { get; set; }
+        public int AuthorId { get; set; }
+        public FluentAuthor Author { get; set; }
+    }
+
+    public class FluentCountry
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
     }
 }

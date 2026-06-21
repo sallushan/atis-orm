@@ -1,8 +1,6 @@
 ﻿using Atis.SqlExpressionEngine;
-using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
-using System.Text;
 
 namespace Atis.Orm
 {
@@ -10,35 +8,42 @@ namespace Atis.Orm
     {
         private readonly IEntityMetadataBuilder _entityMetadataBuilder;
         private readonly IOrmModel _ormModel;
-        private readonly List<Func<EntityMetadata>> _builders = new List<Func<EntityMetadata>>();
+        private readonly Dictionary<Type, MutableEntityMetadata> _mutableEntityMetadata = new Dictionary<Type, MutableEntityMetadata>();
 
         public bool AllClrProperties { get; set; } = false;
 
         public ModelBuilder(IEntityMetadataBuilder entityMetadataBuilder, IOrmModel ormModel)
         {
-            _entityMetadataBuilder = entityMetadataBuilder;
-            _ormModel = ormModel;
+            _entityMetadataBuilder = entityMetadataBuilder ?? throw new ArgumentNullException(nameof(entityMetadataBuilder));
+            _ormModel = ormModel ?? throw new ArgumentNullException(nameof(ormModel));
         }
 
-        public EntityBuilder<T> Entity<T>(string tableName = null)
+        public EntityBuilder<T> Entity<T>()
         {
-            var seeded = _entityMetadataBuilder.Build(typeof(T));
-            var mutable = new MutableEntityMetadata(seeded);
-            if (tableName != null)
+            if (!this._mutableEntityMetadata.TryGetValue(typeof(T), out var existing))
             {
-                var sqlTable = new SqlTable(tableName, mutable.Table?.Schema, mutable.Table?.Database, mutable.Table?.Server);
-                mutable.Table = sqlTable;
+                var seeded = _entityMetadataBuilder.Build(typeof(T));
+                var mutable = new MutableEntityMetadata(seeded);
+                _mutableEntityMetadata.Add(typeof(T), mutable);
+                existing = mutable;
             }
-            var builder = new EntityBuilder<T>(mutable);
-            _builders.Add(() => builder.Build());
+            var builder = new EntityBuilder<T>(existing);
+            return builder;
+        }
+
+        public EntityBuilder<T> Entity<T>(Action<EntityBuilder<T>> configure)
+        {
+            if (configure == null) throw new ArgumentNullException(nameof(configure));
+            var builder = Entity<T>();
+            configure(builder);
             return builder;
         }
 
         internal void Build()
         {
-            foreach (var build in _builders)
+            foreach (var mutableMetadata in _mutableEntityMetadata.Values)
             {
-                var metadata = build();
+                var metadata = mutableMetadata.Build();
                 _ormModel.Add(metadata);
             }
         }

@@ -260,6 +260,110 @@ WHERE (t1.PK = @p0)
         }
 
         [TestMethod]
+        public void Fluent_HasMany_KeyBased_Navigation_Test()
+        {
+            using var dbc = new OrmDbContext();
+            var authors = dbc.CreateQuery<FluentAuthor>();
+            // one-to-many navigation defined via fluent HasMany(key-based) used in an EXISTS subquery
+            var q = authors.Where(a => a.Books.Any(b => b.Title == "Test"));
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
+            string expectedResult = @"
+SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
+FROM dbo.AUTHOR AS t1
+WHERE EXISTS(
+	SELECT @p0 AS Col1
+	FROM BOOK AS t2
+	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+)
+";
+            ValidateQueryResults(queryResult, expectedResult);
+        }
+
+        [TestMethod]
+        public void Fluent_Calculated_Property_Test()
+        {
+            using var dbc = new OrmDbContext();
+            var authors = dbc.CreateQuery<FluentAuthor>();
+            // FullName is a fluent calculated property: x => x.FirstName + " " + x.LastName
+            var q = authors.Select(a => new { a.Id, a.FullName });
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
+            string expectedResult = @"
+SELECT t1.ID AS Id, ((t1.FRST_NM + @p0) + t1.LAST_NM) AS FullName
+FROM dbo.AUTHOR AS t1
+";
+            ValidateQueryResults(queryResult, expectedResult);
+        }
+
+        [TestMethod]
+        public void Fluent_Navigations_Produce_Expected_Metadata()
+        {
+            using var dbc = new OrmDbContext();
+            // touch the model so OnModelCreating runs
+            dbc.CreateQuery<FluentAuthor>();
+
+            var author = dbc.GetEntityMetadata<FluentAuthor>();
+            Assert.IsNotNull(author, "FluentAuthor metadata should be registered");
+
+            // table + schema
+            Assert.AreEqual("AUTHOR", author.Table.TableName);
+            Assert.AreEqual("dbo", author.Table.Schema);
+
+            // columns: name overrides + primary key
+            var idCol = author.SqlColumns.Single(c => c.ModelPropertyName == nameof(FluentAuthor.Id));
+            Assert.AreEqual("Id", idCol.DatabaseColumnName, "Id keeps its default (un-renamed) column name");
+            Assert.IsTrue(idCol.IsPrimaryKey, "Id should be the primary key");
+            Assert.AreEqual("FRST_NM", author.SqlColumns.Single(c => c.ModelPropertyName == nameof(FluentAuthor.FirstName)).DatabaseColumnName);
+            Assert.AreEqual("LAST_NM", author.SqlColumns.Single(c => c.ModelPropertyName == nameof(FluentAuthor.LastName)).DatabaseColumnName);
+
+            // calculated property present
+            Assert.IsTrue(author.CalculatedProperties.ContainsKey(nameof(FluentAuthor.FullName)));
+
+            // ToChildren (HasMany): JoinCondition (parent=Author, child=Book), JoinedSource (Author)=>IQueryable<Book>
+            AssertNavigation(author, nameof(FluentAuthor.Books), NavigationType.ToChildren,
+                expectedParentType: typeof(FluentAuthor), expectedChildType: typeof(FluentBook),
+                thisType: typeof(FluentAuthor), targetType: typeof(FluentBook));
+
+            // ToSingleChild (HasChild)
+            AssertNavigation(author, nameof(FluentAuthor.PrimaryBook), NavigationType.ToSingleChild,
+                expectedParentType: typeof(FluentAuthor), expectedChildType: typeof(FluentBook),
+                thisType: typeof(FluentAuthor), targetType: typeof(FluentBook));
+
+            // ToParentOptional (HasParent(...).Optional()): JoinCondition (parent=Country, child=Author)
+            AssertNavigation(author, nameof(FluentAuthor.Country), NavigationType.ToParentOptional,
+                expectedParentType: typeof(FluentCountry), expectedChildType: typeof(FluentAuthor),
+                thisType: typeof(FluentAuthor), targetType: typeof(FluentCountry));
+
+            // ToParent (HasParent explicit lambda) on FluentBook
+            var book = dbc.GetEntityMetadata<FluentBook>();
+            Assert.AreEqual("BOOK", book.Table.TableName);
+            Assert.AreEqual("BOOK_TITLE", book.SqlColumns.Single(c => c.ModelPropertyName == nameof(FluentBook.Title)).DatabaseColumnName);
+            AssertNavigation(book, nameof(FluentBook.Author), NavigationType.ToParent,
+                expectedParentType: typeof(FluentAuthor), expectedChildType: typeof(FluentBook),
+                thisType: typeof(FluentBook), targetType: typeof(FluentAuthor));
+        }
+
+        private static void AssertNavigation(EntityMetadata entity, string navName, NavigationType expectedType,
+            Type expectedParentType, Type expectedChildType, Type thisType, Type targetType)
+        {
+            Assert.IsTrue(entity.Navigations.TryGetValue(navName, out var nav), $"Navigation '{navName}' should exist");
+            Assert.AreEqual(expectedType, nav.NavigationType, $"Navigation '{navName}' type");
+
+            // JoinCondition is always (parent, child) => bool
+            Assert.IsNotNull(nav.JoinCondition, $"'{navName}' JoinCondition should be set");
+            Assert.AreEqual(2, nav.JoinCondition.Parameters.Count);
+            Assert.AreEqual(expectedParentType, nav.JoinCondition.Parameters[0].Type, $"'{navName}' join parent param type");
+            Assert.AreEqual(expectedChildType, nav.JoinCondition.Parameters[1].Type, $"'{navName}' join child param type");
+
+            // JoinedSource is (thisEntity) => IQueryable<target>
+            Assert.IsNotNull(nav.JoinedSource, $"'{navName}' JoinedSource should be set");
+            Assert.AreEqual(1, nav.JoinedSource.Parameters.Count);
+            Assert.AreEqual(thisType, nav.JoinedSource.Parameters[0].Type, $"'{navName}' JoinedSource param type");
+            Assert.AreEqual(typeof(IQueryable<>).MakeGenericType(targetType), nav.JoinedSource.Body.Type, $"'{navName}' JoinedSource body type");
+        }
+
+        [TestMethod]
         public void OnModelCreating_IsCalledOnlyOnce()
         {
             // this is a hack to clear the cache, if this test is executed with other
