@@ -415,6 +415,50 @@ WHERE EXISTS(
         }
 
         [TestMethod]
+        public void Fluent_HasOneRow_Produces_OuterApply_Navigation_Metadata()
+        {
+            using var dbc = new OrmDbContext();
+            // touch the model so OnModelCreating runs
+            dbc.CreateQuery<FluentAuthor>();
+
+            var author = dbc.GetEntityMetadata<FluentAuthor>();
+            Assert.IsNotNull(author, "FluentAuthor metadata should be registered");
+
+            Assert.IsTrue(author.Navigations.TryGetValue(nameof(FluentAuthor.LatestBook), out var nav), "LatestBook navigation should exist");
+            // HasOneRow registers a single-valued navigation; the engine maps a null join condition to OUTER APPLY
+            Assert.AreEqual(NavigationType.ToSingleChild, nav.NavigationType);
+            Assert.IsNull(nav.JoinCondition, "OUTER APPLY navigation carries no separate join condition; the correlation lives in the subquery");
+
+            // JoinedSource is the correlated subquery: (FluentAuthor) => IQueryable<FluentBook>
+            Assert.IsNotNull(nav.JoinedSource, "JoinedSource should be set");
+            Assert.AreEqual(1, nav.JoinedSource.Parameters.Count);
+            Assert.AreEqual(typeof(FluentAuthor), nav.JoinedSource.Parameters[0].Type);
+            Assert.AreEqual(typeof(IQueryable<FluentBook>), nav.JoinedSource.Body.Type);
+        }
+
+        [TestMethod]
+        public void Fluent_HasOneRow_Navigation_Translates_To_OuterApply()
+        {
+            using var dbc = new OrmDbContext();
+            var authors = dbc.CreateQuery<FluentAuthor>();
+            // navigate the OUTER APPLY single-row navigation
+            var q = authors.Select(a => new { a.Id, LatestBookTitle = a.LatestBook.Title });
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
+            string expectedResult = @"
+SELECT t1.Id AS Id, t2.Title AS LatestBookTitle
+FROM dbo.AUTHOR AS t1
+OUTER APPLY (
+	SELECT TOP (1) t3.Id AS Id, t3.BOOK_TITLE AS Title, t3.AuthorId AS AuthorId, t3.Year AS Year
+	FROM BOOK AS t3
+	WHERE (t3.AuthorId = t1.Id)
+	ORDER BY t3.Year DESC
+) AS t2
+";
+            ValidateQueryResults(queryResult, expectedResult);
+        }
+
+        [TestMethod]
         public void Fluent_CompositeKey_CountMismatch_Throws_AtModelBuild()
         {
             // mismatched key counts: parent has 2 keys, child selector provides 1

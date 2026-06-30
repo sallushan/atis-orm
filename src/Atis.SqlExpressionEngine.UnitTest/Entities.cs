@@ -509,6 +509,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public IQueryable<FluentBook> Books { get; set; }
         public FluentBook PrimaryBook { get; set; }
         public FluentCountry Country { get; set; }
+        // single related row sourced from a correlated subquery (OUTER APPLY)
+        public FluentBook LatestBook { get; set; }
         public string FullName { get; set; }
     }
 
@@ -517,6 +519,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public int Id { get; set; }
         public string Title { get; set; }
         public int AuthorId { get; set; }
+        public int Year { get; set; }
         public FluentAuthor Author { get; set; }
     }
 

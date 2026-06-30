@@ -1,6 +1,9 @@
+using Atis.Expressions;
 using Atis.SqlExpressionEngine;
+using Atis.SqlExpressionEngine.ExpressionExtensions;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 
 namespace Atis.Orm
@@ -119,10 +122,50 @@ namespace Atis.Orm
             return new ParentNavigationBuilder<T>(mutableNav);
         }
 
+        // Navigations — single related row sourced from a correlated subquery (OUTER APPLY)
+
+        /// <summary>
+        ///     <para>
+        ///         Configures a single-valued navigation whose related row is produced by a
+        ///         correlated sub-query (e.g. a <c>TOP 1</c> look-up). It is registered as
+        ///         <see cref="NavigationType.ToSingleChild"/> with no join condition, which the
+        ///         engine translates to an <c>OUTER APPLY</c>.
+        ///     </para>
+        ///     <para>
+        ///         The <paramref name="subquery"/> receives the declaring entity and the data source
+        ///         of <typeparamref name="C"/>, and must correlate the two, for example:
+        ///         <code>(a, books) =&gt; books.Where(b =&gt; b.AuthorId == a.Id).OrderByDesc(b =&gt; b.Year).Take(1)</code>
+        ///     </para>
+        /// </summary>
+        /// <typeparam name="C">The related entity type.</typeparam>
+        public EntityBuilder<T> HasOneRow<C>(Expression<Func<T, C>> nav, Expression<Func<T, IQueryable<C>, IQueryable<C>>> subquery)
+        {
+            if (nav == null) throw new ArgumentNullException(nameof(nav));
+            if (subquery == null) throw new ArgumentNullException(nameof(subquery));
+
+            var memberName = MemberNameExtractor.GetMemberName(nav);
+
+            // Turn (entity, source) => correlatedQuery into (entity) => correlatedQuery by replacing
+            // the source parameter with the engine's query root for C. The body still references the
+            // entity parameter, which is exactly the correlation required for OUTER APPLY.
+            var entityParameter = subquery.Parameters[0];
+            var sourceParameter = subquery.Parameters[1];
+            var joinedSourceBody = ExpressionReplacementVisitor.Replace(sourceParameter, new QueryRootExpression(typeof(C)), subquery.Body);
+            var joinedSource = Expression.Lambda<Func<T, IQueryable<C>>>(joinedSourceBody, entityParameter);
+
+            this.AddNavigation(NavigationType.ToSingleChild, memberName, joinCondition: null, joinedSource: joinedSource);
+            return this;
+        }
+
         private MutableNavigationInfo AddNavigation<TTarget>(NavigationType navigationType, string propertyName, LambdaExpression joinCondition)
         {
-            this._mutable.RemoveColumn(propertyName);
             var joinedSource = NavigationDataSourceFactory.Create(typeof(T), typeof(TTarget));
+            return this.AddNavigation(navigationType, propertyName, joinCondition, joinedSource);
+        }
+
+        private MutableNavigationInfo AddNavigation(NavigationType navigationType, string propertyName, LambdaExpression joinCondition, LambdaExpression joinedSource)
+        {
+            this._mutable.RemoveColumn(propertyName);
             var nav = new MutableNavigationInfo(navigationType, joinCondition, joinedSource, propertyName);
             this._mutable.Navigations[propertyName] = nav;
             return nav;

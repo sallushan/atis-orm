@@ -60,6 +60,9 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 e.HasChild(x => x.PrimaryBook, parentKey: a => a.Id, childKey: b => b.AuthorId);
                 // key-based optional many-to-one
                 e.HasParent(x => x.Country, parentKey: c => c.Id, childKey: a => a.CountryId).Optional();
+                // single related row sourced from a correlated subquery (OUTER APPLY)
+                e.HasOneRow(x => x.LatestBook,
+                    (a, books) => books.Where(b => b.AuthorId == a.Id).OrderByDescending(b => b.Year).Take(1));
                 // calculated property
                 e.Calculated(x => x.FullName, x => x.FirstName + " " + x.LastName);
             });
