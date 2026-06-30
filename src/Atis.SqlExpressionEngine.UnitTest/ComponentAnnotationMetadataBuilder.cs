@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
+using Atis.Orm.Metadata;
 namespace Atis.SqlExpressionEngine.UnitTest
 {
     public class ComponentAnnotationMetadataBuilder : EntityMetadataBuilder

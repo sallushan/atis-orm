@@ -4,6 +4,7 @@ using System.Data.Common;
 using System.Data.SqlClient;
 using System.Text;
 
+using Atis.Orm.Abstractions;
 namespace Atis.Orm.SqlServer
 {
     public class SqlDbParameterFactory : IDbParameterFactory

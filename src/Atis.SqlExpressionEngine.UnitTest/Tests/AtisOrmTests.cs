@@ -13,6 +13,13 @@ using Microsoft.Data.SqlClient;
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 
+using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
+using Atis.Orm.Metadata;
+using Atis.Orm.Preprocessing;
+using Atis.Orm.Querying;
+using Atis.Orm.Services;
+using Atis.Orm.Translation;
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
     [TestClass]

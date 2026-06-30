@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
+using Atis.Orm.DataAccess;
 namespace Atis.Orm.SqlServer
 {
     public static class SqlServerDataContextConfigurationExtensions

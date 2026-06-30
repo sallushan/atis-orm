@@ -13,6 +13,9 @@ using System.Text;
 using System.Threading.Tasks;
 using Atis.Orm.SqlServer;
 
+using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
+using Atis.Orm.Metadata;
 namespace Atis.SqlExpressionEngine.UnitTest
 {
     internal class OrmDbContext : DataContext

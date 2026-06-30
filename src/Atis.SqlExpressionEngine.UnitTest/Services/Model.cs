@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 
+using Atis.Orm.Metadata;
 namespace Atis.SqlExpressionEngine.UnitTest.Services
 {
     internal class Model : Atis.SqlExpressionEngine.Services.Model

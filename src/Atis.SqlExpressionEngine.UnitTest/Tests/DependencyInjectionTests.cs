@@ -3,6 +3,8 @@ using Atis.Orm.SqlServer;
 using Atis.SqlExpressionEngine.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 
+using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
     [TestClass]

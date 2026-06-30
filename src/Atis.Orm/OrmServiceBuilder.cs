@@ -12,6 +12,13 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 
+using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
+using Atis.Orm.Metadata;
+using Atis.Orm.Preprocessing;
+using Atis.Orm.Querying;
+using Atis.Orm.Services;
+using Atis.Orm.Translation;
 namespace Atis.Orm
 {
     public class OrmServiceBuilder : ServiceBuilderBase

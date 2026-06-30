@@ -4,6 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
+using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
 namespace Atis.Orm.SqlServer
 {
     public class SqlServerExtension : IServiceContextExtension

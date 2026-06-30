@@ -5,6 +5,7 @@ using System.Data.Common;
 using System.Data.SqlClient;
 using System.Text;
 
+using Atis.Orm.DataAccess;
 namespace Atis.Orm.SqlServer
 {
     public class SqlDbCommunication : DbCommunicationBase

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
+using Atis.Orm.Services;
 namespace Atis.SqlExpressionEngine.UnitTest
 {
     using System;

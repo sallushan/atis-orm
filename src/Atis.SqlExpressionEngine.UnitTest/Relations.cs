@@ -5,6 +5,7 @@ using Atis.SqlExpressionEngine.ExpressionExtensions;
 using Atis.SqlExpressionEngine.UnitTest.Metadata;
 using System.Linq.Expressions;
 
+using Atis.Orm.Metadata;
 namespace Atis.SqlExpressionEngine.UnitTest
 {
 

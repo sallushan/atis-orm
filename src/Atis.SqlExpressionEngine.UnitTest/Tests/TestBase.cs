@@ -17,6 +17,8 @@ using System.Diagnostics;
 using System.Linq.Expressions;
 using Model = Atis.SqlExpressionEngine.UnitTest.Services.Model;
 
+using Atis.Orm.Preprocessing;
+using Atis.Orm.Services;
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
     public class DataContext
