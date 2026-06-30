@@ -39,6 +39,7 @@ The current version focuses purely on the **transformation and modeling layer**,
 ## Deep Dives
 
 - [How Conversion Works in Atis ORM?](docs/StringCompareToConverterDocs_WithCode.md)
+- [Service Provider Caching & `IOrmModel` Lifetime](docs/ServiceProviderCachingAndModelLifetime.md)
 
 ---
 

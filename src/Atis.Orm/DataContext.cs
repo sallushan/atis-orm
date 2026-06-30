@@ -70,7 +70,19 @@ namespace Atis.Orm
 
         private IOrmModel _ormModel;
         /// <summary>
-        /// 
+        ///     <para>
+        ///         Gets the <see cref="IOrmModel"/> for this context, building it via
+        ///         <see cref="OnModelCreating(ModelBuilder)"/> on first access.
+        ///     </para>
+        ///     <para>
+        ///         <see cref="IOrmModel"/> is a singleton within its root <see cref="IServiceProvider"/>,
+        ///         and that provider is cached per configuration type + extension set (not per
+        ///         <see cref="DataContext"/> subclass). As a result, contexts that share the same
+        ///         configuration type and extensions share one model, and only the first context to
+        ///         access this property runs its <see cref="OnModelCreating(ModelBuilder)"/>. To isolate
+        ///         the model per context, use a distinct <see cref="DataContextConfiguration"/> subclass.
+        ///         See docs/ServiceProviderCachingAndModelLifetime.md.
+        ///     </para>
         /// </summary>
         protected IOrmModel Model
         {
