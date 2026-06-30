@@ -364,6 +364,74 @@ FROM dbo.AUTHOR AS t1
         }
 
         [TestMethod]
+        public void Fluent_HasMany_CompositeKey_Navigation_Test()
+        {
+            using var dbc = new OrmDbContext();
+            var companies = dbc.CreateQuery<FluentCompany>();
+            // composite-key one-to-many navigation defined via fluent HasMany with `new { }` selectors
+            var q = companies.Where(c => c.Employees.Any(e => e.EmployeeName == "Test"));
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
+            string expectedResult = @"
+SELECT t1.CompanyId AS CompanyId, t1.DivisionId AS DivisionId, t1.Name AS Name
+FROM COMPANY AS t1
+WHERE EXISTS(
+	SELECT @p0 AS Col1
+	FROM EMPLOYEE AS t2
+	WHERE ((t1.CompanyId = t2.CompanyId) AND (t1.DivisionId = t2.DivisionId)) AND (t2.EmployeeName = @p1)
+)
+";
+            ValidateQueryResults(queryResult, expectedResult);
+        }
+
+        [TestMethod]
+        public void Fluent_CompositeKey_Navigation_Produces_AndAlso_JoinCondition()
+        {
+            using var dbc = new OrmDbContext();
+            // touch the model so OnModelCreating runs
+            dbc.CreateQuery<FluentCompany>();
+
+            var company = dbc.GetEntityMetadata<FluentCompany>();
+            Assert.IsNotNull(company, "FluentCompany metadata should be registered");
+
+            Assert.IsTrue(company.Navigations.TryGetValue(nameof(FluentCompany.Employees), out var nav));
+            Assert.AreEqual(NavigationType.ToChildren, nav.NavigationType);
+
+            // JoinCondition body should be: p.CompanyId == c.CompanyId && p.DivisionId == c.DivisionId
+            var body = nav.JoinCondition.Body as BinaryExpression;
+            Assert.IsNotNull(body, "Composite join condition should be a binary expression");
+            Assert.AreEqual(ExpressionType.AndAlso, body.NodeType, "Composite join condition should be an AndAlso chain");
+
+            var left = body.Left as BinaryExpression;
+            var right = body.Right as BinaryExpression;
+            Assert.IsNotNull(left);
+            Assert.IsNotNull(right);
+            Assert.AreEqual(ExpressionType.Equal, left.NodeType);
+            Assert.AreEqual(ExpressionType.Equal, right.NodeType);
+            Assert.AreEqual(nameof(FluentCompany.CompanyId), ((MemberExpression)left.Left).Member.Name);
+            Assert.AreEqual(nameof(FluentEmployee.CompanyId), ((MemberExpression)left.Right).Member.Name);
+            Assert.AreEqual(nameof(FluentCompany.DivisionId), ((MemberExpression)right.Left).Member.Name);
+            Assert.AreEqual(nameof(FluentEmployee.DivisionId), ((MemberExpression)right.Right).Member.Name);
+        }
+
+        [TestMethod]
+        public void Fluent_CompositeKey_CountMismatch_Throws_AtModelBuild()
+        {
+            // mismatched key counts: parent has 2 keys, child selector provides 1
+            var ex = Assert.ThrowsException<InvalidOperationException>(ConfigureMismatchedCompositeKey);
+            StringAssert.Contains(ex.Message, "Composite key mismatch");
+        }
+
+        private static void ConfigureMismatchedCompositeKey()
+        {
+            var builder = new ModelBuilder(new ComponentAnnotationMetadataBuilder(new OrmReflectionService()), new OrmModel());
+            builder.Entity<FluentCompany>(e =>
+                e.HasMany(x => x.Employees,
+                    parentKey: c => new { c.CompanyId, c.DivisionId },
+                    childKey: emp => emp.CompanyId));
+        }
+
+        [TestMethod]
         public void OnModelCreating_IsCalledOnlyOnce()
         {
             // this is a hack to clear the cache, if this test is executed with other

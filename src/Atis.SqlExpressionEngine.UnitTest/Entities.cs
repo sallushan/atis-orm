@@ -525,4 +525,22 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public int Id { get; set; }
         public string Name { get; set; }
     }
+
+    // Composite-key pair mapped via the fluent key-selector API using `new { }` selectors.
+    public class FluentCompany
+    {
+        public int CompanyId { get; set; }
+        public int DivisionId { get; set; }
+        public string Name { get; set; }
+        public IQueryable<FluentEmployee> Employees { get; set; }
+    }
+
+    public class FluentEmployee
+    {
+        public int CompanyId { get; set; }
+        public int DivisionId { get; set; }
+        public int EmployeeId { get; set; }
+        public string EmployeeName { get; set; }
+        public FluentCompany Company { get; set; }
+    }
 }

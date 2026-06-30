@@ -78,6 +78,24 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 e.ToTable("COUNTRY");
                 e.HasKey(x => x.Id);
             });
+
+            mb.Entity<FluentCompany>(e =>
+            {
+                e.ToTable("COMPANY");
+                // composite key-based one-to-many via `new { }` selectors
+                e.HasMany(x => x.Employees,
+                    parentKey: c => new { c.CompanyId, c.DivisionId },
+                    childKey: emp => new { emp.CompanyId, emp.DivisionId });
+            });
+
+            mb.Entity<FluentEmployee>(e =>
+            {
+                e.ToTable("EMPLOYEE");
+                // composite key-based many-to-one via `new { }` selectors
+                e.HasParent(x => x.Company,
+                    parentKey: c => new { c.CompanyId, c.DivisionId },
+                    childKey: emp => new { emp.CompanyId, emp.DivisionId });
+            });
         }
     }
 }

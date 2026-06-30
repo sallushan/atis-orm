@@ -70,7 +70,7 @@ namespace Atis.Orm
         public EntityBuilder<T> HasMany<C>(Expression<Func<T, IEnumerable<C>>> nav, Expression<Func<T, object>> parentKey, Expression<Func<C, object>> childKey)
         {
             var memberName = MemberNameExtractor.GetMemberName(nav);
-            var joinCondition = JoinConditionFactory.Create(typeof(T), MemberNameExtractor.GetMemberName(parentKey), typeof(C), MemberNameExtractor.GetMemberName(childKey));
+            var joinCondition = JoinConditionFactory.Create(typeof(T), MemberNameExtractor.GetMemberNames(parentKey), typeof(C), MemberNameExtractor.GetMemberNames(childKey));
             this.AddNavigation<C>(NavigationType.ToChildren, memberName, joinCondition);
             return this;
         }
@@ -88,7 +88,7 @@ namespace Atis.Orm
         public EntityBuilder<T> HasChild<C>(Expression<Func<T, C>> nav, Expression<Func<T, object>> parentKey, Expression<Func<C, object>> childKey)
         {
             var memberName = MemberNameExtractor.GetMemberName(nav);
-            var joinCondition = JoinConditionFactory.Create(typeof(T), MemberNameExtractor.GetMemberName(parentKey), typeof(C), MemberNameExtractor.GetMemberName(childKey));
+            var joinCondition = JoinConditionFactory.Create(typeof(T), MemberNameExtractor.GetMemberNames(parentKey), typeof(C), MemberNameExtractor.GetMemberNames(childKey));
             this.AddNavigation<C>(NavigationType.ToSingleChild, memberName, joinCondition);
             return this;
         }
@@ -106,7 +106,7 @@ namespace Atis.Orm
         public ParentNavigationBuilder<T> HasParent<P>(Expression<Func<T, P>> nav, Expression<Func<P, object>> parentKey, Expression<Func<T, object>> childKey)
         {
             var memberName = MemberNameExtractor.GetMemberName(nav);
-            var joinCondition = JoinConditionFactory.Create(typeof(P), MemberNameExtractor.GetMemberName(parentKey), typeof(T), MemberNameExtractor.GetMemberName(childKey));
+            var joinCondition = JoinConditionFactory.Create(typeof(P), MemberNameExtractor.GetMemberNames(parentKey), typeof(T), MemberNameExtractor.GetMemberNames(childKey));
             var mutableNav = this.AddNavigation<P>(NavigationType.ToParent, memberName, joinCondition);
             return new ParentNavigationBuilder<T>(mutableNav);
         }
