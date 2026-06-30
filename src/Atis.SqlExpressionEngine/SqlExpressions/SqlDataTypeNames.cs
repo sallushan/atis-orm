@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     public static class SqlDataTypeNames
     {

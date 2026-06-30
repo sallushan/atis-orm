@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
+using Atis.SqlExpressionEngine.Visitors;
 namespace Atis.SqlExpressionEngine.UnitTest
 {
     public class SqlQueryShapePrinter : SqlExpressionVisitor

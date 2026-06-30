@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
+using Atis.SqlExpressionEngine.Visitors;
 namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     public class SqlDefaultIfEmptyExpression : SqlExpression

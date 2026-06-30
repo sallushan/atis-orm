@@ -1,6 +1,7 @@
 ﻿using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.ExpressionConverters;
 using Atis.SqlExpressionEngine.SqlExpressions;
+using Atis.SqlExpressionEngine.Visitors;
 using System;
 using System.Collections.Generic;
 using System.Data;

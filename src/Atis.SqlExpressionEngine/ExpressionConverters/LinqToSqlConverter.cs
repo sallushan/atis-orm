@@ -6,7 +6,7 @@ using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Linq.Expressions;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     public class LinqToSqlConverter : ILinqToSqlConverter
     {

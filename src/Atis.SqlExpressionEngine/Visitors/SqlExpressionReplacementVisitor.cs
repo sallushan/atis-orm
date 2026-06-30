@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.SqlExpressionEngine.Visitors
 {
     public class SqlExpressionReplacementVisitor : SqlExpressionVisitor
     {

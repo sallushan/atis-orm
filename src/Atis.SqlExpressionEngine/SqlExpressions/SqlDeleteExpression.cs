@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 
+using Atis.SqlExpressionEngine.Visitors;
 namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     public class SqlDeleteExpression : SqlExpression

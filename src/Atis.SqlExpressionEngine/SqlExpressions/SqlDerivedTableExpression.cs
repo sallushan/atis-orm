@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
+using Atis.SqlExpressionEngine.Visitors;
 namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     public partial class SqlDerivedTableExpression : SqlSubQuerySourceExpression

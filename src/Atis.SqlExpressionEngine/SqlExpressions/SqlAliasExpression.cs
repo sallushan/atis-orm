@@ -1,4 +1,5 @@
-﻿namespace Atis.SqlExpressionEngine.SqlExpressions
+﻿using Atis.SqlExpressionEngine.Visitors;
+namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     /// <summary>
     ///     <para>

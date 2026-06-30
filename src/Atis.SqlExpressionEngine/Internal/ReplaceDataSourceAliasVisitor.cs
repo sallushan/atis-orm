@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 
+using Atis.SqlExpressionEngine.Visitors;
 namespace Atis.SqlExpressionEngine.Internal
 {
     class ReplaceDataSourceAliasVisitor : SqlExpressionVisitor

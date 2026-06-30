@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
+using Atis.SqlExpressionEngine.Visitors;
 namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     /// <summary>

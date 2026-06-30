@@ -1,6 +1,7 @@
 ﻿using Atis.SqlExpressionEngine.Internal;
 using System;
 
+using Atis.SqlExpressionEngine.Visitors;
 namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     public class SqlAliasedJoinSourceExpression : SqlAliasedDataSourceExpression

@@ -1,12 +1,11 @@
 ﻿using Atis.Expressions;
 using Atis.SqlExpressionEngine.Abstractions;
-using Atis.SqlExpressionEngine.ExpressionConverters;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
     /// <summary>
     /// 

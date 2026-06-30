@@ -1,7 +1,7 @@
 ﻿using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.SqlExpressionEngine.Visitors
 {
     public class SqlExpressionHashGenerator : SqlExpressionVisitor
     {
