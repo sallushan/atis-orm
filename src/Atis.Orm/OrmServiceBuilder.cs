@@ -47,6 +47,7 @@ namespace Atis.Orm
                 { typeof(IDatabaseAdapter),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IDbCommunication),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryExecutor),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
+                { typeof(INavigationInitializer),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IAsyncQueryProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
 
@@ -88,6 +89,7 @@ namespace Atis.Orm
             this.TryAdd<IExpressionVariableValuesExtractor, ExpressionVariableValuesExtractor>();
             this.TryAdd<IDatabaseAdapter, DatabaseAdapter>();
             this.TryAdd<IQueryExecutor, QueryExecutor>();
+            this.TryAdd<INavigationInitializer, NavigationInitializer>();
             this.TryAdd<IAsyncQueryProvider, OrmQueryProvider>();
             this.TryAdd<IQueryProvider>(p => p.GetRequiredService<IAsyncQueryProvider>());
 

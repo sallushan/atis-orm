@@ -20,14 +20,16 @@ namespace Atis.Orm
         private readonly IQueryCompiler queryCompiler;
         private readonly IExpressionVariableValuesExtractor expressionVariableValuesExtractor;
         private readonly IExpressionPreprocessorProvider preprocessor;
+        private readonly INavigationInitializer navigationInitializer;
 
-        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, IExpressionPreprocessorProvider preprocessor)
+        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, IExpressionPreprocessorProvider preprocessor, INavigationInitializer navigationInitializer)
         {
             this.dbAdapter = dbAdapter ?? throw new ArgumentNullException(nameof(dbAdapter));
             this.queryCacheProvider = queryCacheProvider ?? throw new ArgumentNullException(nameof(queryCacheProvider));
             this.queryCompiler = queryCompiler ?? throw new ArgumentNullException(nameof(queryCompiler));
             this.expressionVariableValuesExtractor = expressionVariableValuesExtractor ?? throw new ArgumentNullException(nameof(expressionVariableValuesExtractor));
             this.preprocessor = preprocessor;
+            this.navigationInitializer = navigationInitializer ?? throw new ArgumentNullException(nameof(navigationInitializer));
         }
 
         public virtual TResult Execute<TResult>(Expression expression)
@@ -40,7 +42,7 @@ namespace Atis.Orm
             }
             else
             {
-                return this.dbAdapter.Execute<TResult>(executionContext.Sql, executionContext.DbParameters, executionContext.ElementFactory);
+                return this.dbAdapter.Execute<TResult>(executionContext.Sql, executionContext.DbParameters, this.WrapWithNavigationInitializer(executionContext.ElementFactory));
             }
         }
 
@@ -54,8 +56,24 @@ namespace Atis.Orm
             }
             else
             {
-                return this.dbAdapter.ExecuteAsync<TResult>(executionContext.Sql, executionContext.DbParameters, executionContext.ElementFactory, cancellationToken);
+                return this.dbAdapter.ExecuteAsync<TResult>(executionContext.Sql, executionContext.DbParameters, this.WrapWithNavigationInitializer(executionContext.ElementFactory), cancellationToken);
             }
+        }
+
+        /// <summary>
+        ///     Wraps the (singleton-cached) element factory so that each materialized object has its
+        ///     lazy navigation properties initialized via the scoped <see cref="INavigationInitializer"/>.
+        ///     The wrapper only constructs lazy queries/delegates (no DB I/O), so it is safe to run while
+        ///     the parent reader is open.
+        /// </summary>
+        protected virtual Func<IDataReader, object> WrapWithNavigationInitializer(Func<IDataReader, object> elementFactory)
+        {
+            return dr =>
+            {
+                var obj = elementFactory(dr);
+                this.navigationInitializer.Initialize(obj);
+                return obj;
+            };
         }
 
 

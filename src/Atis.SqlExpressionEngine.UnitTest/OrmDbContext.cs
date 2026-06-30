@@ -36,6 +36,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return metadata;
         }
 
+        // Exposes the scoped navigation initializer so tests can initialize a manually-created entity
+        // and inspect / translate the lazy navigation queries it produces (without a live database).
+        public INavigationInitializer GetNavigationInitializer() => this.NavigationInitializer;
+
         internal static int _onModelCreatingCallCount = 0;
         protected override void OnModelCreating(ModelBuilder mb)
         {

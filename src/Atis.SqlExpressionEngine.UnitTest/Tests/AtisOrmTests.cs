@@ -144,7 +144,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
             var queryCompiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, dbParameterFactory, elementFactoryBuilder);
             var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
-            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
+            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor, new NoOpNavigationInitializer());
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
             var results = queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToList();
@@ -182,7 +182,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
             var queryCompiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, dbParameterFactory, elementFactoryBuilder);
             var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
-            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor);
+            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor, new NoOpNavigationInitializer());
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
             var results = await queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToListAsync();
@@ -190,6 +190,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             {
                 Console.WriteLine($"{result.EmployeeId}: {result.FirstName}");
             }
+        }
+
+        // The manually-wired ToList/ToListAsync tests materialize anonymous projections only, so lazy
+        // navigation initialization is a no-op for them.
+        private sealed class NoOpNavigationInitializer : INavigationInitializer
+        {
+            public void Initialize(object entity) { }
         }
 
         private IExpressionPreprocessorProvider GetPreprocessorProvider(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, IModel model/*, IQueryProvider queryProvider*/)

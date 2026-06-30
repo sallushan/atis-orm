@@ -106,7 +106,7 @@ namespace Atis.Orm
 
         private IAsyncQueryProvider _queryProvider;
         /// <summary>
-        /// 
+        ///
         /// </summary>
         protected IAsyncQueryProvider QueryProvider
         {
@@ -117,6 +117,24 @@ namespace Atis.Orm
                     this._queryProvider = this.ServiceProvider.GetRequiredService<IAsyncQueryProvider>();
                 }
                 return this._queryProvider;
+            }
+        }
+
+
+        private INavigationInitializer _navigationInitializer;
+        /// <summary>
+        ///     Gets the <see cref="INavigationInitializer"/> for this context. It populates the lazy
+        ///     navigation properties of materialized entities during query execution.
+        /// </summary>
+        protected INavigationInitializer NavigationInitializer
+        {
+            get
+            {
+                if (this._navigationInitializer is null)
+                {
+                    this._navigationInitializer = this.ServiceProvider.GetRequiredService<INavigationInitializer>();
+                }
+                return this._navigationInitializer;
             }
         }
 
