@@ -434,8 +434,8 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             for (var i = 0; i < navigations.Length; i++)
             {
                 var navigation = navigations[i];
-                var joinedDataSource = navigation.NavInfo.JoinedSource
-                    ?? throw new InvalidOperationException("JoinedSource is null.");
+                // never null, enforced by NavigationInfo's constructor
+                var joinedDataSource = navigation.NavInfo.JoinedSource;
 
                 var sqlJoinType = GetJoinType(navigation.NavInfo);
 

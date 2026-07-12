@@ -124,55 +124,15 @@ namespace Atis.SqlExpressionEngine.Preprocessors
 
         private Expression GetQueryExpressionInternal<T>(NavigationInfo navigationInfo, Expression parentExpression)
         {
-            if (navigationInfo.JoinedSource != null)
-            {
-                var joinedSourceLambda = navigationInfo.JoinedSource;
-                var joinedSourceBody = joinedSourceLambda.Body;
-                // below will be like this new Queryable<ChildTable>()
-                joinedSourceBody = ExpressionReplacementVisitor.Replace(joinedSourceLambda.Parameters[0], parentExpression, joinedSourceBody);
-                var predicate = this.CreatePredicate<T>(navigationInfo, parentExpression);
-                joinedSourceBody = Expression.Call(typeof(Queryable), nameof(Queryable.Where), new[] { typeof(T) }, joinedSourceBody, predicate);
-                return joinedSourceBody;
-            }
-            else
-            {
-                //return this.CreateQueryInternal<T>(navigationInfo, parentExpression).Expression;
-                return this.CreateQueryExpressionInternal<T>(navigationInfo, parentExpression);
-            }
-        }
-
-        /// <summary>
-        ///     <para>
-        ///         Creates the query root expression for a given entity type.
-        ///     </para>
-        ///     <para>
-        ///         Override this if you need a custom root expression per entity type.
-        ///     </para>
-        /// </summary>
-        private Expression CreateQueryRoot(Type entityType)
-        {
-            if (entityType is null)
-                throw new ArgumentNullException(nameof(entityType));
-
-            return new QueryRootExpression(entityType);
-        }
-
-
-        private Expression CreateQueryExpressionInternal<T>(NavigationInfo navigationInfo, Expression parentExpression)
-        {
+            // JoinedSource always defines the related data source (never null, enforced by
+            // NavigationInfo's constructor); the join condition is applied on top as a Where.
+            var joinedSourceLambda = navigationInfo.JoinedSource;
+            var joinedSourceBody = joinedSourceLambda.Body;
+            // below will be like this new Queryable<ChildTable>()
+            joinedSourceBody = ExpressionReplacementVisitor.Replace(joinedSourceLambda.Parameters[0], parentExpression, joinedSourceBody);
             var predicate = this.CreatePredicate<T>(navigationInfo, parentExpression);
-
-            // Build: Queryable.Where<T>( <root>, predicate )
-            var root = this.CreateQueryRoot(typeof(T));
-            var whereCall =
-                Expression.Call(
-                    typeof(Queryable),
-                    nameof(Queryable.Where),
-                    new[] { typeof(T) },
-                    root,
-                    Expression.Quote(predicate));
-
-            return whereCall;
+            joinedSourceBody = Expression.Call(typeof(Queryable), nameof(Queryable.Where), new[] { typeof(T) }, joinedSourceBody, predicate);
+            return joinedSourceBody;
         }
 
 

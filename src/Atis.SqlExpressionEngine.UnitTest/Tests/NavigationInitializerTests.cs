@@ -1,4 +1,4 @@
-using Atis.Orm.Abstractions;
+﻿using Atis.Orm.Abstractions;
 using Atis.Orm.Metadata;
 using Atis.Orm.Services;
 using System;
@@ -10,14 +10,14 @@ using System.Threading;
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
     /// <summary>
-    ///     <see cref="NavigationInitializer2"/> behavior: per-type compiled initialization (only
+    ///     <see cref="NavigationInitializer"/> behavior: per-type compiled initialization (only
     ///     <c>IQueryable&lt;TChild&gt;</c> and <c>Func&lt;TOther&gt;</c> shapes), and the timed
     ///     single-entity cache with FK stale-checking. These tests run DB-free: the initializer is
     ///     constructed directly with an in-memory <see cref="IQueryableFactory"/> that counts query
     ///     executions.
     /// </summary>
     [TestClass]
-    public class NavigationInitializer2Tests : TestBase
+    public class NavigationInitializerTests : TestBase
     {
         /// <summary>
         ///     In-memory <see cref="IQueryableFactory"/>. <see cref="ExecutionCount"/> increments only
@@ -42,10 +42,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             }
         }
 
-        private static (NavigationInitializer2 initializer, CountingQueryableFactory factory) CreateInitializer(OrmDbContext dbc)
+        private static (NavigationInitializer initializer, CountingQueryableFactory factory) CreateInitializer(OrmDbContext dbc)
         {
             var factory = new CountingQueryableFactory();
-            var initializer = new NavigationInitializer2(factory, dbc.GetOrmModel(), new OrmReflectionService());
+            var initializer = new NavigationInitializer(factory, dbc.GetOrmModel(), new OrmReflectionService());
             return (initializer, factory);
         }
 

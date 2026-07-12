@@ -98,7 +98,7 @@ namespace Atis.Orm
             this.TryAdd<IExpressionVariableValuesExtractor, ExpressionVariableValuesExtractor>();
             this.TryAdd<IDatabaseAdapter, DatabaseAdapter>();
             this.TryAdd<IQueryExecutor, QueryExecutor>();
-            this.TryAdd<INavigationInitializer, NavigationInitializer2>();
+            this.TryAdd<INavigationInitializer, NavigationInitializer>();
             this.TryAdd<IQueryableFactory, QueryableFactory>();
             this.TryAdd<IAsyncQueryProvider, OrmQueryProvider>();
             this.TryAdd<IQueryProvider>(p => p.GetRequiredService<IAsyncQueryProvider>());

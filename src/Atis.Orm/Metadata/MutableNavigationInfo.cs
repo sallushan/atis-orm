@@ -39,7 +39,8 @@ namespace Atis.Orm.Metadata
         {
             NavigationType = navigationType;
             this.JoinCondition = joinCondition;
-            this.JoinedSource = joinedSource;
+            // fail at configuration time rather than when the immutable NavigationInfo is built
+            this.JoinedSource = joinedSource ?? throw new ArgumentNullException(nameof(joinedSource));
             this.PropertyName = propertyName ?? throw new ArgumentNullException(nameof(propertyName));
         }
     }
