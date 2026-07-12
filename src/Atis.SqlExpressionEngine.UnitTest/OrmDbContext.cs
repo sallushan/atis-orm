@@ -43,6 +43,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
         // and inspect / translate the lazy navigation queries it produces (without a live database).
         public INavigationInitializer GetNavigationInitializer() => this.NavigationInitializer;
 
+        // Exposes the model so tests can construct a NavigationInitializer2 directly with a stub
+        // IQueryableFactory (in-memory queryables) and exercise its entity cache behavior.
+        public IOrmModel GetOrmModel() => this.Model;
+
         internal static int _onModelCreatingCallCount = 0;
         protected override void OnModelCreating(ModelBuilder mb)
         {

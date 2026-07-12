@@ -142,6 +142,22 @@ namespace Atis.Orm
             }
         }
 
+        private IQueryableFactory _queryableFactory;
+        /// <summary>
+        ///     Gets the <see cref="IQueryableFactory"/> for this context. It creates <see cref="IQueryable{T}"/> 
+        ///     instances for a given expression.
+        /// </summary>
+        protected IQueryableFactory QueryableFactory
+        {
+            get
+            {
+                if (this._queryableFactory is null)
+                {
+                    this._queryableFactory = this.ServiceProvider.GetRequiredService<IQueryableFactory>();
+                }
+                return this._queryableFactory;
+            }
+        }
 
         /// <summary>
         /// 
@@ -150,8 +166,10 @@ namespace Atis.Orm
         /// <returns></returns>
         public virtual IQueryable<T> CreateQuery<T>()
         {
-            this.Model.GetOrAdd(typeof(T), t => this.MetadataBuilder.Build(t));
-            return new OrmQueryable<T>(this.QueryProvider);
+            // Accessing Model first guarantees OnModelCreating has run before the factory
+            // auto-builds metadata for T, so fluent configuration is not lost.
+            _ = this.Model;
+            return this.QueryableFactory.CreateQueryable<T>();
         }
 
         public string TranslateToSql<T>(IQueryable<T> query)
