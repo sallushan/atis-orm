@@ -26,6 +26,7 @@ namespace Atis.Orm.Translation
         protected List<IQueryParameter> Parameters { get; } = new List<IQueryParameter>();
         private int parameterCounter;
         private Dictionary<Guid, string> aliasCache;
+        private int depth;
 
         /// <summary>
         ///     <para>
@@ -39,6 +40,7 @@ namespace Atis.Orm.Translation
             this.Parameters.Clear();
             this.parameterCounter = 0;
             this.aliasCache = new Dictionary<Guid, string>();
+            this.depth = 0;
 
             var sql = this.TranslateExpression(sqlExpression);
 
@@ -110,6 +112,31 @@ namespace Atis.Orm.Translation
             if (node == null)
                 return string.Empty;
 
+            // Every recursion routes through here, so incrementing on entry gives each node its
+            // query-nesting depth: the root query is reached at depth 1, every subquery at depth >= 2.
+            // TranslateDerivedTable/TranslateUnionQuery use this to wrap subqueries in parentheses
+            // while emitting the outermost query as a bare statement (a parenthesized top-level
+            // query expression is invalid T-SQL once it carries an ORDER BY).
+            this.depth++;
+            try
+            {
+                return this.DispatchExpression(node);
+            }
+            finally
+            {
+                this.depth--;
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Routes to the appropriate translation method based on expression type.
+        ///     </para>
+        /// </summary>
+        /// <param name="node">The SQL expression to translate.</param>
+        /// <returns>The translated SQL string.</returns>
+        protected virtual string DispatchExpression(SqlExpression node)
+        {
             if (node is SqlLiteralExpression literal)
                 return this.TranslateLiteral(literal);
             else if (node is SqlParameterExpression parameter)
@@ -477,7 +504,8 @@ namespace Atis.Orm.Translation
                 parts.Add(pagingClause);
 
             var query = string.Join("\r\n", parts);
-            return $"(\r\n{query}\r\n)";
+            // Top-level query (depth 1) is a complete statement; only nest subqueries in parentheses.
+            return this.depth <= 1 ? query : $"(\r\n{query}\r\n)";
         }
 
         /// <summary>
@@ -950,7 +978,9 @@ namespace Atis.Orm.Translation
                 }
                 parts.Add(query);
             }
-            return $"(\r\n{string.Join("\r\n", parts)}\r\n)";
+            var union = string.Join("\r\n", parts);
+            // Top-level union (depth 1) is a complete statement; only nest subqueries in parentheses.
+            return this.depth <= 1 ? union : $"(\r\n{union}\r\n)";
         }
 
         /// <summary>

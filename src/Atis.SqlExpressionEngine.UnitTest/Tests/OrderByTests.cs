@@ -140,8 +140,9 @@ select	a_1.Age as Col1
                                 .OrderBy(x => x.Address)
                                 ;
             string expectedResult = null;
-            
+
             Test("OrderBy member not selected in Select should throw exception", q.Expression, expectedResult);
         }
+
     }
 }

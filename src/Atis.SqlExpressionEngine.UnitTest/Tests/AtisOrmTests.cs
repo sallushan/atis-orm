@@ -68,6 +68,26 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public async Task OrderBy_on_full_entity_without_projection_executes_against_db()
+        {
+            var setup = new TestDatabaseSetup("Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            await setup.SetupAsync();
+
+            var db = new OrmDbContext();
+            var employees = db.CreateQuery<TestEntities.Employee>();
+            // Full entity, NO projection -> ORDER BY lands on the top-level query. Before the
+            // translator stopped wrapping the root query in parentheses, this produced an invalid
+            // "( SELECT ... ORDER BY ... )" statement and SQL Server rejected it with
+            // "Incorrect syntax near 'ORDER'".
+            var query = employees.OrderByDescending(x => x.LastName)
+                                    .Take(50);
+            var sql = db.TranslateToSql(query);
+            Console.WriteLine(sql);
+            var results = await query.ToListAsync();
+            Assert.IsTrue(results.Count > 0, "Full-entity ordered query should materialize rows.");
+        }
+
+        [TestMethod]
         public void ExpressionEqualityComparer_test()
         {
             Expression<Func<TestEntities.Employee, object>> expr1 = x => new { x.EmployeeId, NameParts = new { x.FirstName, x.LastName }, x.HireDate };
