@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Nullable>disable</Nullable>
+		<!-- Benchmark harness only: never packed, excluded from normal test runs. -->
+		<IsPackable>false</IsPackable>
+		<!-- BenchmarkDotNet requires Release for meaningful numbers; guard against Debug runs. -->
+		<AssemblyName>Atis.Orm.Benchmarks</AssemblyName>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- The ORM under test. -->
+		<ProjectReference Include="..\Atis.Orm.SqlServer\Atis.Orm.SqlServer.csproj" />
+		<ProjectReference Include="..\Atis.Orm\Atis.Orm.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Benchmark harness. -->
+		<PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
+
+		<!-- Competitors. Keep EF Core on the 8.x LTS line to match the TFM. -->
+		<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
+		<PackageReference Include="Dapper" Version="2.1.44" />
+		<PackageReference Include="linq2db" Version="5.4.1" />
+
+		<!-- Raw ADO.NET provider (also used by the DB bootstrap). -->
+		<PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+
+		<!-- Matches the provider Atis.Orm.SqlServer uses internally. Referenced explicitly so the
+		     4.9.0 assembly is deployed/loaded (not an in-box shim) and so we can normalize Atis's
+		     connection string with its own builder. -->
+		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+	</ItemGroup>
+
+</Project>
