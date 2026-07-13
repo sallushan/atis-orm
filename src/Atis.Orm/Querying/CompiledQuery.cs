@@ -29,11 +29,19 @@ namespace Atis.Orm.Querying
 
         public IExecutionContext GetExecutionContext(IReadOnlyList<object> parameterValues, bool useInitialValues)
         {
+            // parameterValues holds only the re-extracted values of the non-literal (variable) parameters, in order.
+            // Literal parameters keep their translation-time InitialValue and do not consume a slot, so we walk the
+            // parameter template with a running index that advances only for non-literal parameters.
             var dbParameters = new DbParameter[queryParameters.Count];
+            int variableIndex = 0;
             for (int i = 0; i < queryParameters.Count; i++)
             {
                 var queryParameter = queryParameters[i];
-                var parameterValue = useInitialValues ? queryParameter.InitialValue : parameterValues[i];
+                object parameterValue;
+                if (queryParameter.IsLiteral || useInitialValues)
+                    parameterValue = queryParameter.InitialValue;
+                else
+                    parameterValue = parameterValues[variableIndex++];
                 var dbParameter = dbParameterFactory.CreateDbParameter(queryParameter, parameterValue);
                 dbParameters[i] = dbParameter;
             }

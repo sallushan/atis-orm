@@ -1,93 +1,73 @@
-﻿using System;
+using Atis.SqlExpressionEngine.Abstractions;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
-using System.Text;
 
 using Atis.Orm.Abstractions;
 namespace Atis.Orm.Services
 {
+    /// <summary>
+    ///     <para>
+    ///         Extracts the runtime values of the <em>variable</em> (parameter) nodes from a LINQ expression,
+    ///         in the order they are visited.
+    ///     </para>
+    ///     <para>
+    ///         Only nodes that the translation pipeline turns into a <c>SqlParameterExpression</c> are collected,
+    ///         i.e. variable member accesses (captured locals / static members) as classified by
+    ///         <see cref="IExpressionEvaluator.IsVariable(Expression)"/>. Inline / injected constants become
+    ///         literals (<c>SqlLiteralExpression</c>, <see cref="IQueryParameter.IsLiteral"/>) whose value is fixed
+    ///         at translation time and must never be re-extracted, so they are deliberately skipped here. Query-typed
+    ///         members (e.g. a <c>context.Employees</c> root) are sources, not parameters, and are only removed by
+    ///         preprocessing, so they are excluded here too for the skip path that runs over the original expression.
+    ///     </para>
+    /// </summary>
     public class ExpressionVariableValuesExtractor : ExpressionVisitor, IExpressionVariableValuesExtractor
     {
-        private List<object> variableValues = new List<object>();
-        public IReadOnlyList<object> ExtractVariableValues(Expression sqlExpression)
+        private readonly IExpressionEvaluator expressionEvaluator;
+        private List<Expression> parameterNodes = new List<Expression>();
+
+        public ExpressionVariableValuesExtractor(IExpressionEvaluator expressionEvaluator)
         {
-            this.variableValues.Clear();
-            Visit(sqlExpression);
-            return variableValues;
+            this.expressionEvaluator = expressionEvaluator ?? throw new ArgumentNullException(nameof(expressionEvaluator));
         }
 
-        protected override Expression VisitConstant(ConstantExpression node)
+        /// <inheritdoc />
+        public IReadOnlyList<Expression> ExtractParameterNodes(Expression sqlExpression)
         {
-            this.variableValues.Add(node.Value);
-            return base.VisitConstant(node);
+            this.parameterNodes = new List<Expression>();
+            this.Visit(sqlExpression);
+            return this.parameterNodes;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<object> ExtractVariableValues(Expression sqlExpression)
+        {
+            var nodes = this.ExtractParameterNodes(sqlExpression);
+            var values = new object[nodes.Count];
+            for (int i = 0; i < nodes.Count; i++)
+                values[i] = this.expressionEvaluator.Evaluate(nodes[i]);
+            return values;
         }
 
         protected override Expression VisitMember(MemberExpression node)
         {
-            if (this.IsVariableNode(node))
+            if (this.expressionEvaluator.IsVariable(node))
             {
-                var variableValue = this.GetVariableValue(node);
-                this.variableValues.Add(variableValue);
+                // The whole member access evaluates to a value, so stop traversing into the access chain
+                // (its children are the closure / root container, never parameters) — this mirrors
+                // VariableMemberExpressionConverter.TryOverrideChildConversion. A query-typed member is a
+                // source root, not a parameter, so it is skipped (but traversal still stops here).
+                if (!IsQuerySourceType(node.Type))
+                    this.parameterNodes.Add(node);
                 return node;
             }
             return base.VisitMember(node);
         }
 
-        private object GetVariableValue(MemberExpression node)
+        private static bool IsQuerySourceType(Type type)
         {
-            if (node.Expression is ConstantExpression constantExpression)
-            {
-                return constantExpression.Value;
-            }
-            else if (node.Expression is MemberExpression me)
-            {
-                var container = this.GetVariableValue(me);
-                if (node.Member is System.Reflection.FieldInfo fieldInfo)
-                {
-                    return fieldInfo.GetValue(container);
-                }
-                else if (node.Member is System.Reflection.PropertyInfo propertyInfo)
-                {
-                    return propertyInfo.GetValue(container);
-                }
-            }
-            else if (node.Expression is null)
-            {
-                if (node.Member is System.Reflection.FieldInfo staticFieldInfo)
-                {
-                    return staticFieldInfo.GetValue(null);
-                }
-                else if (node.Member is System.Reflection.PropertyInfo staticPropertyInfo)
-                {
-                    return staticPropertyInfo.GetValue(null);
-                }
-            }
-            return null;
-        }
-
-        private bool IsVariableNode(MemberExpression node)
-        {
-            if (node.Expression is ConstantExpression)
-            {
-                return true;
-            }
-            else if (node.Expression is MemberExpression me)
-            {
-                return this.IsVariableNode(me);
-            }
-            else if (node.Expression is null)
-            {
-                if (node.Member is System.Reflection.FieldInfo staticFieldInfo)
-                {
-                    return staticFieldInfo.IsStatic;
-                }
-                else if (node.Member is System.Reflection.PropertyInfo staticPropertyInfo)
-                {
-                    var getMethod = staticPropertyInfo.GetGetMethod();
-                    return getMethod != null && getMethod.IsStatic;
-                }
-            }
-            return false;
+            return typeof(IQueryable).IsAssignableFrom(type) || typeof(IQueryProvider).IsAssignableFrom(type);
         }
     }
 }

@@ -133,7 +133,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
             var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
-            var preprocessingRequirementTester = new PreprocessingRequirementTester();
+            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor(expressionEvaluator);
+            var preprocessingRequirementTester = new PreprocessingRequirementTester(expressionVariableValueExtractor);
             var sqlDataTypeFactory = new SqlDataTypeFactory();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
             var sqlFactory = new SqlExpressionFactory();
@@ -150,7 +151,6 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var elementFactoryBuilder = new ElementFactoryBuilder();
             var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
             var queryCompiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, dbParameterFactory, elementFactoryBuilder);
-            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
             var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor, new NoOpNavigationInitializer());
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
@@ -171,7 +171,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
             var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
-            var preprocessingRequirementTester = new PreprocessingRequirementTester();
+            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor(expressionEvaluator);
+            var preprocessingRequirementTester = new PreprocessingRequirementTester(expressionVariableValueExtractor);
             var sqlDataTypeFactory = new SqlDataTypeFactory();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
             var sqlFactory = new SqlExpressionFactory();
@@ -188,7 +189,6 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var elementFactoryBuilder = new ElementFactoryBuilder();
             var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
             var queryCompiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, dbParameterFactory, elementFactoryBuilder);
-            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor();
             var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, preprocessor, new NoOpNavigationInitializer());
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
