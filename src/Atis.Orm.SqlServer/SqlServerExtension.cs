@@ -6,6 +6,7 @@ using System.Text;
 
 using Atis.Orm.Abstractions;
 using Atis.Orm.DataAccess;
+using Atis.Orm.Translation;
 namespace Atis.Orm.SqlServer
 {
     public class SqlServerExtension : IServiceContextExtension
@@ -22,6 +23,9 @@ namespace Atis.Orm.SqlServer
             var builder = new OrmServiceBuilder(services);
             builder.TryAdd<IDbCommunication>(sp => new SqlDbCommunication(_connectionString));
             builder.TryAdd<IDbParameterFactory, SqlDbParameterFactory>();
+            // Register the SQL Server dialect translator before AddCoreServices so it wins the
+            // TryAdd<ISqlExpressionTranslator, SqlExpressionTranslatorBase>() default (first-wins).
+            builder.TryAdd<ISqlExpressionTranslator, SqlServerSqlExpressionTranslator>();
             builder.AddCoreServices();
         }
     }
