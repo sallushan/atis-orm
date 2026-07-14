@@ -30,7 +30,7 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlCollectionExpression CreateCollection(IEnumerable<SqlExpression> sqlExpressions);
         SqlCastExpression CreateCast(SqlExpression expression, ISqlDataType sqlDataType);
         SqlDatePartExpression CreateDatePart(SqlDatePart datePart, SqlExpression dateExpr);
-        SqlParameterExpression CreateParameter(object value, bool multipleValues);
+        SqlParameterExpression CreateParameter(object value, bool multipleValues, string identity = null);
         SqlInValuesExpression CreateInValuesExpression(SqlExpression expression, SqlExpression[] values);
         SqlNegateExpression CreateNegate(SqlExpression operand);
         SqlNotExpression CreateNot(SqlExpression sqlExpression);

@@ -75,7 +75,10 @@ namespace Atis.Orm.Translation
         /// <returns>The created query parameter.</returns>
         protected virtual IQueryParameter CreateQueryParameter(string name, object value, bool isLiteral, SqlExpression sourceExpression)
         {
-            return new QueryParameter(name, value, isLiteral, sourceExpression);
+            // Non-literal parameters carry the source variable's identity so their value can be rebound by
+            // lookup (not by traversal position) on a cache hit. Literals keep InitialValue and need none.
+            var identity = (sourceExpression as SqlParameterExpression)?.Identity;
+            return new QueryParameter(name, value, isLiteral, sourceExpression, identity);
         }
 
         /// <summary>

@@ -13,15 +13,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     public class VariableMemberExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MemberExpression>
     {
         private readonly IExpressionEvaluator expressionEvaluator;
+        private readonly IVariableIdentityProvider variableIdentityProvider;
 
         /// <summary>
         ///     <para>
         ///         Initializes a new instance of the <see cref="VariableMemberExpressionConverterFactory"/> class.
         ///     </para>
         /// </summary>
-        public VariableMemberExpressionConverterFactory(IExpressionEvaluator expressionEvaluator ) : base()
+        public VariableMemberExpressionConverterFactory(IExpressionEvaluator expressionEvaluator, IVariableIdentityProvider variableIdentityProvider) : base()
         {
             this.expressionEvaluator = expressionEvaluator;
+            this.variableIdentityProvider = variableIdentityProvider;
         }
 
         /// <inheritdoc />
@@ -30,7 +32,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             if (expression is MemberExpression memberExpr && IsVariableMemberExpression(memberExpr))
             {
                 var d = this.GetConverterDependencies(converterDependencies);
-                converter = new VariableMemberExpressionConverter(this.expressionEvaluator, d, memberExpr, converterStack);
+                converter = new VariableMemberExpressionConverter(this.expressionEvaluator, this.variableIdentityProvider, d, memberExpr, converterStack);
                 return true;
             }
             converter = null;
@@ -58,6 +60,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     public class VariableMemberExpressionConverter : LinqToNonSqlQueryConverterBase<MemberExpression>
     {
         private readonly IExpressionEvaluator expressionEvaluator;
+        private readonly IVariableIdentityProvider variableIdentityProvider;
 
         /// <summary>
         ///     <para>
@@ -65,13 +68,15 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///     </para>
         /// </summary>
         /// <param name="expressionEvaluator">The expression evaluator.</param>
+        /// <param name="variableIdentityProvider">Computes the stable identity stamped on the created parameter.</param>
         /// <param name="dependencies">The conversion dependencies.</param>
         /// <param name="expression">The member expression to be converted.</param>
         /// <param name="converterStack">The stack of converters representing the parent chain for context-aware conversion.</param>
-        public VariableMemberExpressionConverter(IExpressionEvaluator expressionEvaluator, LinqToSqlExpressionConverterDependencies dependencies, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
+        public VariableMemberExpressionConverter(IExpressionEvaluator expressionEvaluator, IVariableIdentityProvider variableIdentityProvider, LinqToSqlExpressionConverterDependencies dependencies, MemberExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack)
             : base(dependencies, expression, converterStack)
         {
             this.expressionEvaluator = expressionEvaluator;
+            this.variableIdentityProvider = variableIdentityProvider;
         }
 
         /// <inheritdoc />
@@ -111,7 +116,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         {
             var value = this.GetVariableValue(this.Expression);
             var isEnumerable = this.IsEnumerable(value);
-            return this.SqlFactory.CreateParameter(value, multipleValues: isEnumerable);
+            // Stamp the source variable's stable identity so its value can be rebound by lookup (not by
+            // traversal position) on a cache hit - the SqlExpression tree may be reshaped (CTE hoisting,
+            // subtree copying) so parameter emission order need not match LINQ re-extraction order.
+            var identity = this.variableIdentityProvider.GetIdentity(this.Expression);
+            return this.SqlFactory.CreateParameter(value, multipleValues: isEnumerable, identity: identity);
         }
 
         private bool IsEnumerable(object value)

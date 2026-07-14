@@ -153,7 +153,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
             var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
-            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor(expressionEvaluator);
+            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor(expressionEvaluator, new VariableIdentityProvider());
             var preprocessingRequirementTester = new PreprocessingRequirementTester(expressionVariableValueExtractor);
             var sqlDataTypeFactory = new SqlDataTypeFactory();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
@@ -162,7 +162,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var model = new Services.Model(reflectionService);
             var serviceCollection = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
-            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, userProvidedFactories: [new SqlFunctionConverterFactory()]);
+            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory()]);
             var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
             var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, model);
             var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));
@@ -191,7 +191,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var dbAdapter = new DatabaseAdapter(reflectionService, dbCommunication);
             var cacheKeyProvider = new ExpressionCacheKeyProvider();
             var queryCacheProvider = new CompiledQueryCacheProvider(cacheKeyProvider);
-            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor(expressionEvaluator);
+            var expressionVariableValueExtractor = new ExpressionVariableValuesExtractor(expressionEvaluator, new VariableIdentityProvider());
             var preprocessingRequirementTester = new PreprocessingRequirementTester(expressionVariableValueExtractor);
             var sqlDataTypeFactory = new SqlDataTypeFactory();
             var parameterMapper = new LambdaParameterToDataSourceMapper();
@@ -200,7 +200,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var model = new Services.Model(reflectionService);
             var serviceCollection = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
-            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, userProvidedFactories: [new SqlFunctionConverterFactory()]);
+            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory()]);
             var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
             var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, model);
             var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));

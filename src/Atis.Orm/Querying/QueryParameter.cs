@@ -35,12 +35,14 @@ namespace Atis.Orm.Querying
         ///     </para>
         /// </param>
         /// <param name="sqlParameterExpression">The source SQL expression (either <see cref="SqlLiteralExpression"/> or <see cref="SqlParameterExpression"/>).</param>
-        public QueryParameter(string name, object initialValue, bool isLiteral, SqlExpression sqlParameterExpression)
+        /// <param name="parameterIdentity">Stable identity of the source variable node, used for cache-hit rebinding; <c>null</c> for literals.</param>
+        public QueryParameter(string name, object initialValue, bool isLiteral, SqlExpression sqlParameterExpression, string parameterIdentity = null)
         {
             this.Name = name;
             this.InitialValue = initialValue;
             this.IsLiteral = isLiteral;
             this.SqlParameterExpression = sqlParameterExpression;
+            this.ParameterIdentity = parameterIdentity;
         }
 
         /// <inheritdoc />
@@ -51,6 +53,9 @@ namespace Atis.Orm.Querying
 
         /// <inheritdoc />
         public bool IsLiteral { get; }
+
+        /// <inheritdoc />
+        public string ParameterIdentity { get; }
 
         /// <inheritdoc />
         public SqlExpression SqlParameterExpression { get; }

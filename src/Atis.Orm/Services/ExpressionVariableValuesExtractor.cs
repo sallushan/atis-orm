@@ -25,11 +25,13 @@ namespace Atis.Orm.Services
     public class ExpressionVariableValuesExtractor : ExpressionVisitor, IExpressionVariableValuesExtractor
     {
         private readonly IExpressionEvaluator expressionEvaluator;
+        private readonly IVariableIdentityProvider variableIdentityProvider;
         private List<Expression> parameterNodes = new List<Expression>();
 
-        public ExpressionVariableValuesExtractor(IExpressionEvaluator expressionEvaluator)
+        public ExpressionVariableValuesExtractor(IExpressionEvaluator expressionEvaluator, IVariableIdentityProvider variableIdentityProvider)
         {
             this.expressionEvaluator = expressionEvaluator ?? throw new ArgumentNullException(nameof(expressionEvaluator));
+            this.variableIdentityProvider = variableIdentityProvider ?? throw new ArgumentNullException(nameof(variableIdentityProvider));
         }
 
         /// <inheritdoc />
@@ -48,6 +50,31 @@ namespace Atis.Orm.Services
             for (int i = 0; i < nodes.Count; i++)
                 values[i] = this.expressionEvaluator.Evaluate(nodes[i]);
             return values;
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, object> ExtractVariableValuesByIdentity(Expression sqlExpression)
+        {
+            var nodes = this.ExtractParameterNodes(sqlExpression);
+            var byIdentity = new Dictionary<string, object>();
+            foreach (var node in nodes)
+            {
+                var identity = this.variableIdentityProvider.GetIdentity(node);
+                var value = this.expressionEvaluator.Evaluate(node);
+                if (byIdentity.TryGetValue(identity, out var existing))
+                {
+                    // Same variable referenced more than once -> identical value, keep the single entry.
+                    // Different values under one identity would mean the identity failed to distinguish two
+                    // captures; fail loudly rather than silently mis-bind.
+                    if (!Equals(existing, value))
+                        throw new InvalidOperationException(
+                            $"Two distinct variables resolved to the same parameter identity '{identity}' with different values. " +
+                            $"This would corrupt cache-hit rebinding.");
+                    continue;
+                }
+                byIdentity.Add(identity, value);
+            }
+            return byIdentity;
         }
 
         protected override Expression VisitMember(MemberExpression node)

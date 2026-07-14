@@ -29,6 +29,7 @@ namespace Atis.Orm
             {
                 { typeof(ILogger),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IExpressionEvaluator),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                { typeof(IVariableIdentityProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IReflectionService), new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IOrmReflectionService), new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IEntityMetadataBuilder),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
@@ -74,6 +75,7 @@ namespace Atis.Orm
         {
             this.TryAdd<ILogger, Logger>();
             this.TryAdd<IExpressionEvaluator, ExpressionEvaluator>();
+            this.TryAdd<IVariableIdentityProvider, VariableIdentityProvider>();
             this.TryAdd<IOrmReflectionService, OrmReflectionService>();
             this.TryAdd<IReflectionService>(p => p.GetRequiredService<IOrmReflectionService>());
             this.TryAdd<IEntityMetadataBuilder, EntityMetadataBuilder>();

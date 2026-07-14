@@ -81,15 +81,15 @@ namespace Atis.Orm.Querying
         protected virtual IExecutionContext GetExecutionContext(Expression expression)
         {
             ICompiledQuery compiledQuery = this.GetOrAddCompiledQuery(expression, out bool cacheHit);
-            IReadOnlyList<object> parameterValues = null;
+            IReadOnlyDictionary<string, object> parameterValuesByIdentity = null;
             if (cacheHit)
             {
                 Expression expressionToUseToExtractVariableValues = expression;
                 if (compiledQuery.IsPreprocessingRequired)
                     expressionToUseToExtractVariableValues = this.PreprocessExpression(expression);
-                parameterValues = this.expressionVariableValuesExtractor.ExtractVariableValues(expressionToUseToExtractVariableValues);
+                parameterValuesByIdentity = this.expressionVariableValuesExtractor.ExtractVariableValuesByIdentity(expressionToUseToExtractVariableValues);
             }
-            IExecutionContext queryExecutionParameter = compiledQuery.GetExecutionContext(parameterValues, useInitialValues: !cacheHit);
+            IExecutionContext queryExecutionParameter = compiledQuery.GetExecutionContext(parameterValuesByIdentity, useInitialValues: !cacheHit);
             return queryExecutionParameter;
         }
 

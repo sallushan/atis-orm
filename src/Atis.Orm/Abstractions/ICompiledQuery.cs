@@ -5,6 +5,6 @@ namespace Atis.Orm.Abstractions
     public interface ICompiledQuery
     {
         bool IsPreprocessingRequired { get; }
-        IExecutionContext GetExecutionContext(IReadOnlyList<object> parameterValues, bool useInitialValues);
+        IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues);
     }
 }

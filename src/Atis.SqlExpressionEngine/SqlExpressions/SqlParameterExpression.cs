@@ -24,10 +24,16 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         /// </summary>
         /// <param name="value">The value of the SQL parameter.</param>
         /// <param name="multipleValues">Flag indicating if the parameter can have multiple values.</param>
-        public SqlParameterExpression(object value, bool multipleValues)
+        /// <param name="identity">
+        ///     Stable identity of the source variable node (see <see cref="Abstractions.IVariableIdentityProvider"/>), used to
+        ///     rebind this parameter's value by lookup on a cache hit instead of by traversal position. May be
+        ///     <c>null</c> when the value has no re-extractable source (e.g. a translation-time literal reused here).
+        /// </param>
+        public SqlParameterExpression(object value, bool multipleValues, string identity = null)
         {
             this.Value = value;
             this.MultipleValues = multipleValues;
+            this.Identity = identity;
         }
 
         /// <summary>
@@ -52,6 +58,17 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         ///     </para>
         /// </summary>
         public bool MultipleValues { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         Gets the stable identity of the source variable node this parameter was created from.
+        ///     </para>
+        ///     <para>
+        ///         Used to correlate the parameter with its re-extracted value on a cache hit (order-independent).
+        ///         <c>null</c> when there is no re-extractable source.
+        ///     </para>
+        /// </summary>
+        public string Identity { get; }
 
         /// <summary>
         ///     <para>

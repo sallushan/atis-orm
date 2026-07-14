@@ -20,7 +20,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     public class PreprocessingCacheTests : TestBase
     {
         private static ExpressionVariableValuesExtractor NewExtractor()
-            => new ExpressionVariableValuesExtractor(new ExpressionEvaluator());
+            => new ExpressionVariableValuesExtractor(new ExpressionEvaluator(), new VariableIdentityProvider());
 
         private static PreprocessingRequirementTester NewTester()
             => new PreprocessingRequirementTester(NewExtractor());
@@ -130,6 +130,42 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             id = 2;
             var secondRun = employees.Where(x => x.EmployeeId == id).Select(x => x.FirstName).ToList();
             CollectionAssert.AreEqual(new[] { "Sarah" }, secondRun);
+        }
+
+        [TestMethod]
+        public async Task Cache_hit_rebinds_projection_and_where_variables_by_identity()
+        {
+            var setup = new TestDatabaseSetup("Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            await setup.SetupAsync();
+
+            using var dbc = new OrmDbContext();
+            var employees = dbc.CreateQuery<TestEntities.Employee>();
+
+            // Two same-typed (int) variables: 'tag' in the projection (SELECT list) and 'minId' in the WHERE.
+            // SQL emits SELECT before WHERE, so the translator produces parameters in order [tag, minId].
+            // A LINQ ExpressionVisitor over Select(Where(src, ...), ...) visits the inner Where first, so the
+            // value re-extractor produces [minId, tag] — the reverse. Positional cache-hit binding therefore
+            // swaps the two on the second run. Identity-based binding must keep them correct.
+            int minId = 1;
+            int tag = 100;
+            var firstRun = employees
+                .Where(x => x.EmployeeId >= minId)
+                .Select(x => new { Tag = tag, x.EmployeeId })
+                .ToList();
+            Assert.AreEqual(25, firstRun.Count, "All 25 employees have EmployeeId >= 1.");
+            Assert.IsTrue(firstRun.All(r => r.Tag == 100), "First run projects Tag = 100 (InitialValue).");
+
+            // Cache hit: same shape, new captured values. Buggy positional binding would send 'tag' (200) to
+            // the WHERE (EmployeeId >= 200 -> 0 rows) and 'minId' (24) to the Tag column.
+            minId = 24;
+            tag = 200;
+            var secondRun = employees
+                .Where(x => x.EmployeeId >= minId)
+                .Select(x => new { Tag = tag, x.EmployeeId })
+                .ToList();
+
+            Assert.AreEqual(2, secondRun.Count, "Only EmployeeId 24 and 25 satisfy EmployeeId >= 24.");
+            Assert.IsTrue(secondRun.All(r => r.Tag == 200), "Second run must rebind the projected Tag to 200.");
         }
 
         [TestMethod]

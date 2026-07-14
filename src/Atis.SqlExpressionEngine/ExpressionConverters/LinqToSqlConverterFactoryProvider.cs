@@ -15,6 +15,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         public LinqToSqlConverterFactoryProvider(
             IReflectionService reflectionService,
             IExpressionEvaluator expressionEvaluator,
+            IVariableIdentityProvider variableIdentityProvider,
             IEnumerable<IExpressionConverterFactory<Expression, SqlExpression>> userProvidedFactories)
         {
             var factories = new List<IExpressionConverterFactory<Expression, SqlExpression>>();
@@ -22,11 +23,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             if (userProvidedFactories != null)
                 factories.AddRange(userProvidedFactories);
             // then default factories
-            factories.AddRange(BuildDefaultFactories(reflectionService, expressionEvaluator));
+            factories.AddRange(BuildDefaultFactories(reflectionService, expressionEvaluator, variableIdentityProvider));
             _factories = factories;
         }
 
-        private static IEnumerable<IExpressionConverterFactory<Expression, SqlExpression>> BuildDefaultFactories(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator)
+        private static IEnumerable<IExpressionConverterFactory<Expression, SqlExpression>> BuildDefaultFactories(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, IVariableIdentityProvider variableIdentityProvider)
         {
             var defaultFactories = new IExpressionConverterFactory<Expression, SqlExpression>[]
             {
@@ -42,7 +43,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new GroupByKeyExpressionConverterFactory(reflectionService),
                 new DateSubtractConverterFactory(),
                 new DateTimeMemberAccessConverterFactory(),
-                new VariableMemberExpressionConverterFactory(expressionEvaluator),
+                new VariableMemberExpressionConverterFactory(expressionEvaluator, variableIdentityProvider),
                 new MemberExpressionConverterFactory(),
                 new QuoteExpressionConverterFactory(),
                 new LambdaExpressionConverterFactory(),
