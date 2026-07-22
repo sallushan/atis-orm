@@ -15,6 +15,13 @@ namespace Atis.Orm.Translation
     ///         This class provides the core translation logic and can be extended
     ///         to support database-specific SQL syntax.
     ///     </para>
+    ///     <para>
+    ///         Translation is performed by appending fragments into a shared
+    ///         <see cref="SqlFragmentWriter"/> (see the <c>Translate*</c> methods, which return
+    ///         <c>void</c>). Parameter placeholders are recorded as
+    ///         <see cref="SqlParameterFragment"/> markers via <see cref="EmitParameter"/>; this
+    ///         marker bookkeeping is owned by the base and cannot be altered by derived translators.
+    ///     </para>
     /// </summary>
     public class SqlExpressionTranslatorBase : ISqlExpressionTranslator
     {
@@ -24,9 +31,13 @@ namespace Atis.Orm.Translation
         ///     </para>
         /// </summary>
         protected List<IQueryParameter> Parameters { get; } = new List<IQueryParameter>();
+        private readonly SqlFragmentWriter writer = new SqlFragmentWriter();
         private int parameterCounter;
         private Dictionary<Guid, string> aliasCache;
         private int depth;
+        // When set, the next derived-table / union query emits without its outer parentheses.
+        // Replaces the old string-based RemoveOuterParentheses post-processing (union/update/delete).
+        private bool suppressDerivedTableParens;
 
         /// <summary>
         ///     <para>
@@ -41,11 +52,23 @@ namespace Atis.Orm.Translation
             this.parameterCounter = 0;
             this.aliasCache = new Dictionary<Guid, string>();
             this.depth = 0;
+            this.suppressDerivedTableParens = false;
+            this.writer.Reset();
 
-            var sql = this.TranslateExpression(sqlExpression);
+            this.TranslateExpression(sqlExpression);
 
-            return new SqlTranslationResult(sql, this.Parameters);
+            return new SqlTranslationResult(this.writer.ToSql(), this.Parameters);
         }
+
+        #region Output helpers
+
+        /// <summary>Appends literal SQL text to the output.</summary>
+        protected void Append(string text) => this.writer.Append(text);
+
+        /// <summary>Appends a single literal SQL character to the output.</summary>
+        protected void Append(char c) => this.writer.Append(c);
+
+        #endregion
 
         #region Parameter and Alias Helpers
 
@@ -83,6 +106,28 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
+        ///         Emits a parameter placeholder: generates its name, records the query parameter, and
+        ///         writes the parameter marker at the current output position.
+        ///     </para>
+        ///     <para>
+        ///         Marker recording is owned here and is intentionally non-virtual so derived translators
+        ///         cannot bypass or corrupt it. Providers customize naming via <see cref="GenerateParameterName"/>
+        ///         and the parameter object via <see cref="CreateQueryParameter"/>.
+        ///     </para>
+        /// </summary>
+        /// <param name="value">The parameter value.</param>
+        /// <param name="isLiteral">Whether this is a literal value.</param>
+        /// <param name="source">The source SQL expression (literal or parameter node).</param>
+        protected void EmitParameter(object value, bool isLiteral, SqlExpression source)
+        {
+            var name = this.GenerateParameterName();
+            var queryParameter = this.CreateQueryParameter(name, value, isLiteral, source);
+            this.Parameters.Add(queryParameter);
+            this.writer.AddParameter(queryParameter);
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Gets or creates a simplified alias for a data source GUID.
         ///     </para>
         /// </summary>
@@ -99,6 +144,14 @@ namespace Atis.Orm.Translation
             return alias;
         }
 
+        // Reads and clears the one-shot "emit next query without outer parentheses" flag.
+        private bool ConsumeSuppressParens()
+        {
+            var value = this.suppressDerivedTableParens;
+            this.suppressDerivedTableParens = false;
+            return value;
+        }
+
         #endregion
 
         #region Main Dispatch
@@ -109,11 +162,10 @@ namespace Atis.Orm.Translation
         ///     </para>
         /// </summary>
         /// <param name="node">The SQL expression to translate.</param>
-        /// <returns>The translated SQL string.</returns>
-        protected virtual string TranslateExpression(SqlExpression node)
+        protected virtual void TranslateExpression(SqlExpression node)
         {
             if (node == null)
-                return string.Empty;
+                return;
 
             // Every recursion routes through here, so incrementing on entry gives each node its
             // query-nesting depth: the root query is reached at depth 1, every subquery at depth >= 2.
@@ -123,7 +175,7 @@ namespace Atis.Orm.Translation
             this.depth++;
             try
             {
-                return this.DispatchExpression(node);
+                this.DispatchExpression(node);
             }
             finally
             {
@@ -137,77 +189,76 @@ namespace Atis.Orm.Translation
         ///     </para>
         /// </summary>
         /// <param name="node">The SQL expression to translate.</param>
-        /// <returns>The translated SQL string.</returns>
-        protected virtual string DispatchExpression(SqlExpression node)
+        protected virtual void DispatchExpression(SqlExpression node)
         {
             if (node is SqlLiteralExpression literal)
-                return this.TranslateLiteral(literal);
+                this.TranslateLiteral(literal);
             else if (node is SqlParameterExpression parameter)
-                return this.TranslateParameter(parameter);
+                this.TranslateParameter(parameter);
             else if (node is SqlBinaryExpression binary)
-                return this.TranslateBinary(binary);
+                this.TranslateBinary(binary);
             else if (node is SqlDataSourceColumnExpression column)
-                return this.TranslateDataSourceColumn(column);
+                this.TranslateDataSourceColumn(column);
             else if (node is SqlTableExpression table)
-                return this.TranslateTable(table);
+                this.TranslateTable(table);
             else if (node is SqlDerivedTableExpression derivedTable)
-                return this.TranslateDerivedTable(derivedTable);
+                this.TranslateDerivedTable(derivedTable);
             else if (node is SqlAliasedFromSourceExpression aliasedFromSource)
-                return this.TranslateAliasedFromSource(aliasedFromSource);
+                this.TranslateAliasedFromSource(aliasedFromSource);
             else if (node is SqlAliasedJoinSourceExpression aliasedJoinSource)
-                return this.TranslateAliasedJoinSource(aliasedJoinSource);
+                this.TranslateAliasedJoinSource(aliasedJoinSource);
             else if (node is SqlAliasedCteSourceExpression aliasedCteSource)
-                return this.TranslateAliasedCteSource(aliasedCteSource);
+                this.TranslateAliasedCteSource(aliasedCteSource);
             else if (node is SqlCteReferenceExpression cteReference)
-                return this.TranslateCteReference(cteReference);
+                this.TranslateCteReference(cteReference);
             else if (node is SqlAliasExpression alias)
-                return this.TranslateAlias(alias);
+                this.TranslateAlias(alias);
             else if (node is SqlFunctionCallExpression functionCall)
-                return this.TranslateFunctionCall(functionCall);
+                this.TranslateFunctionCall(functionCall);
             else if (node is SqlExistsExpression exists)
-                return this.TranslateExists(exists);
+                this.TranslateExists(exists);
             else if (node is SqlConditionalExpression conditional)
-                return this.TranslateConditional(conditional);
+                this.TranslateConditional(conditional);
             else if (node is SqlNotExpression not)
-                return this.TranslateNot(not);
+                this.TranslateNot(not);
             else if (node is SqlNegateExpression negate)
-                return this.TranslateNegate(negate);
+                this.TranslateNegate(negate);
             else if (node is SqlInValuesExpression inValues)
-                return this.TranslateInValues(inValues);
+                this.TranslateInValues(inValues);
             else if (node is SqlLikeExpression like)
-                return this.TranslateLike(like);
+                this.TranslateLike(like);
             else if (node is SqlCastExpression cast)
-                return this.TranslateCast(cast);
+                this.TranslateCast(cast);
             else if (node is SqlDateAddExpression dateAdd)
-                return this.TranslateDateAdd(dateAdd);
+                this.TranslateDateAdd(dateAdd);
             else if (node is SqlDatePartExpression datePart)
-                return this.TranslateDatePart(datePart);
+                this.TranslateDatePart(datePart);
             else if (node is SqlDateSubtractExpression dateSubtract)
-                return this.TranslateDateSubtract(dateSubtract);
+                this.TranslateDateSubtract(dateSubtract);
             else if (node is SqlStringFunctionExpression stringFunction)
-                return this.TranslateStringFunction(stringFunction);
+                this.TranslateStringFunction(stringFunction);
             else if (node is SqlCollectionExpression collection)
-                return this.TranslateCollection(collection);
+                this.TranslateCollection(collection);
             else if (node is SqlUnionQueryExpression unionQuery)
-                return this.TranslateUnionQuery(unionQuery);
+                this.TranslateUnionQuery(unionQuery);
             else if (node is SqlStandaloneSelectExpression standaloneSelect)
-                return this.TranslateStandaloneSelect(standaloneSelect);
+                this.TranslateStandaloneSelect(standaloneSelect);
             else if (node is SqlUpdateExpression update)
-                return this.TranslateUpdate(update);
+                this.TranslateUpdate(update);
             else if (node is SqlDeleteExpression delete)
-                return this.TranslateDelete(delete);
+                this.TranslateDelete(delete);
             else if (node is SqlInsertIntoExpression insertInto)
-                return this.TranslateInsertInto(insertInto);
+                this.TranslateInsertInto(insertInto);
             else if (node is SqlNewGuidExpression newGuid)
-                return this.TranslateNewGuid(newGuid);
+                this.TranslateNewGuid(newGuid);
             else if (node is SqlCommentExpression comment)
-                return this.TranslateComment(comment);
+                this.TranslateComment(comment);
             else if (node is SqlFragmentExpression fragment)
-                return this.TranslateFragment(fragment);
+                this.TranslateFragment(fragment);
             else if (node is SqlQueryableExpression queryable)
-                return this.TranslateQueryable(queryable);
+                this.TranslateQueryable(queryable);
             else
-                return this.TranslateUnknown(node);
+                this.TranslateUnknown(node);
         }
 
         /// <summary>
@@ -219,8 +270,7 @@ namespace Atis.Orm.Translation
         ///     </para>
         /// </summary>
         /// <param name="node">The unknown SQL expression.</param>
-        /// <returns>The translated SQL string.</returns>
-        protected virtual string TranslateUnknown(SqlExpression node)
+        protected virtual void TranslateUnknown(SqlExpression node)
         {
             throw new NotSupportedException($"SQL expression type '{node?.GetType().Name}' is not supported.");
         }
@@ -234,12 +284,9 @@ namespace Atis.Orm.Translation
         ///         Translates a literal expression to a parameter placeholder.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateLiteral(SqlLiteralExpression node)
+        protected virtual void TranslateLiteral(SqlLiteralExpression node)
         {
-            var paramName = this.GenerateParameterName();
-            var queryParameter = this.CreateQueryParameter(paramName, node.LiteralValue, isLiteral: true, node);
-            this.Parameters.Add(queryParameter);
-            return paramName;
+            this.EmitParameter(node.LiteralValue, isLiteral: true, node);
         }
 
         /// <summary>
@@ -247,12 +294,9 @@ namespace Atis.Orm.Translation
         ///         Translates a parameter expression to a parameter placeholder.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateParameter(SqlParameterExpression node)
+        protected virtual void TranslateParameter(SqlParameterExpression node)
         {
-            var paramName = this.GenerateParameterName();
-            var queryParameter = this.CreateQueryParameter(paramName, node.Value, isLiteral: false, node);
-            this.Parameters.Add(queryParameter);
-            return paramName;
+            this.EmitParameter(node.Value, isLiteral: false, node);
         }
 
         #endregion
@@ -264,38 +308,48 @@ namespace Atis.Orm.Translation
         ///         Translates a binary expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateBinary(SqlBinaryExpression node)
+        protected virtual void TranslateBinary(SqlBinaryExpression node)
         {
             if (node.NodeType == SqlExpressionType.Coalesce)
             {
-                return this.TranslateCoalesce(node.Left, node.Right);
+                this.TranslateCoalesce(node.Left, node.Right);
+                return;
             }
 
             // Handle null comparisons
             if (this.IsNullExpression(node.Right))
             {
                 if (node.NodeType == SqlExpressionType.Equal)
-                    return $"({this.TranslateExpression(node.Left)} IS NULL)";
+                {
+                    this.writer.Append("(");
+                    this.TranslateExpression(node.Left);
+                    this.writer.Append(" IS NULL)");
+                    return;
+                }
                 else if (node.NodeType == SqlExpressionType.NotEqual)
-                    return $"({this.TranslateExpression(node.Left)} IS NOT NULL)";
-            }
-
-            string left;
-            string right;
-
-            if (node.NodeType == SqlExpressionType.AndAlso || node.NodeType == SqlExpressionType.OrElse)
-            {
-                left = this.TranslateAsLogicalExpression(node.Left);
-                right = this.TranslateAsLogicalExpression(node.Right);
-            }
-            else
-            {
-                left = this.TranslateAsNonLogicalExpression(node.Left);
-                right = this.TranslateAsNonLogicalExpression(node.Right);
+                {
+                    this.writer.Append("(");
+                    this.TranslateExpression(node.Left);
+                    this.writer.Append(" IS NOT NULL)");
+                    return;
+                }
             }
 
             var op = this.GetBinaryOperator(node.NodeType);
-            return $"({left} {op} {right})";
+            this.writer.Append("(");
+            if (node.NodeType == SqlExpressionType.AndAlso || node.NodeType == SqlExpressionType.OrElse)
+            {
+                this.TranslateAsLogicalExpression(node.Left);
+                this.writer.Append($" {op} ");
+                this.TranslateAsLogicalExpression(node.Right);
+            }
+            else
+            {
+                this.TranslateAsNonLogicalExpression(node.Left);
+                this.writer.Append($" {op} ");
+                this.TranslateAsNonLogicalExpression(node.Right);
+            }
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -306,11 +360,13 @@ namespace Atis.Orm.Translation
         ///         Override this method for database-specific syntax (e.g., ISNULL for SQL Server).
         ///     </para>
         /// </summary>
-        protected virtual string TranslateCoalesce(SqlExpression left, SqlExpression right)
+        protected virtual void TranslateCoalesce(SqlExpression left, SqlExpression right)
         {
-            var leftSql = this.TranslateAsNonLogicalExpression(left);
-            var rightSql = this.TranslateAsNonLogicalExpression(right);
-            return $"COALESCE({leftSql}, {rightSql})";
+            this.writer.Append("COALESCE(");
+            this.TranslateAsNonLogicalExpression(left);
+            this.writer.Append(", ");
+            this.TranslateAsNonLogicalExpression(right);
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -385,14 +441,18 @@ namespace Atis.Orm.Translation
         ///         If the expression is not logical, wraps it as "expression = true".
         ///     </para>
         /// </summary>
-        protected virtual string TranslateAsLogicalExpression(SqlExpression node)
+        protected virtual void TranslateAsLogicalExpression(SqlExpression node)
         {
             if (!this.IsLogicalExpression(node))
             {
-                var expr = this.TranslateExpression(node);
-                return $"({expr} = 1)";
+                this.writer.Append("(");
+                this.TranslateExpression(node);
+                this.writer.Append(" = 1)");
             }
-            return this.TranslateExpression(node);
+            else
+            {
+                this.TranslateExpression(node);
+            }
         }
 
         /// <summary>
@@ -403,14 +463,18 @@ namespace Atis.Orm.Translation
         ///         If the expression is logical, wraps it in a CASE expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateAsNonLogicalExpression(SqlExpression node)
+        protected virtual void TranslateAsNonLogicalExpression(SqlExpression node)
         {
             if (this.IsLogicalExpression(node))
             {
-                var expr = this.TranslateExpression(node);
-                return $"CASE WHEN {expr} THEN 1 ELSE 0 END";
+                this.writer.Append("CASE WHEN ");
+                this.TranslateExpression(node);
+                this.writer.Append(" THEN 1 ELSE 0 END");
             }
-            return this.TranslateExpression(node);
+            else
+            {
+                this.TranslateExpression(node);
+            }
         }
 
         #endregion
@@ -422,9 +486,11 @@ namespace Atis.Orm.Translation
         ///         Translates a data source column reference.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateDataSourceColumn(SqlDataSourceColumnExpression node)
+        protected virtual void TranslateDataSourceColumn(SqlDataSourceColumnExpression node)
         {
-            return $"{this.GetAlias(node.DataSourceAlias)}.{node.ColumnName}";
+            this.writer.Append(this.GetAlias(node.DataSourceAlias));
+            this.writer.Append(".");
+            this.writer.Append(node.ColumnName);
         }
 
         /// <summary>
@@ -432,11 +498,11 @@ namespace Atis.Orm.Translation
         ///         Translates a table reference.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateTable(SqlTableExpression node)
+        protected virtual void TranslateTable(SqlTableExpression node)
         {
             var t = node.SqlTable;
-            var tableParts = new [] { t.Server, t.Database, t.Schema, t.TableName };
-            return string.Join(".", tableParts.Where(x => !string.IsNullOrEmpty(x)));
+            var tableParts = new[] { t.Server, t.Database, t.Schema, t.TableName };
+            this.writer.Append(string.Join(".", tableParts.Where(x => !string.IsNullOrEmpty(x))));
         }
 
         /// <summary>
@@ -444,9 +510,9 @@ namespace Atis.Orm.Translation
         ///         Translates an alias expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateAlias(SqlAliasExpression node)
+        protected virtual void TranslateAlias(SqlAliasExpression node)
         {
-            return node.ColumnAlias;
+            this.writer.Append(node.ColumnAlias);
         }
 
         #endregion
@@ -458,57 +524,78 @@ namespace Atis.Orm.Translation
         ///         Translates a derived table (subquery).
         ///     </para>
         /// </summary>
-        protected virtual string TranslateDerivedTable(SqlDerivedTableExpression node)
+        protected virtual void TranslateDerivedTable(SqlDerivedTableExpression node)
         {
-            var parts = new List<string>();
-
-            // CTE definitions
-            var cteClause = this.TranslateCteDataSources(node.CteDataSources);
-            if (!string.IsNullOrEmpty(cteClause))
-                parts.Add(cteClause);
-
-            // SELECT clause
-            var selectClause = this.TranslateSelectClause(node);
-            if (!string.IsNullOrEmpty(selectClause))
-                parts.Add(selectClause);
-
-            // FROM clause
-            var fromClause = this.TranslateFromClause(node.FromSource);
-            parts.Add(fromClause);
-
-            // JOIN clauses
-            var joinsClause = this.TranslateJoins(node.Joins);
-            if (!string.IsNullOrEmpty(joinsClause))
-                parts.Add(joinsClause);
-
-            // WHERE clause
-            var whereClause = this.TranslateFilterClause(node.WhereClause, "WHERE");
-            if (!string.IsNullOrEmpty(whereClause))
-                parts.Add(whereClause);
-
-            // GROUP BY clause
-            var groupByClause = this.TranslateGroupByClause(node.GroupByClause);
-            if (!string.IsNullOrEmpty(groupByClause))
-                parts.Add(groupByClause);
-
-            // HAVING clause
-            var havingClause = this.TranslateFilterClause(node.HavingClause, "HAVING");
-            if (!string.IsNullOrEmpty(havingClause))
-                parts.Add(havingClause);
-
-            // ORDER BY clause
-            var orderByClause = this.TranslateOrderByClause(node.OrderByClause);
-            if (!string.IsNullOrEmpty(orderByClause))
-                parts.Add(orderByClause);
-
-            // Paging (OFFSET/FETCH)
-            var pagingClause = this.TranslatePaging(node.RowOffset, node.RowsPerPage);
-            if (!string.IsNullOrEmpty(pagingClause))
-                parts.Add(pagingClause);
-
-            var query = string.Join("\r\n", parts);
             // Top-level query (depth 1) is a complete statement; only nest subqueries in parentheses.
-            return this.depth <= 1 ? query : $"(\r\n{query}\r\n)";
+            // A caller (union/update/delete) can suppress wrapping to emit a bare query.
+            var wrap = this.depth > 1 && !this.ConsumeSuppressParens();
+            if (wrap)
+                this.writer.Append("(\r\n");
+
+            // Clauses are joined by "\r\n". A clause occupies a "part slot" only when present; the FROM
+            // clause always occupies a slot (matching the original unconditional add, even when empty).
+            var first = true;
+            void Separator()
+            {
+                if (!first)
+                    this.writer.Append("\r\n");
+                first = false;
+            }
+
+            if (node.CteDataSources != null && node.CteDataSources.Count > 0)
+            {
+                Separator();
+                this.TranslateCteDataSources(node.CteDataSources);
+            }
+
+            if (node.SelectColumnCollection != null)
+            {
+                Separator();
+                this.TranslateSelectClause(node);
+            }
+
+            // FROM clause always occupies a slot.
+            Separator();
+            this.TranslateFromClause(node.FromSource);
+
+            if (node.Joins != null && node.Joins.Count > 0)
+            {
+                Separator();
+                this.TranslateJoins(node.Joins);
+            }
+
+            if (node.WhereClause != null && node.WhereClause.FilterConditions.Count > 0)
+            {
+                Separator();
+                this.TranslateFilterClause(node.WhereClause, "WHERE");
+            }
+
+            if (node.GroupByClause != null && node.GroupByClause.Count > 0)
+            {
+                Separator();
+                this.TranslateGroupByClause(node.GroupByClause);
+            }
+
+            if (node.HavingClause != null && node.HavingClause.FilterConditions.Count > 0)
+            {
+                Separator();
+                this.TranslateFilterClause(node.HavingClause, "HAVING");
+            }
+
+            if (node.OrderByClause != null && node.OrderByClause.OrderByColumns.Count > 0)
+            {
+                Separator();
+                this.TranslateOrderByClause(node.OrderByClause);
+            }
+
+            if (node.RowOffset != null && node.RowsPerPage != null)
+            {
+                Separator();
+                this.TranslatePaging(node.RowOffset, node.RowsPerPage);
+            }
+
+            if (wrap)
+                this.writer.Append("\r\n)");
         }
 
         /// <summary>
@@ -516,16 +603,17 @@ namespace Atis.Orm.Translation
         ///         Translates the SELECT clause of a derived table.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateSelectClause(SqlDerivedTableExpression node)
+        protected virtual void TranslateSelectClause(SqlDerivedTableExpression node)
         {
             if (node.SelectColumnCollection == null)
-                return string.Empty;
+                return;
 
-            var distinct = node.IsDistinct ? "DISTINCT " : string.Empty;
-            var top = node.Top > 0 ? $"TOP ({node.Top}) " : string.Empty;
-            var columns = this.TranslateSelectColumns(node.SelectColumnCollection.SelectColumns);
-
-            return $"SELECT {distinct}{top}{columns}";
+            this.writer.Append("SELECT ");
+            if (node.IsDistinct)
+                this.writer.Append("DISTINCT ");
+            if (node.Top > 0)
+                this.writer.Append($"TOP ({node.Top}) ");
+            this.TranslateSelectColumns(node.SelectColumnCollection.SelectColumns);
         }
 
         /// <summary>
@@ -533,15 +621,17 @@ namespace Atis.Orm.Translation
         ///         Translates a list of select columns.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateSelectColumns(IReadOnlyList<SelectColumn> selectColumns)
+        protected virtual void TranslateSelectColumns(IReadOnlyList<SelectColumn> selectColumns)
         {
-            var columnStrings = new List<string>();
-            foreach (var col in selectColumns)
+            for (var i = 0; i < selectColumns.Count; i++)
             {
-                var expr = this.TranslateAsNonLogicalExpression(col.ColumnExpression);
-                columnStrings.Add($"{expr} AS {col.Alias}");
+                if (i > 0)
+                    this.writer.Append(", ");
+                var col = selectColumns[i];
+                this.TranslateAsNonLogicalExpression(col.ColumnExpression);
+                this.writer.Append(" AS ");
+                this.writer.Append(col.Alias);
             }
-            return string.Join(", ", columnStrings);
         }
 
         /// <summary>
@@ -549,12 +639,12 @@ namespace Atis.Orm.Translation
         ///         Translates the FROM clause.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateFromClause(SqlAliasedFromSourceExpression fromSource)
+        protected virtual void TranslateFromClause(SqlAliasedFromSourceExpression fromSource)
         {
             if (fromSource == null)
-                return string.Empty;
-            var source = this.TranslateAliasedFromSource(fromSource);
-            return $"FROM {source}";
+                return;
+            this.writer.Append("FROM ");
+            this.TranslateAliasedFromSource(fromSource);
         }
 
         /// <summary>
@@ -562,11 +652,11 @@ namespace Atis.Orm.Translation
         ///         Translates an aliased FROM source.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateAliasedFromSource(SqlAliasedFromSourceExpression node)
+        protected virtual void TranslateAliasedFromSource(SqlAliasedFromSourceExpression node)
         {
-            var source = this.TranslateExpression(node.QuerySource);
-            var alias = this.GetAlias(node.Alias);
-            return $"{source} AS {alias}";
+            this.TranslateExpression(node.QuerySource);
+            this.writer.Append(" AS ");
+            this.writer.Append(this.GetAlias(node.Alias));
         }
 
         /// <summary>
@@ -574,13 +664,17 @@ namespace Atis.Orm.Translation
         ///         Translates JOIN clauses.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateJoins(IReadOnlyList<SqlAliasedJoinSourceExpression> joins)
+        protected virtual void TranslateJoins(IReadOnlyList<SqlAliasedJoinSourceExpression> joins)
         {
             if (joins == null || joins.Count == 0)
-                return string.Empty;
+                return;
 
-            var joinStrings = joins.Select(j => this.TranslateAliasedJoinSource(j));
-            return string.Join("\r\n", joinStrings);
+            for (var i = 0; i < joins.Count; i++)
+            {
+                if (i > 0)
+                    this.writer.Append("\r\n");
+                this.TranslateAliasedJoinSource(joins[i]);
+            }
         }
 
         /// <summary>
@@ -588,15 +682,18 @@ namespace Atis.Orm.Translation
         ///         Translates an aliased JOIN source.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateAliasedJoinSource(SqlAliasedJoinSourceExpression node)
+        protected virtual void TranslateAliasedJoinSource(SqlAliasedJoinSourceExpression node)
         {
-            var joinType = this.GetJoinTypeKeyword(node.JoinType);
-            var source = this.TranslateExpression(node.QuerySource);
-            var alias = this.GetAlias(node.Alias, node.JoinName);
-            var onClause = node.JoinCondition != null
-                ? $" ON {this.TranslateAsLogicalExpression(node.JoinCondition)}"
-                : string.Empty;
-            return $"{joinType} {source} AS {alias}{onClause}";
+            this.writer.Append(this.GetJoinTypeKeyword(node.JoinType));
+            this.writer.Append(" ");
+            this.TranslateExpression(node.QuerySource);
+            this.writer.Append(" AS ");
+            this.writer.Append(this.GetAlias(node.Alias, node.JoinName));
+            if (node.JoinCondition != null)
+            {
+                this.writer.Append(" ON ");
+                this.TranslateAsLogicalExpression(node.JoinCondition);
+            }
         }
 
         /// <summary>
@@ -624,29 +721,20 @@ namespace Atis.Orm.Translation
         ///         Translates a filter clause (WHERE or HAVING).
         ///     </para>
         /// </summary>
-        protected virtual string TranslateFilterClause(SqlFilterClauseExpression filterClause, string keyword)
+        protected virtual void TranslateFilterClause(SqlFilterClauseExpression filterClause, string keyword)
         {
             if (filterClause == null || filterClause.FilterConditions.Count == 0)
-                return string.Empty;
+                return;
 
-            var conditions = new List<string>();
+            this.writer.Append(keyword);
+            this.writer.Append(" ");
             for (var i = 0; i < filterClause.FilterConditions.Count; i++)
             {
                 var condition = filterClause.FilterConditions[i];
-                var translated = this.TranslateAsLogicalExpression(condition.Predicate);
-
-                if (i == 0)
-                {
-                    conditions.Add(translated);
-                }
-                else
-                {
-                    var connector = condition.UseOrOperator ? "OR" : "AND";
-                    conditions.Add($"{connector} {translated}");
-                }
+                if (i > 0)
+                    this.writer.Append(condition.UseOrOperator ? " OR " : " AND ");
+                this.TranslateAsLogicalExpression(condition.Predicate);
             }
-
-            return $"{keyword} {string.Join(" ", conditions)}";
         }
 
         /// <summary>
@@ -654,13 +742,18 @@ namespace Atis.Orm.Translation
         ///         Translates the GROUP BY clause.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateGroupByClause(IReadOnlyList<SqlExpression> groupByClause)
+        protected virtual void TranslateGroupByClause(IReadOnlyList<SqlExpression> groupByClause)
         {
             if (groupByClause == null || groupByClause.Count == 0)
-                return string.Empty;
+                return;
 
-            var columns = groupByClause.Select(g => this.TranslateExpression(g));
-            return $"GROUP BY {string.Join(", ", columns)}";
+            this.writer.Append("GROUP BY ");
+            for (var i = 0; i < groupByClause.Count; i++)
+            {
+                if (i > 0)
+                    this.writer.Append(", ");
+                this.TranslateExpression(groupByClause[i]);
+            }
         }
 
         /// <summary>
@@ -668,18 +761,20 @@ namespace Atis.Orm.Translation
         ///         Translates the ORDER BY clause.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateOrderByClause(SqlOrderByClauseExpression orderByClause)
+        protected virtual void TranslateOrderByClause(SqlOrderByClauseExpression orderByClause)
         {
             if (orderByClause == null || orderByClause.OrderByColumns.Count == 0)
-                return string.Empty;
+                return;
 
-            var columns = orderByClause.OrderByColumns.Select(o =>
+            this.writer.Append("ORDER BY ");
+            for (var i = 0; i < orderByClause.OrderByColumns.Count; i++)
             {
-                var col = this.TranslateExpression(o.ColumnExpression);
-                var dir = o.Direction == SortDirection.Ascending ? "ASC" : "DESC";
-                return $"{col} {dir}";
-            });
-            return $"ORDER BY {string.Join(", ", columns)}";
+                if (i > 0)
+                    this.writer.Append(", ");
+                var o = orderByClause.OrderByColumns[i];
+                this.TranslateExpression(o.ColumnExpression);
+                this.writer.Append(o.Direction == SortDirection.Ascending ? " ASC" : " DESC");
+            }
         }
 
         /// <summary>
@@ -690,12 +785,12 @@ namespace Atis.Orm.Translation
         ///         Override this method for database-specific paging syntax.
         ///     </para>
         /// </summary>
-        protected virtual string TranslatePaging(int? rowOffset, int? rowsPerPage)
+        protected virtual void TranslatePaging(int? rowOffset, int? rowsPerPage)
         {
             if (rowOffset == null || rowsPerPage == null)
-                return string.Empty;
+                return;
 
-            return $"OFFSET {rowOffset} ROWS FETCH NEXT {rowsPerPage} ROWS ONLY";
+            this.writer.Append($"OFFSET {rowOffset} ROWS FETCH NEXT {rowsPerPage} ROWS ONLY");
         }
 
         #endregion
@@ -707,13 +802,18 @@ namespace Atis.Orm.Translation
         ///         Translates CTE (Common Table Expression) definitions.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateCteDataSources(IReadOnlyList<SqlAliasedCteSourceExpression> cteDataSources)
+        protected virtual void TranslateCteDataSources(IReadOnlyList<SqlAliasedCteSourceExpression> cteDataSources)
         {
             if (cteDataSources == null || cteDataSources.Count == 0)
-                return string.Empty;
+                return;
 
-            var ctes = cteDataSources.Select(c => this.TranslateAliasedCteSource(c));
-            return $"WITH {string.Join(", ", ctes)}";
+            this.writer.Append("WITH ");
+            for (var i = 0; i < cteDataSources.Count; i++)
+            {
+                if (i > 0)
+                    this.writer.Append(", ");
+                this.TranslateAliasedCteSource(cteDataSources[i]);
+            }
         }
 
         /// <summary>
@@ -721,11 +821,11 @@ namespace Atis.Orm.Translation
         ///         Translates an aliased CTE source.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateAliasedCteSource(SqlAliasedCteSourceExpression node)
+        protected virtual void TranslateAliasedCteSource(SqlAliasedCteSourceExpression node)
         {
-            var alias = this.GetAlias(node.CteAlias, "cte");
-            var body = this.TranslateExpression(node.CteBody);
-            return $"{alias} AS\r\n{body}";
+            this.writer.Append(this.GetAlias(node.CteAlias, "cte"));
+            this.writer.Append(" AS\r\n");
+            this.TranslateExpression(node.CteBody);
         }
 
         /// <summary>
@@ -733,9 +833,9 @@ namespace Atis.Orm.Translation
         ///         Translates a CTE reference.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateCteReference(SqlCteReferenceExpression node)
+        protected virtual void TranslateCteReference(SqlCteReferenceExpression node)
         {
-            return this.GetAlias(node.CteAlias, "cte");
+            this.writer.Append(this.GetAlias(node.CteAlias, "cte"));
         }
 
         #endregion
@@ -747,19 +847,31 @@ namespace Atis.Orm.Translation
         ///         Translates a function call expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateFunctionCall(SqlFunctionCallExpression node)
+        protected virtual void TranslateFunctionCall(SqlFunctionCallExpression node)
         {
-            var args = node.Arguments != null
-                ? string.Join(", ", node.Arguments.Select(a => this.TranslateAsNonLogicalExpression(a)))
-                : string.Empty;
+            var arguments = node.Arguments?.ToList();
+            var hasArgs = arguments != null && arguments.Count > 0;
 
-            // Special handling for COUNT with no arguments
-            if (node.FunctionName.Equals("Count", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(args))
+            // Special handling for COUNT with no arguments -> COUNT(1)
+            if (node.FunctionName.Equals("Count", StringComparison.OrdinalIgnoreCase) && !hasArgs)
             {
-                args = "1";
+                this.writer.Append(node.FunctionName);
+                this.writer.Append("(1)");
+                return;
             }
 
-            return $"{node.FunctionName}({args})";
+            this.writer.Append(node.FunctionName);
+            this.writer.Append("(");
+            if (hasArgs)
+            {
+                for (var i = 0; i < arguments.Count; i++)
+                {
+                    if (i > 0)
+                        this.writer.Append(", ");
+                    this.TranslateAsNonLogicalExpression(arguments[i]);
+                }
+            }
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -767,13 +879,20 @@ namespace Atis.Orm.Translation
         ///         Translates a string function expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateStringFunction(SqlStringFunctionExpression node)
+        protected virtual void TranslateStringFunction(SqlStringFunctionExpression node)
         {
-            var stringExpr = this.TranslateExpression(node.StringExpression);
-            var args = node.Arguments?.Count > 0
-                ? ", " + string.Join(", ", node.Arguments.Select(a => this.TranslateExpression(a)))
-                : string.Empty;
-            return $"{node.StringFunction}({stringExpr}{args})";
+            this.writer.Append(node.StringFunction.ToString());
+            this.writer.Append("(");
+            this.TranslateExpression(node.StringExpression);
+            if (node.Arguments != null && node.Arguments.Count > 0)
+            {
+                for (var i = 0; i < node.Arguments.Count; i++)
+                {
+                    this.writer.Append(", ");
+                    this.TranslateExpression(node.Arguments[i]);
+                }
+            }
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -781,11 +900,13 @@ namespace Atis.Orm.Translation
         ///         Translates a DATEADD expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateDateAdd(SqlDateAddExpression node)
+        protected virtual void TranslateDateAdd(SqlDateAddExpression node)
         {
-            var interval = this.TranslateExpression(node.Interval);
-            var dateExpr = this.TranslateExpression(node.DateExpression);
-            return $"DATEADD({node.DatePart}, {interval}, {dateExpr})";
+            this.writer.Append($"DATEADD({node.DatePart}, ");
+            this.TranslateExpression(node.Interval);
+            this.writer.Append(", ");
+            this.TranslateExpression(node.DateExpression);
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -793,10 +914,11 @@ namespace Atis.Orm.Translation
         ///         Translates a DATEPART expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateDatePart(SqlDatePartExpression node)
+        protected virtual void TranslateDatePart(SqlDatePartExpression node)
         {
-            var dateExpr = this.TranslateExpression(node.DateExpression);
-            return $"DATEPART({node.DatePart}, {dateExpr})";
+            this.writer.Append($"DATEPART({node.DatePart}, ");
+            this.TranslateExpression(node.DateExpression);
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -804,11 +926,13 @@ namespace Atis.Orm.Translation
         ///         Translates a date subtraction expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateDateSubtract(SqlDateSubtractExpression node)
+        protected virtual void TranslateDateSubtract(SqlDateSubtractExpression node)
         {
-            var startDate = this.TranslateExpression(node.StartDate);
-            var endDate = this.TranslateExpression(node.EndDate);
-            return $"DATEDIFF({node.DatePart}, {startDate}, {endDate})";
+            this.writer.Append($"DATEDIFF({node.DatePart}, ");
+            this.TranslateExpression(node.StartDate);
+            this.writer.Append(", ");
+            this.TranslateExpression(node.EndDate);
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -819,9 +943,9 @@ namespace Atis.Orm.Translation
         ///         Override this method for database-specific syntax.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateNewGuid(SqlNewGuidExpression node)
+        protected virtual void TranslateNewGuid(SqlNewGuidExpression node)
         {
-            return "NEWID()";
+            this.writer.Append("NEWID()");
         }
 
         #endregion
@@ -833,10 +957,10 @@ namespace Atis.Orm.Translation
         ///         Translates an EXISTS expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateExists(SqlExistsExpression node)
+        protected virtual void TranslateExists(SqlExistsExpression node)
         {
-            var subQuery = this.TranslateExpression(node.SubQuery);
-            return $"EXISTS{subQuery}";
+            this.writer.Append("EXISTS");
+            this.TranslateExpression(node.SubQuery);
         }
 
         /// <summary>
@@ -844,12 +968,15 @@ namespace Atis.Orm.Translation
         ///         Translates a conditional (CASE WHEN) expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateConditional(SqlConditionalExpression node)
+        protected virtual void TranslateConditional(SqlConditionalExpression node)
         {
-            var test = this.TranslateAsLogicalExpression(node.Test);
-            var ifTrue = this.TranslateAsNonLogicalExpression(node.IfTrue);
-            var ifFalse = this.TranslateAsNonLogicalExpression(node.IfFalse);
-            return $"CASE WHEN {test} THEN {ifTrue} ELSE {ifFalse} END";
+            this.writer.Append("CASE WHEN ");
+            this.TranslateAsLogicalExpression(node.Test);
+            this.writer.Append(" THEN ");
+            this.TranslateAsNonLogicalExpression(node.IfTrue);
+            this.writer.Append(" ELSE ");
+            this.TranslateAsNonLogicalExpression(node.IfFalse);
+            this.writer.Append(" END");
         }
 
         /// <summary>
@@ -857,10 +984,10 @@ namespace Atis.Orm.Translation
         ///         Translates a NOT expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateNot(SqlNotExpression node)
+        protected virtual void TranslateNot(SqlNotExpression node)
         {
-            var operand = this.TranslateAsLogicalExpression(node.Operand);
-            return $"NOT {operand}";
+            this.writer.Append("NOT ");
+            this.TranslateAsLogicalExpression(node.Operand);
         }
 
         /// <summary>
@@ -868,10 +995,10 @@ namespace Atis.Orm.Translation
         ///         Translates a negate (-) expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateNegate(SqlNegateExpression node)
+        protected virtual void TranslateNegate(SqlNegateExpression node)
         {
-            var operand = this.TranslateExpression(node.Operand);
-            return $"-{operand}";
+            this.writer.Append("-");
+            this.TranslateExpression(node.Operand);
         }
 
         /// <summary>
@@ -879,11 +1006,19 @@ namespace Atis.Orm.Translation
         ///         Translates an IN VALUES expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateInValues(SqlInValuesExpression node)
+        protected virtual void TranslateInValues(SqlInValuesExpression node)
         {
-            var expr = this.TranslateExpression(node.Expression);
-            var values = string.Join(", ", node.Values.Select(v => this.TranslateExpression(v)));
-            return $"{expr} IN ({values})";
+            this.TranslateExpression(node.Expression);
+            this.writer.Append(" IN (");
+            var firstValue = true;
+            foreach (var value in node.Values)
+            {
+                if (!firstValue)
+                    this.writer.Append(", ");
+                firstValue = false;
+                this.TranslateExpression(value);
+            }
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -891,19 +1026,27 @@ namespace Atis.Orm.Translation
         ///         Translates a LIKE expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateLike(SqlLikeExpression node)
+        protected virtual void TranslateLike(SqlLikeExpression node)
         {
-            var expr = this.TranslateExpression(node.Expression);
-            var pattern = this.TranslateExpression(node.Pattern);
-
+            this.writer.Append("(");
+            this.TranslateExpression(node.Expression);
             switch (node.NodeType)
             {
                 case SqlExpressionType.LikeStartsWith:
-                    return $"({expr} LIKE {pattern} + '%')";
+                    this.writer.Append(" LIKE ");
+                    this.TranslateExpression(node.Pattern);
+                    this.writer.Append(" + '%')");
+                    break;
                 case SqlExpressionType.LikeEndsWith:
-                    return $"({expr} LIKE '%' + {pattern})";
+                    this.writer.Append(" LIKE '%' + ");
+                    this.TranslateExpression(node.Pattern);
+                    this.writer.Append(")");
+                    break;
                 default: // SqlExpressionType.Like (contains)
-                    return $"({expr} LIKE '%' + {pattern} + '%')";
+                    this.writer.Append(" LIKE '%' + ");
+                    this.TranslateExpression(node.Pattern);
+                    this.writer.Append(" + '%')");
+                    break;
             }
         }
 
@@ -912,11 +1055,13 @@ namespace Atis.Orm.Translation
         ///         Translates a CAST expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateCast(SqlCastExpression node)
+        protected virtual void TranslateCast(SqlCastExpression node)
         {
-            var expr = this.TranslateExpression(node.Expression);
-            var dataType = this.TranslateDataType(node.SqlDataType);
-            return $"CAST({expr} AS {dataType})";
+            this.writer.Append("CAST(");
+            this.TranslateExpression(node.Expression);
+            this.writer.Append(" AS ");
+            this.writer.Append(this.TranslateDataType(node.SqlDataType));
+            this.writer.Append(")");
         }
 
         /// <summary>
@@ -954,9 +1099,16 @@ namespace Atis.Orm.Translation
         ///         Translates a collection expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateCollection(SqlCollectionExpression node)
+        protected virtual void TranslateCollection(SqlCollectionExpression node)
         {
-            return string.Join(", ", node.SqlExpressions.Select(e => this.TranslateExpression(e)));
+            var firstItem = true;
+            foreach (var e in node.SqlExpressions)
+            {
+                if (!firstItem)
+                    this.writer.Append(", ");
+                firstItem = false;
+                this.TranslateExpression(e);
+            }
         }
 
         /// <summary>
@@ -964,26 +1116,37 @@ namespace Atis.Orm.Translation
         ///         Translates a UNION query expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateUnionQuery(SqlUnionQueryExpression node)
+        protected virtual void TranslateUnionQuery(SqlUnionQueryExpression node)
         {
-            var parts = new List<string>();
+            // Top-level union (depth 1) is a complete statement; only nest subqueries in parentheses.
+            var wrap = this.depth > 1 && !this.ConsumeSuppressParens();
+            if (wrap)
+                this.writer.Append("(\r\n");
+
+            var first = true;
+            void Separator()
+            {
+                if (!first)
+                    this.writer.Append("\r\n");
+                first = false;
+            }
+
             for (var i = 0; i < node.Unions.Count; i++)
             {
                 var unionItem = node.Unions[i];
-                var query = this.TranslateExpression(unionItem.DerivedTable);
-                // Remove outer parentheses if present
-                query = this.RemoveOuterParentheses(query);
-
                 if (i > 0)
                 {
-                    var unionKeyword = unionItem.UnionType == SqlUnionType.UnionAll ? "UNION ALL" : "UNION";
-                    parts.Add(unionKeyword);
+                    Separator();
+                    this.writer.Append(unionItem.UnionType == SqlUnionType.UnionAll ? "UNION ALL" : "UNION");
                 }
-                parts.Add(query);
+                Separator();
+                // Each union member is emitted without its outer parentheses.
+                this.suppressDerivedTableParens = true;
+                this.TranslateExpression(unionItem.DerivedTable);
             }
-            var union = string.Join("\r\n", parts);
-            // Top-level union (depth 1) is a complete statement; only nest subqueries in parentheses.
-            return this.depth <= 1 ? union : $"(\r\n{union}\r\n)";
+
+            if (wrap)
+                this.writer.Append("\r\n)");
         }
 
         /// <summary>
@@ -991,10 +1154,11 @@ namespace Atis.Orm.Translation
         ///         Translates a standalone SELECT expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateStandaloneSelect(SqlStandaloneSelectExpression node)
+        protected virtual void TranslateStandaloneSelect(SqlStandaloneSelectExpression node)
         {
-            var columns = this.TranslateSelectColumns(node.SelectList);
-            return $"(SELECT {columns})";
+            this.writer.Append("(SELECT ");
+            this.TranslateSelectColumns(node.SelectList);
+            this.writer.Append(")");
         }
 
         #endregion
@@ -1006,13 +1170,27 @@ namespace Atis.Orm.Translation
         ///         Translates an UPDATE expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateUpdate(SqlUpdateExpression node)
+        protected virtual void TranslateUpdate(SqlUpdateExpression node)
         {
             var alias = this.GetAlias(node.DataSource);
-            var setClause = string.Join(",\r\n\t", node.Columns.Zip(node.Values, (c, v) => $"{c} = {this.TranslateExpression(v)}"));
-            var source = this.TranslateExpression(node.Source);
-            source = this.RemoveOuterParentheses(source);
-            return $"UPDATE {alias}\r\nSET {setClause}\r\n{source}";
+            this.writer.Append("UPDATE ");
+            this.writer.Append(alias);
+            this.writer.Append("\r\nSET ");
+
+            var count = Math.Min(node.Columns.Count, node.Values.Count);
+            for (var i = 0; i < count; i++)
+            {
+                if (i > 0)
+                    this.writer.Append(",\r\n\t");
+                this.writer.Append(node.Columns[i]);
+                this.writer.Append(" = ");
+                this.TranslateExpression(node.Values[i]);
+            }
+
+            this.writer.Append("\r\n");
+            // Source query is emitted bare (no outer parentheses).
+            this.suppressDerivedTableParens = true;
+            this.TranslateExpression(node.Source);
         }
 
         /// <summary>
@@ -1020,12 +1198,14 @@ namespace Atis.Orm.Translation
         ///         Translates a DELETE expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateDelete(SqlDeleteExpression node)
+        protected virtual void TranslateDelete(SqlDeleteExpression node)
         {
-            var alias = this.GetAlias(node.DataSourceAlias);
-            var source = this.TranslateExpression(node.Source);
-            source = this.RemoveOuterParentheses(source);
-            return $"DELETE {alias}\r\n{source}";
+            this.writer.Append("DELETE ");
+            this.writer.Append(this.GetAlias(node.DataSourceAlias));
+            this.writer.Append("\r\n");
+            // Source query is emitted bare (no outer parentheses).
+            this.suppressDerivedTableParens = true;
+            this.TranslateExpression(node.Source);
         }
 
         /// <summary>
@@ -1033,7 +1213,7 @@ namespace Atis.Orm.Translation
         ///         Translates an INSERT INTO expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateInsertInto(SqlInsertIntoExpression node)
+        protected virtual void TranslateInsertInto(SqlInsertIntoExpression node)
         {
             var selectColumns = node.SelectQuery.SelectColumnCollection.SelectColumns.ToList();
             var propertyWithDbColumnMap = (
@@ -1043,9 +1223,12 @@ namespace Atis.Orm.Translation
             ).ToDictionary(x => x.Alias, x => x.DatabaseColumnName);
 
             var columns = string.Join(", ", selectColumns.Select(c => propertyWithDbColumnMap[c.Alias]));
-            var selectQuery = this.TranslateExpression(node.SelectQuery);
-
-            return $"INSERT INTO {node.SqlTable.TableName}({columns})\r\n{selectQuery}";
+            this.writer.Append("INSERT INTO ");
+            this.writer.Append(node.SqlTable.TableName);
+            this.writer.Append("(");
+            this.writer.Append(columns);
+            this.writer.Append(")\r\n");
+            this.TranslateExpression(node.SelectQuery);
         }
 
         #endregion
@@ -1057,9 +1240,11 @@ namespace Atis.Orm.Translation
         ///         Translates a comment expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateComment(SqlCommentExpression node)
+        protected virtual void TranslateComment(SqlCommentExpression node)
         {
-            return $"/*{node.Comment}*/";
+            this.writer.Append("/*");
+            this.writer.Append(node.Comment);
+            this.writer.Append("*/");
         }
 
         /// <summary>
@@ -1067,9 +1252,9 @@ namespace Atis.Orm.Translation
         ///         Translates a SQL fragment expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateFragment(SqlFragmentExpression node)
+        protected virtual void TranslateFragment(SqlFragmentExpression node)
         {
-            return node.Fragment;
+            this.writer.Append(node.Fragment);
         }
 
         /// <summary>
@@ -1077,28 +1262,11 @@ namespace Atis.Orm.Translation
         ///         Translates a queryable expression.
         ///     </para>
         /// </summary>
-        protected virtual string TranslateQueryable(SqlQueryableExpression node)
+        protected virtual void TranslateQueryable(SqlQueryableExpression node)
         {
-            var query = this.TranslateExpression(node.Query);
-            return $"Queryable: {{\r\n{query}\r\n}}";
-        }
-
-        /// <summary>
-        ///     <para>
-        ///         Removes outer parentheses from a SQL string if present.
-        ///     </para>
-        /// </summary>
-        protected virtual string RemoveOuterParentheses(string sql)
-        {
-            if (string.IsNullOrEmpty(sql))
-                return sql;
-
-            sql = sql.Trim();
-            if (sql.StartsWith("(") && sql.EndsWith(")"))
-            {
-                return sql.Substring(1, sql.Length - 2).Trim();
-            }
-            return sql;
+            this.writer.Append("Queryable: {\r\n");
+            this.TranslateExpression(node.Query);
+            this.writer.Append("\r\n}");
         }
 
         #endregion
