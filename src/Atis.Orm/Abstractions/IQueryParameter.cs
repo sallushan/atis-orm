@@ -8,7 +8,6 @@ namespace Atis.Orm.Abstractions
 {
     public interface IQueryParameter
     {
-        string Name { get; }
         object InitialValue { get; }
         bool IsLiteral { get; }
 

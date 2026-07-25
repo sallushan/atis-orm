@@ -17,6 +17,7 @@ using Atis.Orm.Abstractions;
 using Atis.Orm.DataAccess;
 using Atis.Orm.Metadata;
 using Atis.Orm.Querying;
+using Atis.Orm.Translation;
 namespace Atis.Orm
 {
     /// <summary>
@@ -172,13 +173,23 @@ namespace Atis.Orm
             return this.QueryableFactory.CreateQueryable<T>();
         }
 
-        public string TranslateToSql<T>(IQueryable<T> query)
+        /// <summary>
+        ///     Translates <paramref name="query"/> and renders it into a command (SQL + parameters), using
+        ///     each parameter's translation-time value. Collection parameters are expanded for that value.
+        /// </summary>
+        public RenderedCommand Translate<T>(IQueryable<T> query)
         {
             if (query is null)
                 throw new ArgumentNullException(nameof(query));
             var queryTranslator = this.ServiceProvider.GetRequiredService<IQueryTranslator>();
+            var commandRenderer = this.ServiceProvider.GetRequiredService<ISqlCommandRenderer>();
             var queryTranslationResult = queryTranslator.Translate(query.Expression);
-            return queryTranslationResult.SqlTranslation.Sql;
+            return commandRenderer.Render(queryTranslationResult.SqlTranslation.Fragments, p => p.InitialValue);
+        }
+
+        public string TranslateToSql<T>(IQueryable<T> query)
+        {
+            return this.Translate(query).Sql;
         }
 
         /// <inheritdoc />

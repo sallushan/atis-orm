@@ -21,7 +21,6 @@ namespace Atis.Orm.Querying
         ///         Initializes a new instance of the <see cref="QueryParameter"/> class.
         ///     </para>
         /// </summary>
-        /// <param name="name">The parameter name (e.g., "@p0").</param>
         /// <param name="initialValue">The initial value of the parameter at translation time.</param>
         /// <param name="isLiteral">
         ///     <para>
@@ -36,17 +35,13 @@ namespace Atis.Orm.Querying
         /// </param>
         /// <param name="sqlParameterExpression">The source SQL expression (either <see cref="SqlLiteralExpression"/> or <see cref="SqlParameterExpression"/>).</param>
         /// <param name="parameterIdentity">Stable identity of the source variable node, used for cache-hit rebinding; <c>null</c> for literals.</param>
-        public QueryParameter(string name, object initialValue, bool isLiteral, SqlExpression sqlParameterExpression, string parameterIdentity = null)
+        public QueryParameter(object initialValue, bool isLiteral, SqlExpression sqlParameterExpression, string parameterIdentity = null)
         {
-            this.Name = name;
             this.InitialValue = initialValue;
             this.IsLiteral = isLiteral;
             this.SqlParameterExpression = sqlParameterExpression;
             this.ParameterIdentity = parameterIdentity;
         }
-
-        /// <inheritdoc />
-        public string Name { get; }
 
         /// <inheritdoc />
         public object InitialValue { get; }

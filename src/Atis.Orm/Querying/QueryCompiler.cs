@@ -7,20 +7,21 @@ using System.Data;
 using System.Linq.Expressions;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.Translation;
 namespace Atis.Orm.Querying
 {
     public class QueryCompiler : IQueryCompiler
     {
         private readonly IQueryTranslator queryTranslator;
-        private readonly IDbParameterFactory dbParameterFactory;
+        private readonly ISqlCommandRenderer commandRenderer;
         private readonly IPreprocessingRequirementTester preprocessingRequirementTester;
         private readonly IElementFactoryBuilder elementFactoryBuilder;
 
-        public QueryCompiler(IQueryTranslator queryTranslator, IPreprocessingRequirementTester preprocessingRequirementTester, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
+        public QueryCompiler(IQueryTranslator queryTranslator, IPreprocessingRequirementTester preprocessingRequirementTester, ISqlCommandRenderer commandRenderer, IElementFactoryBuilder elementFactoryBuilder)
         {
             this.queryTranslator = queryTranslator;
             this.preprocessingRequirementTester = preprocessingRequirementTester;
-            this.dbParameterFactory = dbParameterFactory;
+            this.commandRenderer = commandRenderer;
             this.elementFactoryBuilder = elementFactoryBuilder;
         }
 
@@ -33,7 +34,7 @@ namespace Atis.Orm.Querying
             var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, queryTranslationResult.PreprocessedExpression);
             var isNonQuery = queryTranslationResult.SqlExpression is SqlUpdateExpression || queryTranslationResult.SqlExpression is SqlInsertIntoExpression || queryTranslationResult.SqlExpression is SqlDeleteExpression;
             Func<IDataReader, object> elementFactory = this.CreateElementFactory(expression, queryTranslationResult.SqlExpression);
-            var compiledQuery = new CompiledQuery(queryTranslationResult.SqlTranslation.Sql, queryTranslationResult.SqlTranslation.QueryParameters, this.dbParameterFactory, isNonQuery, elementFactory, isPreprocessingRequired);
+            var compiledQuery = new CompiledQuery(queryTranslationResult.SqlTranslation, this.commandRenderer, isNonQuery, elementFactory, isPreprocessingRequired);
             return compiledQuery;
         }
 

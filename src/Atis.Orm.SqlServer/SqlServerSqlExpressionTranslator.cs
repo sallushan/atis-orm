@@ -38,10 +38,13 @@ namespace Atis.Orm.SqlServer
                     break;
                 case SqlStringFunction.Join:
                     // args[0] = separator, string expression = the value collection (comma-separated).
+                    // The values operand is a list position: a captured collection expands into one
+                    // placeholder per element. An empty collection leaves a single null placeholder, which
+                    // CONCAT_WS renders as an empty string - exactly string.Join over an empty sequence.
                     this.Append("CONCAT_WS(");
                     Arg(0);
                     this.Append(", ");
-                    Str();
+                    this.TranslateValueList(node.StringExpression, emptyListTemplate: "{0}");
                     this.Append(")");
                     break;
                 case SqlStringFunction.JoinAggregate:

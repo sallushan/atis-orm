@@ -2,6 +2,7 @@ using System.Linq;
 using System.Linq.Expressions;
 
 using Atis.Orm.SqlServer;
+using Atis.Orm.Translation;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
@@ -12,8 +13,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         {
             var sqlExpression = ConvertExpressionToSqlExpression(expression, out _);
             Assert.IsNotNull(sqlExpression, "Expected a non-null SqlExpression.");
-            var translator = new SqlServerSqlExpressionTranslator();
-            var sql = translator.Translate(sqlExpression).Sql;
+            var translation = new SqlServerSqlExpressionTranslator().Translate(sqlExpression);
+            var nameGenerator = new SqlDbParameterNameGenerator();
+            var renderer = new SqlCommandRenderer(nameGenerator, new SqlDbParameterFactory(nameGenerator));
+            var sql = renderer.Render(translation.Fragments, p => p.InitialValue).Sql;
             System.Console.WriteLine(sql);
             return sql;
         }

@@ -22,6 +22,7 @@ namespace Atis.Orm.SqlServer
         {
             var builder = new OrmServiceBuilder(services);
             builder.TryAdd<IDbCommunication>(sp => new SqlDbCommunication(_connectionString));
+            builder.TryAdd<IDbParameterNameGenerator, SqlDbParameterNameGenerator>();
             builder.TryAdd<IDbParameterFactory, SqlDbParameterFactory>();
             // Register the SQL Server dialect translator before AddCoreServices so it wins the
             // TryAdd<ISqlExpressionTranslator, SqlExpressionTranslatorBase>() default (first-wins).

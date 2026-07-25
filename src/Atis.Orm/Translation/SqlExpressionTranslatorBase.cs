@@ -32,7 +32,6 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected List<IQueryParameter> Parameters { get; } = new List<IQueryParameter>();
         private readonly SqlFragmentWriter writer = new SqlFragmentWriter();
-        private int parameterCounter;
         private Dictionary<Guid, string> aliasCache;
         private int depth;
         // When set, the next derived-table / union query emits without its outer parentheses.
@@ -49,7 +48,6 @@ namespace Atis.Orm.Translation
         public SqlTranslationResult Translate(SqlExpression sqlExpression)
         {
             this.Parameters.Clear();
-            this.parameterCounter = 0;
             this.aliasCache = new Dictionary<Guid, string>();
             this.depth = 0;
             this.suppressDerivedTableParens = false;
@@ -57,7 +55,9 @@ namespace Atis.Orm.Translation
 
             this.TranslateExpression(sqlExpression);
 
-            return new SqlTranslationResult(this.writer.ToSql(), this.Parameters);
+            // Reset() installs a fresh list, so the captured fragments are never touched by a later translation.
+            var fragments = this.writer.GetFragments();
+            return new SqlTranslationResult(this.Parameters, fragments/*, this.hasExpandableParameters*/);
         }
 
         #region Output helpers
@@ -74,56 +74,82 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
-        ///         Generates the next parameter name.
-        ///     </para>
-        /// </summary>
-        /// <returns>A parameter name like "@p0", "@p1", etc.</returns>
-        protected virtual string GenerateParameterName()
-        {
-            return $"@p{this.parameterCounter++}";
-        }
-
-        /// <summary>
-        ///     <para>
         ///         Creates a query parameter and adds it to the parameters collection.
         ///     </para>
         ///     <para>
         ///         Override this method to provide a custom <see cref="IQueryParameter"/> implementation.
         ///     </para>
+        ///     <para>
+        ///         The placeholder name is not decided here: it is assigned when the fragments are rendered,
+        ///         by <see cref="IDbParameterNameGenerator"/> (see <see cref="ISqlCommandRenderer"/>), so a
+        ///         dialect can name positionally (<c>?</c>) or by index without the translator knowing.
+        ///     </para>
         /// </summary>
-        /// <param name="name">The parameter name.</param>
         /// <param name="value">The parameter value.</param>
         /// <param name="isLiteral">Whether this is a literal value.</param>
         /// <param name="sourceExpression">The source SQL expression.</param>
         /// <returns>The created query parameter.</returns>
-        protected virtual IQueryParameter CreateQueryParameter(string name, object value, bool isLiteral, SqlExpression sourceExpression)
+        protected virtual IQueryParameter CreateQueryParameter(object value, bool isLiteral, SqlExpression sourceExpression)
         {
             // Non-literal parameters carry the source variable's identity so their value can be rebound by
             // lookup (not by traversal position) on a cache hit. Literals keep InitialValue and need none.
             var identity = (sourceExpression as SqlParameterExpression)?.Identity;
-            return new QueryParameter(name, value, isLiteral, sourceExpression, identity);
+            return new QueryParameter(value, isLiteral, sourceExpression, identity);
         }
 
         /// <summary>
         ///     <para>
-        ///         Emits a parameter placeholder: generates its name, records the query parameter, and
-        ///         writes the parameter marker at the current output position.
+        ///         Emits a parameter placeholder: records the query parameter and writes the parameter marker
+        ///         at the current output position. The marker's name is assigned later, at render time.
         ///     </para>
         ///     <para>
         ///         Marker recording is owned here and is intentionally non-virtual so derived translators
-        ///         cannot bypass or corrupt it. Providers customize naming via <see cref="GenerateParameterName"/>
-        ///         and the parameter object via <see cref="CreateQueryParameter"/>.
+        ///         cannot bypass or corrupt it. Providers customize the parameter object via
+        ///         <see cref="CreateQueryParameter"/>.
         ///     </para>
         /// </summary>
         /// <param name="value">The parameter value.</param>
         /// <param name="isLiteral">Whether this is a literal value.</param>
         /// <param name="source">The source SQL expression (literal or parameter node).</param>
-        protected void EmitParameter(object value, bool isLiteral, SqlExpression source)
+        /// <param name="isExpandable">
+        ///     Whether this position accepts a comma-separated list, so a collection value expands into one
+        ///     placeholder per element at execution time. Set only by <see cref="TranslateValueList"/>.
+        /// </param>
+        /// <param name="emptyListTemplate">
+        ///     SQL replacing the placeholder list when an expandable collection is empty; <c>{0}</c> stands
+        ///     for the parameter name.
+        /// </param>
+        protected void EmitParameter(object value, bool isLiteral, SqlExpression source, bool isExpandable = false, string emptyListTemplate = null)
         {
-            var name = this.GenerateParameterName();
-            var queryParameter = this.CreateQueryParameter(name, value, isLiteral, source);
+            var queryParameter = this.CreateQueryParameter(value, isLiteral, source);
             this.Parameters.Add(queryParameter);
-            this.writer.AddParameter(queryParameter);
+            this.writer.AddParameter(queryParameter, isExpandable, emptyListTemplate);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Translates <paramref name="node"/> at a position where the SQL accepts a comma-separated
+        ///         list of values (an <c>IN</c> list, a <c>CONCAT_WS</c> value operand, ...).
+        ///     </para>
+        ///     <para>
+        ///         A multi-value parameter is emitted as a single expandable marker, which the renderer turns
+        ///         into <c>@p0_0, @p0_1, ...</c> using the collection's length at execution time. Anything
+        ///         else is translated normally. Expansion is opted into here, per position, rather than being
+        ///         inferred from the value: <c>byte[]</c> is a collection too, and a blob compared with
+        ///         <c>=</c> must stay one parameter.
+        ///     </para>
+        /// </summary>
+        /// <param name="node">The expression occupying the list position.</param>
+        /// <param name="emptyListTemplate">
+        ///     SQL to emit when the collection turns out to be empty; <c>{0}</c> stands for the parameter
+        ///     name, which is bound to <c>null</c>. Defaults to a plain placeholder.
+        /// </param>
+        protected void TranslateValueList(SqlExpression node, string emptyListTemplate)
+        {
+            if (node is SqlParameterExpression parameter && parameter.MultipleValues)
+                this.EmitParameter(parameter.Value, isLiteral: false, source: parameter, isExpandable: true, emptyListTemplate: emptyListTemplate);
+            else
+                this.TranslateExpression(node);
         }
 
         /// <summary>
@@ -1003,6 +1029,19 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
+        ///         SQL replacing an empty collection's placeholder list inside <c>IN (...)</c>; <c>{0}</c>
+        ///         stands for the parameter name, bound to <c>null</c>.
+        ///     </para>
+        ///     <para>
+        ///         An empty subquery is used rather than <c>IN (NULL)</c> because it also negates correctly:
+        ///         <c>NOT IN</c> over an empty collection matches every row. Override for dialects that
+        ///         require a FROM clause (Oracle: <c>SELECT {0} FROM DUAL WHERE 1 = 0</c>).
+        ///     </para>
+        /// </summary>
+        protected virtual string EmptyValueListTemplate => "SELECT {0} WHERE 1 = 0";
+
+        /// <summary>
+        ///     <para>
         ///         Translates an IN VALUES expression.
         ///     </para>
         /// </summary>
@@ -1016,7 +1055,9 @@ namespace Atis.Orm.Translation
                 if (!firstValue)
                     this.writer.Append(", ");
                 firstValue = false;
-                this.TranslateExpression(value);
+                // The values of an inline array arrive as separate expressions; a captured collection arrives
+                // as one multi-value parameter, which this expands.
+                this.TranslateValueList(value, this.EmptyValueListTemplate);
             }
             this.writer.Append(")");
         }
