@@ -32,6 +32,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected List<IQueryParameter> Parameters { get; } = new List<IQueryParameter>();
         private readonly SqlFragmentWriter writer = new SqlFragmentWriter();
+        private bool hasExpandableParameters;
         private Dictionary<Guid, string> aliasCache;
         private int depth;
         // When set, the next derived-table / union query emits without its outer parentheses.
@@ -48,6 +49,7 @@ namespace Atis.Orm.Translation
         public SqlTranslationResult Translate(SqlExpression sqlExpression)
         {
             this.Parameters.Clear();
+            this.hasExpandableParameters = false;
             this.aliasCache = new Dictionary<Guid, string>();
             this.depth = 0;
             this.suppressDerivedTableParens = false;
@@ -57,7 +59,7 @@ namespace Atis.Orm.Translation
 
             // Reset() installs a fresh list, so the captured fragments are never touched by a later translation.
             var fragments = this.writer.GetFragments();
-            return new SqlTranslationResult(this.Parameters, fragments/*, this.hasExpandableParameters*/);
+            return new SqlTranslationResult(this.Parameters, fragments, this.hasExpandableParameters);
         }
 
         #region Output helpers
@@ -116,14 +118,16 @@ namespace Atis.Orm.Translation
         ///     placeholder per element at execution time. Set only by <see cref="TranslateValueList"/>.
         /// </param>
         /// <param name="emptyListTemplate">
-        ///     SQL replacing the placeholder list when an expandable collection is empty; <c>{0}</c> stands
-        ///     for the parameter name.
+        ///     Self-contained SQL emitted in place of the value list when an expandable collection is empty
+        ///     (no parameter is bound).
         /// </param>
         protected void EmitParameter(object value, bool isLiteral, SqlExpression source, bool isExpandable = false, string emptyListTemplate = null)
         {
             var queryParameter = this.CreateQueryParameter(value, isLiteral, source);
             this.Parameters.Add(queryParameter);
             this.writer.AddParameter(queryParameter, isExpandable, emptyListTemplate);
+            if (isExpandable)
+                this.hasExpandableParameters = true;
         }
 
         /// <summary>
@@ -141,8 +145,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         /// <param name="node">The expression occupying the list position.</param>
         /// <param name="emptyListTemplate">
-        ///     SQL to emit when the collection turns out to be empty; <c>{0}</c> stands for the parameter
-        ///     name, which is bound to <c>null</c>. Defaults to a plain placeholder.
+        ///     Self-contained SQL to emit when the collection turns out to be empty (no parameter is bound).
         /// </param>
         protected void TranslateValueList(SqlExpression node, string emptyListTemplate)
         {
@@ -1029,16 +1032,16 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
-        ///         SQL replacing an empty collection's placeholder list inside <c>IN (...)</c>; <c>{0}</c>
-        ///         stands for the parameter name, bound to <c>null</c>.
+        ///         Self-contained SQL emitted in place of an empty collection's value list inside
+        ///         <c>IN (...)</c>. No parameter is bound - an empty collection has no values.
         ///     </para>
         ///     <para>
         ///         An empty subquery is used rather than <c>IN (NULL)</c> because it also negates correctly:
         ///         <c>NOT IN</c> over an empty collection matches every row. Override for dialects that
-        ///         require a FROM clause (Oracle: <c>SELECT {0} FROM DUAL WHERE 1 = 0</c>).
+        ///         require a FROM clause (Oracle: <c>SELECT NULL FROM DUAL WHERE 1 = 0</c>).
         ///     </para>
         /// </summary>
-        protected virtual string EmptyValueListTemplate => "SELECT {0} WHERE 1 = 0";
+        protected virtual string EmptyValueListTemplate => "SELECT NULL WHERE 1 = 0";
 
         /// <summary>
         ///     <para>

@@ -29,7 +29,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         private static ISqlCommandRenderer CreateRenderer()
         {
             var nameGenerator = new SqlDbParameterNameGenerator();
-            return new SqlCommandRenderer(nameGenerator, new SqlDbParameterFactory(nameGenerator));
+            return new SqlCommandRenderer(new SqlDbParameterFactory(nameGenerator));
         }
 
         // Translates with the SQL Server dialect and renders with the parameters' translation-time values.
@@ -65,8 +65,24 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var rendered = this.RenderWithSqlServer(q.Expression);
 
             // Empty IN list -> a subquery that matches nothing and also negates correctly under NOT IN.
-            StringAssert.Contains(rendered.Sql, "IN (SELECT @p0 WHERE 1 = 0)");
-            Assert.AreEqual(1, rendered.DbParameters.Count, "The empty-list template binds a single null placeholder.");
+            // An empty collection has no values, so no parameter is bound.
+            StringAssert.Contains(rendered.Sql, "IN (SELECT NULL WHERE 1 = 0)");
+            Assert.AreEqual(0, rendered.DbParameters.Count, "An empty collection binds no parameters.");
+        }
+
+        [TestMethod]
+        public void Empty_captured_collection_in_string_Join_renders_two_nulls()
+        {
+            var parts = new string[0];
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Select(x => new { Joined = string.Join(", ", parts) });
+
+            var rendered = this.RenderWithSqlServer(q.Expression);
+
+            // CONCAT_WS needs >= 2 value args and ignores NULLs, so two NULLs yield an empty string with no
+            // parameter bound.
+            StringAssert.Contains(rendered.Sql, "CONCAT_WS(@p0, NULL, NULL)");
+            Assert.AreEqual(1, rendered.DbParameters.Count, "Only the separator is a parameter.");
         }
 
         [TestMethod]
@@ -93,6 +109,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             // Cache miss compiles with a 2-element array (initial values).
             var compiled = wiring.Compiler.Compile(wiring.BuildContainsQuery(new[] { 10, 20 }));
+            Assert.IsInstanceOfType(compiled, typeof(ExpandableCompiledQuery), "A collection IN filter must re-render per execution.");
 
             // Cache hit with a 3-element array for the same variable identity.
             var threeCtx = compiled.GetExecutionContext(wiring.ValuesByIdentity(new[] { 1, 2, 3 }), useInitialValues: false);
@@ -100,10 +117,26 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.AreEqual(3, threeCtx.DbParameters.Count);
             CollectionAssert.AreEqual(new[] { "@p0_1", "@p0_2", "@p0_3" }, threeCtx.DbParameters.Select(p => p.ParameterName).ToArray());
 
-            // Cache hit with an empty array falls to the empty-list template and a single null placeholder.
+            // Cache hit with an empty array falls to the empty-list template and binds no parameters.
             var emptyCtx = compiled.GetExecutionContext(wiring.ValuesByIdentity(new int[0]), useInitialValues: false);
-            StringAssert.Contains(emptyCtx.Sql, "IN (SELECT @p0 WHERE 1 = 0)");
-            Assert.AreEqual(1, emptyCtx.DbParameters.Count);
+            StringAssert.Contains(emptyCtx.Sql, "IN (SELECT NULL WHERE 1 = 0)");
+            Assert.AreEqual(0, emptyCtx.DbParameters.Count);
+        }
+
+        [TestMethod]
+        public void Non_expandable_query_compiles_to_SimpleCompiledQuery_with_aligned_parameter_names()
+        {
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildScalarQuery(7));
+
+            Assert.IsInstanceOfType(compiled, typeof(SimpleCompiledQuery), "A scalar filter renders its SQL once.");
+
+            var ctx = compiled.GetExecutionContext(null, useInitialValues: true);
+            Assert.AreEqual(1, ctx.DbParameters.Count);
+            // The fast path rebinds by position; every emitted DbParameter name must appear in the cached SQL,
+            // i.e. the placeholder text and the parameter names line up (index == position).
+            foreach (var dbParameter in ctx.DbParameters)
+                StringAssert.Contains(ctx.Sql, dbParameter.ParameterName);
         }
 
         [TestMethod]
@@ -166,10 +199,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));
                 var sqlExpressionTranslator = new SqlServerSqlExpressionTranslator();
                 var nameGenerator = new SqlDbParameterNameGenerator();
-                var commandRenderer = new SqlCommandRenderer(nameGenerator, new SqlDbParameterFactory(nameGenerator));
+                var dbParameterFactory = new SqlDbParameterFactory(nameGenerator);
+                var commandRenderer = new SqlCommandRenderer(dbParameterFactory);
                 var elementFactoryBuilder = new ElementFactoryBuilder();
                 var queryTranslator = new QueryTranslator(this.preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
-                this.Compiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, commandRenderer, elementFactoryBuilder);
+                this.Compiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, commandRenderer, dbParameterFactory, elementFactoryBuilder);
             }
 
             // A fresh query capturing `ids`; identical shape (and captured-variable identity) across calls,
@@ -178,6 +212,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             {
                 var employees = new Queryable<TestEntities.Employee>(this.probeProvider);
                 return employees.Where(x => ids.Contains(x.EmployeeId)).Expression;
+            }
+
+            // A non-expandable query (a scalar variable), so the compiler picks SimpleCompiledQuery.
+            public Expression BuildScalarQuery(int id)
+            {
+                var employees = new Queryable<TestEntities.Employee>(this.probeProvider);
+                return employees.Where(x => x.EmployeeId == id).Expression;
             }
 
             // Re-extracts the variable values keyed by identity, as the executor does on a cache hit.

@@ -19,11 +19,20 @@ namespace Atis.Orm.Translation
         /// </summary>
         public IReadOnlyList<SqlFragment> Fragments { get; }
 
+        /// <summary>
+        ///     <para>
+        ///         Whether any emitted parameter can expand into a variable number of placeholders (a
+        ///         collection in an <c>IN</c> list, etc.). Structural - known during the walk, independent of
+        ///         values. Lets the compiler pick a re-rendering vs. a render-once compiled query.
+        ///     </para>
+        /// </summary>
+        public bool HasExpandableParameters { get; }
 
-        public SqlTranslationResult(IReadOnlyList<IQueryParameter> queryParameters, IReadOnlyList<SqlFragment> fragments)
+        public SqlTranslationResult(IReadOnlyList<IQueryParameter> queryParameters, IReadOnlyList<SqlFragment> fragments, bool hasExpandableParameters)
         {
             this.QueryParameters = queryParameters ?? throw new ArgumentNullException(nameof(queryParameters));
             this.Fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
+            this.HasExpandableParameters = hasExpandableParameters;
         }
     }
 }

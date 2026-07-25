@@ -72,9 +72,8 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
-        ///         SQL emitted in place of the (expandable) placeholder list when the collection is empty;
-        ///         <c>{0}</c> stands for the parameter name, which is bound to <c>null</c>. <c>null</c> for
-        ///         non-expandable markers.
+        ///         Self-contained SQL emitted in place of the (expandable) value list when the collection is
+        ///         empty; no parameter is bound. <c>null</c> for non-expandable markers.
         ///     </para>
         /// </summary>
         public string EmptyListTemplate { get; }

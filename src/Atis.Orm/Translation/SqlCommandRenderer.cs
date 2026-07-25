@@ -67,12 +67,10 @@ namespace Atis.Orm.Translation
     /// </summary>
     public class SqlCommandRenderer : ISqlCommandRenderer
     {
-        private readonly IDbParameterNameGenerator nameGenerator;
         private readonly IDbParameterFactory parameterFactory;
 
-        public SqlCommandRenderer(IDbParameterNameGenerator nameGenerator, IDbParameterFactory parameterFactory)
+        public SqlCommandRenderer(IDbParameterFactory parameterFactory)
         {
-            this.nameGenerator = nameGenerator ?? throw new ArgumentNullException(nameof(nameGenerator));
             this.parameterFactory = parameterFactory ?? throw new ArgumentNullException(nameof(parameterFactory));
         }
 
@@ -144,11 +142,11 @@ namespace Atis.Orm.Translation
                     count++;
                 }
                 if (count == 0)
-                    this.RenderEmptyList(marker, parameterIndex, sb, dbParameters);
+                    RenderEmptyList(marker, sb);
             }
             else if (value == null)
             {
-                this.RenderEmptyList(marker, parameterIndex, sb, dbParameters);
+                RenderEmptyList(marker, sb);
             }
             else
             {
@@ -157,16 +155,13 @@ namespace Atis.Orm.Translation
             }
         }
 
-        private void RenderEmptyList(SqlParameterFragment marker, int parameterIndex, StringBuilder sb, List<DbParameter> dbParameters)
+        private static void RenderEmptyList(SqlParameterFragment marker, StringBuilder sb)
         {
-            // An empty list is not valid SQL anywhere, so the position is replaced by the template the
-            // translator chose for it, with a single placeholder bound to null (`IN (SELECT @p0 WHERE 1 = 0)`).
-            // Binding a parameter rather than writing a bare NULL keeps the operand types compatible.
-            var dbParameter = this.parameterFactory.CreateDbParameter(parameterIndex, marker.Parameter, null);
-            var template = marker.EmptyListTemplate ?? "{0}";
-            // Plain Replace, not string.Format: the templates are SQL and may contain braces.
-            sb.Append(template.Replace("{0}", dbParameter.ParameterName));
-            dbParameters.Add(dbParameter);
+            // An empty collection has no values to bind, so the position is replaced by self-contained literal
+            // SQL and no parameter is emitted (which keeps positional (`?`) dialects consistent). The template
+            // must be valid where it lands: `IN (SELECT NULL WHERE 1 = 0)` matches nothing and negates
+            // correctly under NOT IN; `CONCAT_WS(sep, NULL, NULL)` yields an empty string.
+            sb.Append(marker.EmptyListTemplate ?? "NULL");
         }
     }
 }
