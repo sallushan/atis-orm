@@ -10,12 +10,25 @@ namespace Atis.Orm.Benchmarks.Contexts
     /// </summary>
     public class EfCoreContext : DbContext
     {
+        private readonly string _connectionString;
+
+        public EfCoreContext() : this(BenchmarkDatabase.ConnectionString)
+        {
+        }
+
+        /// <summary>Mirrors Dapper's suite, which builds its EF Core context from the connection string once in setup.</summary>
+        public EfCoreContext(string connectionString)
+        {
+            _connectionString = connectionString;
+        }
+
         public DbSet<Employee> Employees { get; set; }
         public DbSet<Department> Departments { get; set; }
+        public DbSet<Post> Posts { get; set; }
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseSqlServer(BenchmarkDatabase.ConnectionString);
+            optionsBuilder.UseSqlServer(_connectionString);
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -32,6 +45,13 @@ namespace Atis.Orm.Benchmarks.Contexts
                 e.ToTable("Department", "dbo");
                 e.HasKey(x => x.DepartmentId);
                 e.Property(x => x.DepartmentId).ValueGeneratedOnAdd();
+            });
+
+            modelBuilder.Entity<Post>(e =>
+            {
+                e.ToTable("Posts", "dbo");
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Id).ValueGeneratedOnAdd();
             });
         }
     }

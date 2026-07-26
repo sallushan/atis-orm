@@ -1,12 +1,12 @@
 namespace Atis.Orm.Benchmarks.Model
 {
     /// <summary>
-    /// Shared projection target for the query benchmark. Every ORM projects into this exact shape
+    /// Shared projection target for the TopN benchmark. Every ORM projects into this exact shape
     /// (a typical "list view" DTO) so materialization cost is compared apples-to-apples.
     ///
-    /// Has both a constructor (used by the LINQ providers' projection — a New expression, which is
-    /// the shape Atis's execution path supports) and settable properties (so Dapper can map columns
-    /// by name via the parameterless path).
+    /// The LINQ providers use member-init (<c>new EmployeeDto { … }</c>), not the constructor —
+    /// Atis rejects a plain New expression with "Members of the new expression are not set". Dapper
+    /// maps columns by name through the parameterless constructor and the settable properties.
     /// </summary>
     public class EmployeeDto
     {

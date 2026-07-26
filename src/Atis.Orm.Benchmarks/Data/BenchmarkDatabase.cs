@@ -47,6 +47,57 @@ namespace Atis.Orm.Benchmarks.Data
             Seed(employeeCount);
         }
 
+        /// <summary>
+        /// Creates and fills the <c>Posts</c> table used by the by-primary-key scenario.
+        /// <para>
+        /// This is Dapper's own bootstrap statement, character for character
+        /// (DapperLib/Dapper, benchmarks/Dapper.Tests.Performance/Program.cs). The schema, the row
+        /// count and the 2,000-character text payload are all part of what makes our results
+        /// comparable to Dapper's published table, so resist "improving" it — a narrower row or a
+        /// smaller table would change what is being measured.
+        /// </para>
+        /// Idempotent: the whole block is skipped once the table exists.
+        /// </summary>
+        public static void EnsurePostsSeeded()
+        {
+            CreateDatabaseIfMissing();
+
+            using var conn = new SqlConnection(ConnectionString);
+            conn.Open();
+            Exec(conn, @"
+If (Object_Id('Posts') Is Null)
+Begin
+	Create Table Posts
+	(
+		Id int identity primary key,
+		[Text] varchar(max) not null,
+		CreationDate datetime not null,
+		LastChangeDate datetime not null,
+		Counter1 int,
+		Counter2 int,
+		Counter3 int,
+		Counter4 int,
+		Counter5 int,
+		Counter6 int,
+		Counter7 int,
+		Counter8 int,
+		Counter9 int
+	);
+
+	Set NoCount On;
+	Declare @i int = 0;
+
+	While @i <= 5001
+	Begin
+		Insert Posts ([Text],CreationDate, LastChangeDate) values (replicate('x', 2000), GETDATE(), GETDATE());
+		Set @i = @i + 1;
+	End
+End
+",
+                // 5,002 single-row inserts; comfortably past the 30s default on a cold server.
+                commandTimeoutSeconds: 600);
+        }
+
         private static void CreateDatabaseIfMissing()
         {
             using var conn = new SqlConnection(Build("master"));
@@ -88,6 +139,17 @@ namespace Atis.Orm.Benchmarks.Data
                 );
                 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Bench_Employee_Dept')
                     CREATE INDEX [IX_Bench_Employee_Dept] ON [dbo].[Employee]([DepartmentId], [IsActive]);");
+
+            // Covers the TopN scenario end to end: seek on the filter, read Salary already ordered,
+            // stop at 100. Without Salary as a key column SQL Server sorts ~860 rows on every call,
+            // and that server-side sort (identical for all contenders, ~600us, high variance)
+            // completely buries the tens-of-microseconds client-side differences the benchmark
+            // exists to measure. FirstName/LastName are included so it stays a covering index;
+            // EmployeeId comes along as the clustered key.
+            Exec(conn, @"
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Bench_Employee_TopN')
+                    CREATE INDEX [IX_Bench_Employee_TopN] ON [dbo].[Employee]([DepartmentId], [IsActive], [Salary] DESC)
+                        INCLUDE ([FirstName], [LastName]);");
         }
 
         private static void Seed(int employeeCount)
@@ -124,7 +186,6 @@ namespace Atis.Orm.Benchmarks.Data
             table.Columns.Add("CreatedDate", typeof(DateTime));
             table.Columns.Add("ModifiedDate", typeof(object));
 
-            var rnd = new Random(12345);
             for (int i = existing + 1; i <= employeeCount; i++)
             {
                 table.Rows.Add(
@@ -152,9 +213,9 @@ namespace Atis.Orm.Benchmarks.Data
             return (int)cmd.ExecuteScalar();
         }
 
-        private static void Exec(SqlConnection conn, string sql)
+        private static void Exec(SqlConnection conn, string sql, int commandTimeoutSeconds = 30)
         {
-            using var cmd = new SqlCommand(sql, conn);
+            using var cmd = new SqlCommand(sql, conn) { CommandTimeout = commandTimeoutSeconds };
             cmd.ExecuteNonQuery();
         }
     }
