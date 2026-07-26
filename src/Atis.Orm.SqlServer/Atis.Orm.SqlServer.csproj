@@ -1,11 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!-- The ADO.NET client is only ever used to obtain a DbProviderFactory; everything below it goes
+       through System.Data.Common. These references just supply a working zero-config default per leg,
+       and either can be overridden with UseSqlServer(connectionString, DbProviderFactory).
+       Microsoft.Data.SqlClient 6.x ships no netstandard2.0 asset, which is why the legs differ. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
   </ItemGroup>
 
   <ItemGroup>

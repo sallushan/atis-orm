@@ -36,7 +36,21 @@ namespace Atis.Orm
             _config = config ?? throw new ArgumentNullException(nameof(config));
         }
 
-        private IServiceProvider ServiceProvider
+        /// <summary>
+        ///     <para>
+        ///         The scoped <see cref="IServiceProvider"/> backing this context, built on first access.
+        ///     </para>
+        ///     <para>
+        ///         The <em>root</em> provider it is scoped from is cached process-wide by configuration type +
+        ///         extension types, so it is shared with every other context that hashes the same way —
+        ///         including contexts pointed at a different database. That is why the scope is initialized
+        ///         with this context's own configuration before anything is resolved from it: services read
+        ///         their instance-level options from <see cref="IDataContextServices"/>, never from an
+        ///         extension instance captured at registration time.
+        ///         See docs/ServiceProviderCachingAndModelLifetime.md.
+        ///     </para>
+        /// </summary>
+        protected IServiceProvider ServiceProvider
         {
             get
             {
@@ -47,6 +61,9 @@ namespace Atis.Orm
                         .GetOrAdd(_config)
                         .GetRequiredService<IServiceScopeFactory>()
                         .CreateScope();
+                    _serviceScope.ServiceProvider
+                        .GetRequiredService<IDataContextServices>()
+                        .Initialize(this, _config);
                     _serviceProvider = _serviceScope.ServiceProvider;
                 }
                 return _serviceProvider;

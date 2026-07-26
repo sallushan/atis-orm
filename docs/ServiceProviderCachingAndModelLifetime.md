@@ -18,6 +18,9 @@ _serviceScope = OrmServiceManager.Instance
     .GetOrAdd(_config)                       // cached ROOT provider (shared)
     .GetRequiredService<IServiceScopeFactory>()
     .CreateScope();                          // a SCOPE per DataContext instance
+_serviceScope.ServiceProvider
+    .GetRequiredService<IDataContextServices>()
+    .Initialize(this, _config);              // seed the scope with THIS context's config
 _serviceProvider = _serviceScope.ServiceProvider;
 ```
 
@@ -53,17 +56,109 @@ That means the cache key depends on **only two things**:
 - the **concrete type** of the configuration object (e.g. `DataContextConfiguration`), and
 - the **set of extension types** registered on it (e.g. `SqlServerExtension`).
 
+`OrmServiceManager` then overrides `GetKey` to additionally fold in anything the extensions declare
+via `IServiceProviderCacheKeyContributor` (see "The exception" below).
+
 The key deliberately does **not** include:
 
 - the **`DataContext` subclass type** — `Atis.DependencyInjection` is a generic library and
   knows nothing about `DataContext`;
 - the **configuration instance identity** — a fresh `new DataContextConfiguration()` with the
   same extensions hashes to the *same* key;
-- the **connection string** or any other instance-level value carried by an extension.
+- the **connection string** or any other instance-level value carried by an extension, unless that
+  extension explicitly contributes it.
 
 > The unit test `OrmServiceManager_SameLogicalConfig_ReturnsSameServiceProvider` asserts
 > exactly this: two configs with **different connection strings** but the same type + extension
 > set return the **same** cached `IServiceProvider`.
+
+---
+
+## Instance-level options: the initialization pattern
+
+Because the cache key ignores the connection string, a service registration must **never capture an
+extension instance**. This registration is a bug:
+
+```csharp
+// WRONG — the delegate closes over the extension that built the provider FIRST.
+public void AddServices(IServiceCollection services)
+{
+    var builder = new OrmServiceBuilder(services);
+    builder.TryAdd<IDbCommunication>(sp => new SqlDbCommunication(_connectionString));
+}
+```
+
+`AddServices` runs **once**, for the first configuration that misses the cache. Every later
+`DataContext` with the same key reuses that provider — and therefore that captured connection string.
+Two contexts pointed at different databases would both talk to the first one, silently.
+
+The fix is the same one EF Core uses: keep the options on the extension instance, and hand the *live*
+configuration to the scope. `IDataContextServices` is a **scoped** service that `DataContext`
+initializes with its own configuration right after `CreateScope()`, before anything else resolves.
+Registrations then read their options through it:
+
+```csharp
+// RIGHT — non-capturing; the options come from the scope being resolved into.
+builder.TryAdd<IDbCommunication>(sp => CreateDbCommunication(sp));
+
+private static IDbCommunication CreateDbCommunication(IServiceProvider sp)
+{
+    var options = sp.GetContextExtension<SqlServerExtension>();   // this context's extension
+    return new SqlDbCommunication(options.ConnectionString, options.CommandTimeout);
+}
+```
+
+Rules of thumb for extension authors:
+
+- Put instance-level options (connection string, timeouts, an external `DbConnection`) on **public
+  properties of the extension**, and read them with `sp.GetContextExtension<TExtension>()` inside the
+  factory delegate.
+- A factory delegate must not touch `this`. If it needs a helper, make it `static`.
+- Only **scoped** and **transient** services may read `IDataContextServices`. A **singleton** that
+  captured it would pin the first context's scope forever (a captive dependency).
+- A scope created directly off the root provider is never initialized, so resolving an
+  options-reading service from it throws rather than guessing.
+
+---
+
+## The exception: options a *singleton* depends on
+
+The initialization pattern only works for services resolved **per scope**. A singleton is built once
+per root provider, so it cannot pick up a different value per context — and in this codebase it is
+worse than that: `SimpleCompiledQuery` captures the singleton `IDbParameterFactory`, and compiled
+queries live in the process-wide singleton `ICompiledQueryCacheProvider`. A per-context value that
+reached a singleton would leak across contexts *and* outlive them.
+
+Such an option must **split the cache** instead. Implement `IServiceProviderCacheKeyContributor` on
+the extension; `OrmServiceManager.GetKey` folds the contribution into the key, so configurations that
+differ resolve to genuinely different providers (and therefore different models, singletons, and
+compiled-query caches):
+
+```csharp
+public class SqlServerExtension : IServiceContextExtension, IServiceProviderCacheKeyContributor
+{
+    public DbProviderFactory ProviderFactory { get; }
+
+    // The ADO.NET client reaches the singleton IDbParameterFactory, so it cannot be per-scope.
+    public object GetServiceProviderCacheKey() => this.ProviderFactory;
+}
+```
+
+Only then is it legal for `AddServices` to capture the value:
+
+```csharp
+var providerFactory = this.ProviderFactory;   // legal ONLY because it is in the cache key
+builder.TryAdd<IDbParameterFactory>(sp => new SqlDbParameterFactory(
+    sp.GetRequiredService<IDbParameterNameGenerator>(), providerFactory));
+```
+
+Use this sparingly — every distinct contribution costs another cached provider and another model. The
+decision procedure is simply:
+
+| Who consumes the option? | Mechanism |
+|---|---|
+| Scoped / transient services (connection string, timeout, external connection) | Read per scope from `IDataContextServices`. **Keep out of the key.** |
+| A singleton (the ADO.NET client) | `IServiceProviderCacheKeyContributor`. **Put in the key.** |
 
 ---
 
@@ -74,7 +169,7 @@ Lifetimes are declared in `OrmServiceBuilder`. The important ones:
 | Lifetime      | Examples                                                                 | Shared across…                          |
 |---------------|--------------------------------------------------------------------------|-----------------------------------------|
 | **Singleton** | `IOrmModel`, `IModel`, `IEntityMetadataBuilder`, `ISqlExpressionFactory`, `ILogger` | the **root provider** (all its scopes)  |
-| **Scoped**    | `IQueryCompiler`, `IQueryTranslator`, `ILinqToSqlConverter`, `IDatabaseAdapter`, `IAsyncQueryProvider` | a single **scope**                      |
+| **Scoped**    | `IDataContextServices`, `IQueryCompiler`, `IQueryTranslator`, `ILinqToSqlConverter`, `IDatabaseAdapter`, `IDbCommunication`, `IAsyncQueryProvider` | a single **scope**                      |
 | **Transient** | `ILambdaParameterToDataSourceMapper`                                     | nothing — new instance per resolution   |
 
 Because **`IOrmModel` is a Singleton**, there is exactly **one `IOrmModel` per root
@@ -174,3 +269,7 @@ public class HrDataContext : DataContext
   (not by `DataContext` type, config instance, or connection string).
 - `OnModelCreating` runs **once per provider**; contexts sharing a provider share one model.
 - To isolate a context's model, use a **distinct `DataContextConfiguration` subclass** for it.
+- Because the key ignores instance-level options, service registrations must read them from the
+  scoped `IDataContextServices` (`sp.GetContextExtension<T>()`) instead of capturing an extension.
+- An option a **singleton** depends on cannot work that way; contribute it to the key with
+  `IServiceProviderCacheKeyContributor` instead.

@@ -1,7 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>netstandard2.0</TargetFramework>
+		<!-- netstandard2.0 keeps .NET Framework / older .NET Core reach; net8.0 activates the real
+		     CloseAsync/DisposeAsync paths (see the NETCOREAPP3_0_OR_GREATER blocks in DbCommunicationBase
+		     and DbAsyncEnumerator) and lets Atis.Orm.SqlServer bind Microsoft.Data.SqlClient 6.x. -->
+		<TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
 		<Title>Atis ORM</Title>
 		<Version>1.0.0</Version>
 		<Authors>AT Integrated Systems</Authors>
@@ -23,6 +26,9 @@
 	</PropertyGroup>
 	<ItemGroup>
 	  <PackageReference Include="Atis.DependencyInjection" Version="1.1.0" />
+	</ItemGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+	  <!-- IAsyncEnumerable/IAsyncDisposable are in the BCL from net8.0 onwards. -->
 	  <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="9.0.5" />
 	</ItemGroup>
 	<ItemGroup>

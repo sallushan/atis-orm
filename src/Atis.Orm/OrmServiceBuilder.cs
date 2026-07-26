@@ -27,6 +27,7 @@ namespace Atis.Orm
         private static readonly Dictionary<Type, ServiceCharacteristic> _characteristics
             = new Dictionary<Type, ServiceCharacteristic>
             {
+                { typeof(IDataContextServices),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(ILogger),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IExpressionEvaluator),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IVariableIdentityProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
@@ -75,6 +76,9 @@ namespace Atis.Orm
 
         public override void AddCoreServices()
         {
+            // Seeded per scope by DataContext; anything needing instance-level options (connection string,
+            // command timeout, ...) reads them from here rather than capturing an extension instance.
+            this.TryAdd<IDataContextServices, DataContextServices>();
             this.TryAdd<ILogger, Logger>();
             this.TryAdd<IExpressionEvaluator, ExpressionEvaluator>();
             this.TryAdd<IVariableIdentityProvider, VariableIdentityProvider>();
@@ -113,7 +117,7 @@ namespace Atis.Orm
 
         protected override IReadOnlyCollection<Type> GetCoreServiceTypes()
         {
-            return new[] { typeof(IOrmModel), typeof(IEntityMetadataBuilder), typeof(IAsyncQueryProvider) };
+            return new[] { typeof(IOrmModel), typeof(IEntityMetadataBuilder), typeof(IAsyncQueryProvider), typeof(IDataContextServices) };
         }
 
         protected override ServiceCharacteristic GetServiceCharacteristic(Type serviceType)

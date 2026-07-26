@@ -1,52 +1,89 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
-using System.Data.SqlClient;
 using System.Text;
 
 using Atis.Orm.DataAccess;
 namespace Atis.Orm.SqlServer
 {
+    /// <summary>
+    ///     <para>
+    ///         SQL Server connection and command handling. Everything goes through
+    ///         <see cref="DbProviderFactory"/> and <c>System.Data.Common</c>, so the same code drives either
+    ///         <c>System.Data.SqlClient</c> or <c>Microsoft.Data.SqlClient</c>.
+    ///     </para>
+    /// </summary>
     public class SqlDbCommunication : DbCommunicationBase
     {
-        public SqlDbCommunication(string connString) : base(connString)
+        private readonly DbProviderFactory _providerFactory;
+
+        public SqlDbCommunication(string connString)
+            : this(connString, null, null)
         {
         }
 
-        public SqlDbCommunication(DbConnection dbConnection) : base(dbConnection)
+        public SqlDbCommunication(string connString, int? commandTimeout)
+            : this(connString, commandTimeout, null)
         {
         }
 
-        public SqlDbCommunication(string connString, int commandTimeout) : base(connString, commandTimeout)
+        public SqlDbCommunication(string connString, int? commandTimeout, DbProviderFactory providerFactory)
+            : base(connString, commandTimeout)
+        {
+            this._providerFactory = providerFactory ?? SqlServerClientFactory.Default;
+        }
+
+        public SqlDbCommunication(DbConnection dbConnection)
+            : this(dbConnection, null, null)
         {
         }
+
+        public SqlDbCommunication(DbConnection dbConnection, int? commandTimeout)
+            : this(dbConnection, commandTimeout, null)
+        {
+        }
+
+        public SqlDbCommunication(DbConnection dbConnection, int? commandTimeout, DbProviderFactory providerFactory)
+            : base(dbConnection, commandTimeout)
+        {
+            if (dbConnection is null)
+                throw new ArgumentNullException(nameof(dbConnection));
+            // Commands and parameters must come from the same client as the connection they run on.
+            this._providerFactory = providerFactory ?? SqlServerClientFactory.ForConnection(dbConnection);
+        }
+
+        /// <summary>The client this instance creates connections, commands and parameters from.</summary>
+        public DbProviderFactory ProviderFactory => this._providerFactory;
 
         public override DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            var sqlCommand = new SqlCommand(commandText);
-            sqlCommand.CommandType = commandType;
+            var command = SqlServerClientFactory.Create(this._providerFactory, f => f.CreateCommand(), "DbCommand");
+            command.CommandText = commandText;
+            command.CommandType = commandType;
             if (this.CommandTimeout.HasValue)
             {
-                sqlCommand.CommandTimeout = this.CommandTimeout.Value;
+                command.CommandTimeout = this.CommandTimeout.Value;
             }
             if (dbParameters != null)
             {
                 foreach (var dbParameter in dbParameters)
                 {
-                    sqlCommand.Parameters.Add(dbParameter);
+                    command.Parameters.Add(dbParameter);
                 }
             }
-            sqlCommand.Connection = this.GetCurrentConnection() as SqlConnection
-                                    ??
-                                    throw new InvalidOperationException("Current connection is not a SqlConnection or null");
-            return sqlCommand;
+            command.Connection = this.GetCurrentConnection()
+                                 ??
+                                 throw new InvalidOperationException(
+                                     "No connection is available; the connection must be opened before creating a command.");
+            return command;
         }
 
         protected override DbConnection CreateConnection()
         {
-            var sqlConnection = new SqlConnection(this.ConnectionString);
-            return sqlConnection;
+            var connection = SqlServerClientFactory.Create(this._providerFactory, f => f.CreateConnection(), "DbConnection");
+            connection.ConnectionString = this.ConnectionString;
+            return connection;
         }
     }
 }

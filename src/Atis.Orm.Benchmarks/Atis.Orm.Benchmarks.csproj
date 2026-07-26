@@ -26,13 +26,9 @@
 		<PackageReference Include="Dapper" Version="2.1.44" />
 		<PackageReference Include="linq2db" Version="5.4.1" />
 
-		<!-- Raw ADO.NET provider (also used by the DB bootstrap). -->
-		<PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
-
-		<!-- Matches the provider Atis.Orm.SqlServer uses internally. Referenced explicitly so the
-		     4.9.0 assembly is deployed/loaded (not an in-box shim) and so we can normalize Atis's
-		     connection string with its own builder. -->
-		<PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+		<!-- Raw ADO.NET provider (also used by the DB bootstrap). Pinned to the version
+		     Atis.Orm.SqlServer binds on net8.0, so every contender is measured on one ADO.NET stack. -->
+		<PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
 	</ItemGroup>
 
 </Project>

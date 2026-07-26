@@ -24,13 +24,18 @@ namespace Atis.Orm.DataAccess
             this.InitializeInstance(connString, null, null);
         }
 
-        public DbCommunicationBase(string connString, int commandTimeout)
+        public DbCommunicationBase(string connString, int? commandTimeout)
         {
             this.InitializeInstance(connString, commandTimeout, null);
         }
         public DbCommunicationBase(DbConnection dbConnection)
         {
             this.InitializeInstance(null, null, dbConnection);
+        }
+
+        public DbCommunicationBase(DbConnection dbConnection, int? commandTimeout)
+        {
+            this.InitializeInstance(null, commandTimeout, dbConnection);
         }
 
         protected abstract DbConnection CreateConnection();

@@ -51,10 +51,11 @@ carry translation overhead; Atis sits alongside them as a translation engine.
 
 Two Atis-specific behaviours shaped the benchmark; worth knowing if you extend it:
 
-- **Legacy SQL provider.** `Atis.Orm.SqlServer` uses `System.Data.SqlClient` 4.9.0, which rejects
-  the connection string that `Microsoft.Data.SqlClient`'s builder emits (spaced
-  `Trust Server Certificate`). Atis therefore gets its own `BenchmarkDatabase.AtisConnectionString`,
-  normalized with `System.Data.SqlClient`'s own builder.
+- **~~Legacy SQL provider.~~** *(resolved)* `Atis.Orm.SqlServer` now creates connections, commands and
+  parameters through `DbProviderFactory`, and binds `Microsoft.Data.SqlClient` on its `net8.0` leg —
+  the same client every other contender uses. The separate `BenchmarkDatabase.AtisConnectionString`
+  (previously normalized with `System.Data.SqlClient`'s builder, because 4.9.0 rejected the spaced
+  `Trust Server Certificate` keyword) is now just an alias for `ConnectionString`.
 - **Top-level `ORDER BY` needs a projection.** A full-entity ordered result
   (`Employees.Where(...).OrderByDescending(...).ToListAsync()`) currently generates invalid SQL
   (`Incorrect syntax near 'ORDER'`) in Atis's execution path, even though `TranslateToSql` produces

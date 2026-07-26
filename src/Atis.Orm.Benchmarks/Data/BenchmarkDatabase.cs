@@ -21,28 +21,14 @@ namespace Atis.Orm.Benchmarks.Data
             ?? "Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True";
 
         /// <summary>
-        /// Connection string for the Microsoft.Data.SqlClient-based contenders (EF Core, Dapper,
-        /// raw ADO.NET) and for DB bootstrap/seeding.
+        /// Connection string shared by every contender (Atis, EF Core, Dapper, raw ADO.NET) and by
+        /// DB bootstrap/seeding. Atis.Orm.SqlServer binds Microsoft.Data.SqlClient on net8.0, so it no
+        /// longer needs a separately normalized string built by the legacy provider's own parser.
         /// </summary>
         public static string ConnectionString => Build(DatabaseName);
 
-        /// <summary>
-        /// Connection string for Atis, whose SqlServer provider uses the legacy System.Data.SqlClient.
-        /// Normalized with that provider's own builder so keyword spellings (e.g. TrustServerCertificate)
-        /// are emitted in the form its parser accepts — Microsoft.Data.SqlClient's builder emits a
-        /// spaced form the 4.9.0 provider rejects.
-        /// </summary>
-        public static string AtisConnectionString
-        {
-            get
-            {
-                var b = new System.Data.SqlClient.SqlConnectionStringBuilder(ServerConnectionString)
-                {
-                    InitialCatalog = DatabaseName
-                };
-                return b.ConnectionString;
-            }
-        }
+        /// <summary>Obsolete alias kept so existing benchmark wiring keeps compiling.</summary>
+        public static string AtisConnectionString => ConnectionString;
 
         private static string Build(string database)
         {
