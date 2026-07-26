@@ -41,9 +41,9 @@ namespace Atis.Orm.Metadata
         /// <inheritdoc />
         public EntityMetadata Build(Type type)
         {
-            var columnProperties = this.GetColumnMembers(type);
+            var columnProperties = this.GetColumnProperties(type);
             var columns = columnProperties
-                            .Select(x => new TableColumn(this.GetColumnName(x), x.Name, isPrimaryKey: x.GetCustomAttribute<PrimaryKeyAttribute>() != null))
+                            .Select(x => new TableColumn(this.GetColumnName(x), x.Name, isPrimaryKey: this.IsPrimaryKey(x)))
                             .ToArray();
             var navigationProperties = type.GetProperties()
                                                 .Select(x => new { Prop = x, NavigationType = this.GetNavigationPropertyType(type, x) })
@@ -104,16 +104,38 @@ namespace Atis.Orm.Metadata
             return false;
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Tests whether a property maps to a table column. A property is a column unless it is
+        ///         a navigation, a calculated property, or explicitly excluded with
+        ///         <see cref="DbNotMappedAttribute"/>.
+        ///     </para>
+        ///     <para>
+        ///         An override is responsible for honoring <see cref="DbNotMappedAttribute"/> itself;
+        ///         dropping it makes purely in-memory properties — the record state of an entity, for
+        ///         instance — appear as columns.
+        ///     </para>
+        /// </summary>
         protected virtual bool IsSchemaRelatedProperty(PropertyInfo propertyInfo)
             => propertyInfo.GetCustomAttribute<NavigationPropertyAttribute>() == null &&
                                         propertyInfo.GetCustomAttribute<CalculatedPropertyAttribute>() == null &&
-                                        propertyInfo.GetCustomAttribute<NavigationLinkAttribute>() == null;
+                                        propertyInfo.GetCustomAttribute<NavigationLinkAttribute>() == null &&
+                                        propertyInfo.GetCustomAttribute<DbNotMappedAttribute>() == null;
 
         protected virtual string GetColumnName(PropertyInfo propertyInfo)
             => propertyInfo.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? propertyInfo.Name;
 
-        private IReadOnlyList<PropertyInfo> GetColumnMembers(Type type)
+        /// <summary>
+        ///     Tests whether a property maps to a primary key column.
+        /// </summary>
+        protected virtual bool IsPrimaryKey(PropertyInfo propertyInfo)
+            => propertyInfo.GetCustomAttribute<PrimaryKeyAttribute>() != null;
+
+        /// <inheritdoc />
+        public IReadOnlyList<PropertyInfo> GetColumnProperties(Type type)
         {
+            if (type is null)
+                throw new ArgumentNullException(nameof(type));
             return type.GetProperties()
                         .Where(x => IsSchemaRelatedProperty(x))
                         .ToArray();

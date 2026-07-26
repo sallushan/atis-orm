@@ -90,6 +90,24 @@ namespace Atis.Orm
             }
         }
 
+        private IEntityCrudMetadataFactory _crudMetadataFactory;
+        /// <summary>
+        ///     Builds the persistence side of an entity's mapping — column kinds and required field
+        ///     information — for entities that were never configured in
+        ///     <see cref="OnModelCreating(ModelBuilder)"/>.
+        /// </summary>
+        protected IEntityCrudMetadataFactory CrudMetadataFactory
+        {
+            get
+            {
+                if (this._crudMetadataFactory is null)
+                {
+                    this._crudMetadataFactory = this.ServiceProvider.GetRequiredService<IEntityCrudMetadataFactory>();
+                }
+                return this._crudMetadataFactory;
+            }
+        }
+
         private IOrmModel _ormModel;
         /// <summary>
         ///     <para>
@@ -116,7 +134,8 @@ namespace Atis.Orm
                     this._ormModel.EnsureModelInitialized(() =>
                     {
                         var metadataBuilder = this.ServiceProvider.GetRequiredService<IEntityMetadataBuilder>();
-                        var mb = new ModelBuilder(metadataBuilder, this._ormModel);
+                        var crudMetadataFactory = this.ServiceProvider.GetRequiredService<IEntityCrudMetadataFactory>();
+                        var mb = new ModelBuilder(metadataBuilder, crudMetadataFactory, this._ormModel);
                         this.OnModelCreating(mb);
                         mb.Build();
                     });
@@ -178,7 +197,24 @@ namespace Atis.Orm
         }
 
         /// <summary>
-        /// 
+        ///     <para>
+        ///         Returns the persistence side of <paramref name="entityType"/>'s mapping, building it
+        ///         from annotations when the entity was never configured in
+        ///         <see cref="OnModelCreating(ModelBuilder)"/>.
+        ///     </para>
+        /// </summary>
+        protected EntityCrudMetadata GetCrudMetadata(Type entityType)
+        {
+            if (entityType is null)
+                throw new ArgumentNullException(nameof(entityType));
+            // Touching the model first guarantees OnModelCreating has run, so fluent configuration is
+            // never lost to an on-demand build from annotations alone.
+            var model = this.Model;
+            return model.GetOrAddCrud(entityType, t => this.CrudMetadataFactory.Build(t));
+        }
+
+        /// <summary>
+        ///
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>

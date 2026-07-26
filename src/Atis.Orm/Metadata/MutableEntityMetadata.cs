@@ -19,6 +19,18 @@ namespace Atis.Orm.Metadata
         public Dictionary<string, LambdaExpression> CalculatedProperties { get; }
 
         public MutableEntityMetadata(EntityMetadata source)
+            : this(source, crudSource: null)
+        {
+        }
+
+        /// <param name="source">The query side of the mapping, as built from annotations.</param>
+        /// <param name="crudSource">
+        ///     The persistence side of the mapping, as built from annotations. Its column kinds and
+        ///     required flags seed the mutable state, so that a fluent call overrides an annotation
+        ///     rather than the other way round. May be <c>null</c>, in which case every column starts
+        ///     out as <see cref="ColumnKind.Regular"/>.
+        /// </param>
+        public MutableEntityMetadata(EntityMetadata source, EntityCrudMetadata crudSource)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             this.ClrType = source.ClrType;
@@ -29,6 +41,19 @@ namespace Atis.Orm.Metadata
             this.SqlColumns = new List<MutableTableColumn>(source.SqlColumns.Select(x => new MutableTableColumn(x)));
             this.Navigations = new Dictionary<string, MutableNavigationInfo>(source.Navigations.ToDictionary(kv => kv.Key, kv => new MutableNavigationInfo(kv.Value)));
             this.CalculatedProperties = new Dictionary<string, LambdaExpression>(source.CalculatedProperties.ToDictionary(kv => kv.Key, kv => kv.Value));
+
+            if (crudSource != null)
+            {
+                foreach (var column in this.SqlColumns)
+                {
+                    if (crudSource.TryGetColumn(column.ModelPropertyName, out var crudColumn))
+                    {
+                        column.Kind = crudColumn.Kind;
+                        column.IsRequired = crudColumn.IsRequired;
+                        column.RequiredFieldTitle = crudColumn.RequiredFieldTitle;
+                    }
+                }
+            }
         }
 
         public MutableTableColumn GetOrAddColumn(string propertyName)
@@ -50,6 +75,10 @@ namespace Atis.Orm.Metadata
             this.SqlColumns.RemoveAll(x => x.ModelPropertyName == propertyName);
         }
 
+        /// <summary>
+        ///     Builds the query side of the mapping. Column kinds are deliberately absent — they are a
+        ///     persistence concept and belong to <see cref="BuildCrud"/>.
+        /// </summary>
         public EntityMetadata Build()
         {
             return new EntityMetadata(
@@ -59,6 +88,31 @@ namespace Atis.Orm.Metadata
                 this.Navigations.Values.Select(x => new NavigationInfo(x.NavigationType, x.JoinCondition, x.JoinedSource, x.PropertyName)).ToDictionary(x => x.PropertyName),
                 this.CalculatedProperties
             );
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Builds the persistence side of the mapping, in the same column order as
+        ///         <see cref="Build"/>.
+        ///     </para>
+        ///     <para>
+        ///         A column whose property cannot be resolved on <see cref="ClrType"/> is omitted: it is
+        ///         still a perfectly usable query column, and there is nothing for Insert or Update to
+        ///         read or write. The omission surfaces as a mapping error when — and only when — the
+        ///         entity is first used for entity level CRUD.
+        ///     </para>
+        /// </summary>
+        public EntityCrudMetadata BuildCrud()
+        {
+            var columns = new List<CrudColumn>(this.SqlColumns.Count);
+            foreach (var column in this.SqlColumns)
+            {
+                var property = this.ClrType.GetProperty(column.ModelPropertyName);
+                if (property is null)
+                    continue;
+                columns.Add(new CrudColumn(property, column.Kind, column.IsRequired, column.RequiredFieldTitle));
+            }
+            return new EntityCrudMetadata(this.ClrType, columns);
         }
     }
 }

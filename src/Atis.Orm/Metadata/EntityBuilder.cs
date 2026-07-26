@@ -55,6 +55,27 @@ namespace Atis.Orm.Metadata
         }
 
         /// <summary>
+        ///     <para>
+        ///         Excludes a property from the entity's column set entirely — the fluent equivalent of
+        ///         <see cref="Atis.Orm.Annotations.DbNotMappedAttribute"/>.
+        ///     </para>
+        ///     <para>
+        ///         Every public property that is not a navigation or a calculated property is otherwise
+        ///         treated as a column, so this is how a purely in-memory property is kept out of the
+        ///         mapping.
+        ///     </para>
+        /// </summary>
+        public EntityBuilder<T> Ignore(Expression<Func<T, object>> property)
+        {
+            if (property == null) throw new ArgumentNullException(nameof(property));
+
+            var memberName = MemberNameExtractor.GetMemberName(property);
+            _mutable.RemoveColumn(memberName);
+
+            return this;
+        }
+
+        /// <summary>
         ///     Configures a calculated property. The property name is taken from <paramref name="property"/>
         ///     and the calculation from <paramref name="expression"/>.
         /// </summary>

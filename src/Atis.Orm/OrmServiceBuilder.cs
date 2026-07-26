@@ -34,6 +34,7 @@ namespace Atis.Orm
                 { typeof(IReflectionService), new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IOrmReflectionService), new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IEntityMetadataBuilder),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                { typeof(IEntityCrudMetadataFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IExpressionCacheKeyProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ICompiledQueryCacheProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IPreprocessingRequirementTester),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
@@ -85,8 +86,8 @@ namespace Atis.Orm
             this.TryAdd<IOrmReflectionService, OrmReflectionService>();
             this.TryAdd<IReflectionService>(p => p.GetRequiredService<IOrmReflectionService>());
             this.TryAdd<IEntityMetadataBuilder, EntityMetadataBuilder>();
+            this.TryAdd<IEntityCrudMetadataFactory, EntityCrudMetadataFactory>();
             this.TryAdd<IExpressionCacheKeyProvider, ExpressionCacheKeyProvider>();
-            this.TryAdd<ICompiledQueryCacheProvider, CompiledQueryCacheProvider>();
             this.TryAdd<ICompiledQueryCacheProvider, CompiledQueryCacheProvider>();
             this.TryAdd<IPreprocessingRequirementTester, PreprocessingRequirementTester>();
             this.TryAdd<ISqlDataTypeFactory, SqlDataTypeFactory>();
@@ -117,7 +118,7 @@ namespace Atis.Orm
 
         protected override IReadOnlyCollection<Type> GetCoreServiceTypes()
         {
-            return new[] { typeof(IOrmModel), typeof(IEntityMetadataBuilder), typeof(IAsyncQueryProvider), typeof(IDataContextServices) };
+            return new[] { typeof(IOrmModel), typeof(IEntityMetadataBuilder), typeof(IEntityCrudMetadataFactory), typeof(IAsyncQueryProvider), typeof(IDataContextServices) };
         }
 
         protected override ServiceCharacteristic GetServiceCharacteristic(Type serviceType)

@@ -39,6 +39,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return metadata;
         }
 
+        // Exposes the persistence side of the mapping, built on demand for entities that were never
+        // configured in OnModelCreating.
+        public EntityCrudMetadata GetEntityCrudMetadata<T>() => this.GetCrudMetadata(typeof(T));
+
         // Exposes the scoped navigation initializer so tests can initialize a manually-created entity
         // and inspect / translate the lazy navigation queries it produces (without a live database).
         public INavigationInitializer GetNavigationInitializer() => this.NavigationInitializer;
@@ -109,6 +113,19 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 e.HasParent(x => x.Company,
                     parentKey: c => new { c.CompanyId, c.DivisionId },
                     childKey: emp => new { emp.CompanyId, emp.DivisionId });
+            });
+
+            mb.Entity<CrudFluentEmployee>(e =>
+            {
+                e.ToTable("CRUD_FLUENT_EMPLOYEE");
+                e.HasKey(x => x.EmployeeId);
+                e.Column(x => x.EmployeeId).IsIdentity();
+                e.Column(x => x.Name, "EMP_NAME").IsRequired("Employee Name");
+                e.Column(x => x.CreatedDate).IsComputed();
+                e.Column(x => x.RowVer).IsRowVersion();
+                // fluent wins over the [DbIdentityColumn] annotation on the property
+                e.Column(x => x.LegacyId).HasKind(ColumnKind.Regular);
+                e.Ignore(x => x.ScratchNote);
             });
         }
     }

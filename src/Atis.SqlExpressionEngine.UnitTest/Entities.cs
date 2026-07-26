@@ -546,4 +546,66 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public string EmployeeName { get; set; }
         public FluentCompany Company { get; set; }
     }
+
+    // Stands in for the record state a Record base class will carry, so that the exclusion mechanism
+    // can be proven before that class exists.
+    public enum CrudTestRecordState
+    {
+        Unchanged = 0,
+        Added,
+        Updated,
+        Deleted,
+    }
+
+    // Every column kind and the required-field annotation, declared purely with attributes. This type
+    // is deliberately NOT configured in OrmDbContext.OnModelCreating, so it also covers the on-demand
+    // build path for an entity the model has never seen.
+    [DbTable("CRUD_ANNOTATED_EMPLOYEE", schema: "dbo")]
+    public class CrudAnnotatedEmployee
+    {
+        [PrimaryKey]
+        [DbIdentityColumn]
+        [DbColumn("EMP_ID")]
+        public int EmployeeId { get; set; }
+
+        [RequiredFieldValidation("First Name")]
+        public string FirstName { get; set; }
+
+        [RequiredFieldValidation]
+        public string LastName { get; set; }
+
+        public decimal Salary { get; set; }
+
+        [DbInsertOnly]
+        public string CreatedBy { get; set; }
+
+        [DbUpdateOnly]
+        public string ModifiedBy { get; set; }
+
+        [DbReadOnlyColumn]
+        public DateTime CreatedDate { get; set; }
+
+        [DbRowVersion]
+        public byte[] RowVer { get; set; }
+
+        [DbNotMapped]
+        public CrudTestRecordState RecordState { get; set; }
+    }
+
+    // The same ground covered fluently. LegacyId carries [DbIdentityColumn] so that the fluent call
+    // overriding it can be observed.
+    public class CrudFluentEmployee
+    {
+        public int EmployeeId { get; set; }
+        public string Name { get; set; }
+        public DateTime CreatedDate { get; set; }
+
+        [DbIdentityColumn]
+        public int LegacyId { get; set; }
+
+        public byte[] RowVer { get; set; }
+
+        // Excluded fluently via EntityBuilder<T>.Ignore rather than by annotation.
+        public string ScratchNote { get; set; }
+    }
 }

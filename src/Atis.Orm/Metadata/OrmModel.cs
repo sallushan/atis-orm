@@ -13,6 +13,7 @@ namespace Atis.Orm.Metadata
     public class OrmModel : IOrmModel
     {
         private readonly ConcurrentDictionary<Type, EntityMetadata> metadataMap = new ConcurrentDictionary<Type, EntityMetadata>();
+        private readonly ConcurrentDictionary<Type, EntityCrudMetadata> crudMetadataMap = new ConcurrentDictionary<Type, EntityCrudMetadata>();
         private volatile bool _modelCreated = false;
         private readonly object _modelCreatedLock = new object();
 
@@ -73,6 +74,28 @@ namespace Atis.Orm.Metadata
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
             return this.metadataMap.TryGetValue(type, out metadata);
+        }
+
+        /// <inheritdoc />
+        public void AddCrud(EntityCrudMetadata crudMetadata)
+        {
+            if (crudMetadata == null) throw new ArgumentNullException(nameof(crudMetadata));
+            this.crudMetadataMap[crudMetadata.ClrType] = crudMetadata;
+        }
+
+        /// <inheritdoc />
+        public bool TryGetCrud(Type type, out EntityCrudMetadata crudMetadata)
+        {
+            if (type == null) throw new ArgumentNullException(nameof(type));
+            return this.crudMetadataMap.TryGetValue(type, out crudMetadata);
+        }
+
+        /// <inheritdoc />
+        public EntityCrudMetadata GetOrAddCrud(Type type, Func<Type, EntityCrudMetadata> factory)
+        {
+            if (type == null) throw new ArgumentNullException(nameof(type));
+            if (factory == null) throw new ArgumentNullException(nameof(factory));
+            return this.crudMetadataMap.GetOrAdd(type, factory);
         }
     }
 }
