@@ -14,7 +14,7 @@ namespace Atis.Orm.Querying
     public class DbAsyncEnumerator<T> : IAsyncEnumerator<T>
     {
         private DbDataReader dataReader;
-        private DbCommand command;
+        private DbCommand dbCommand;
         private readonly string sql;
         private readonly IEnumerable<DbParameter> dbParameters;
         private readonly Func<IDataReader, object> elementFactory;
@@ -22,7 +22,6 @@ namespace Atis.Orm.Querying
         private bool disposed;
         private bool currentIsSet;
         private T current;
-        private bool closeConnection;
         private readonly IDbCommunication db;
 
         public DbAsyncEnumerator(
@@ -47,9 +46,9 @@ namespace Atis.Orm.Querying
             if (this.dataReader == null)
             {
                 await this.db.OpenConnectionAsync(this.cancellationToken);
-                this.command = db.CreateCommand(sql, dbParameters, CommandType.Text);
-                //this.dataReader = await this.db.ExecuteReaderAsync(this.command, CommandBehavior.SequentialAccess, this.cancellationToken);
-                this.dataReader = await this.command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, this.cancellationToken);
+                var result = await this.db.ExecuteReaderAsync(sql, dbParameters, CommandType.Text, this.cancellationToken);
+                this.dataReader = result.DataReader;
+                this.dbCommand = result.Command;
             }
             
             var hasData = await this.dataReader.ReadAsync(this.cancellationToken);
@@ -89,7 +88,11 @@ namespace Atis.Orm.Querying
                     this.dataReader = null;
                 }
 
-                this.command?.Dispose();
+                if (this.dbCommand != null)
+                {
+                    this.dbCommand.Dispose();
+                    this.dbCommand = null;
+                }
 
                 this.db.CloseConnection();
             }
@@ -111,10 +114,15 @@ namespace Atis.Orm.Querying
                 this.dataReader = null;
             }
 
-            await this.command.DisposeAsync();
+            if (this.dbCommand != null)
+            {
+                await this.dbCommand.DisposeAsync();
+                this.dbCommand = null;
+            }
 
             await this.db.CloseConnectionAsync();
             this.disposed = true;
+            GC.SuppressFinalize(this);
 #else
             Dispose();
 #endif

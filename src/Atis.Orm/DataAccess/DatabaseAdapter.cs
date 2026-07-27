@@ -106,14 +106,12 @@ namespace Atis.Orm.DataAccess
 
         public int ExecuteNonQuery(string query, IEnumerable<DbParameter> dbParameters)
         {
-            var dbCommand = this.dbCommunication.CreateCommand(query, dbParameters, CommandType.Text);
-            return this.dbCommunication.ExecuteNonQueryCommand(dbCommand);
+            return this.dbCommunication.ExecuteNonQueryCommand(query, dbParameters, CommandType.Text);
         }
 
         public Task<int> ExecuteNonQueryAsync(string query, IEnumerable<DbParameter> dbParameters, CancellationToken cancellationToken = default)
         {
-            var dbCommand = this.dbCommunication.CreateCommand(query, dbParameters, CommandType.Text);
-            return this.dbCommunication.ExecuteNonQueryCommandAsync(dbCommand, cancellationToken);
+            return this.dbCommunication.ExecuteNonQueryCommandAsync(query, dbParameters, CommandType.Text, cancellationToken);
         }
     }
 }

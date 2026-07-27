@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
@@ -6,11 +7,16 @@ using System.Threading.Tasks;
 
 namespace Atis.Orm.DataAccess
 {
-    public class ConnectionInfo
+    public readonly struct DbReaderExecutionResult
     {
-        public DbConnection Connection { get; set; }
-        public bool ShouldDispose { get; set; }
-        public DbTransaction Transaction { get; set; }
+        public DbDataReader DataReader { get; }
+        public DbCommand Command { get; }
+
+        public DbReaderExecutionResult(DbDataReader dataReader, DbCommand command)
+        {
+            DataReader = dataReader ?? throw new ArgumentNullException(nameof(dataReader));
+            Command = command ?? throw new ArgumentNullException(nameof(command));
+        }
     }
     
     public interface IDbCommunication
@@ -21,10 +27,10 @@ namespace Atis.Orm.DataAccess
         Task CloseConnectionAsync();
         T ExecuteScalarCommand<T>(DbCommand command);
         Task<T> ExecuteScalarCommandAsync<T>(DbCommand command, CancellationToken cancellationToken);
-        DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType);
-        //IDataReader ExecuteReader(DbCommand command, CommandBehavior sequentialAccess);
-        //Task<DbDataReader> ExecuteReaderAsync(DbCommand command, CommandBehavior sequentialAccess, CancellationToken cancellationToken);
-        int ExecuteNonQueryCommand(DbCommand command);
-        Task<int> ExecuteNonQueryCommandAsync(DbCommand command, CancellationToken cancellationToken);
+        int ExecuteNonQueryCommand(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
+        Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
+        void Transaction(Action work);
+        DbReaderExecutionResult ExecuteReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
+        Task<DbReaderExecutionResult> ExecuteReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
     }
 }

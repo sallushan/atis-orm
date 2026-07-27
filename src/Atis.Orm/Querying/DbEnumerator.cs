@@ -11,15 +11,14 @@ namespace Atis.Orm.Querying
 {
     public class DbEnumerator<T> : IEnumerator<T>
     {
-        private IDataReader dataReader;
-        private DbCommand command;
+        private DbDataReader dataReader;
+        private DbCommand dbCommand;
         private readonly Func<IDataReader, object> elementFactory;
         private readonly string sql;
         private readonly IEnumerable<DbParameter> dbParameters;
         private bool disposed;
         private bool currentIsSet;
         private T current;
-        private bool closeConnection;
 
         private readonly IDbCommunication db;
         //private readonly ConnectionInfo connectionInfo;
@@ -39,9 +38,9 @@ namespace Atis.Orm.Querying
             if (this.dataReader == null)
             {
                 this.db.OpenConnection();
-                //this.dataReader = this.db.ExecuteReader(this.command, CommandBehavior.SequentialAccess);
-                this.command = this.db.CreateCommand(this.sql, this.dbParameters, CommandType.Text);
-                this.dataReader = this.command.ExecuteReader(CommandBehavior.SequentialAccess);
+                var result = this.db.ExecuteReader(this.sql, this.dbParameters, CommandType.Text);
+                this.dataReader = result.DataReader;
+                this.dbCommand = result.Command;
             }
             
             var hasData = this.dataReader.Read();
@@ -90,7 +89,11 @@ namespace Atis.Orm.Querying
                     this.dataReader = null;
                 }
 
-                this.command?.Dispose();
+                if (this.dbCommand != null)
+                {
+                    this.dbCommand.Dispose();
+                    this.dbCommand = null;
+                }
 
                 this.db.CloseConnection();
             }

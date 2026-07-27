@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +13,14 @@ namespace Atis.Orm.DataAccess
     {
         private DbConnection _externalConnection;
         private DbConnection _transactionConnection;
-        private DbConnection _currentConnection;
+        // _localConnection is something that should live for a single command.
+        // Usually ExecuteNonQueryCommand or ExecuteScalarCommand within this class
+        // opens and closes the connection immediately if there is no _externalConnection
+        // or _transactionConnection.
+        // Ideally speaking _localConnection should remain null almost all the time. Only
+        // case when this variable will have value is through DataReader enumeration that
+        // is done in DbAsyncEnumerator and DbEnumerator.
+        private DbConnection _localConnection;
         private DbTransaction _transaction;
         private int _transactionCount = 0;
 
@@ -28,6 +36,7 @@ namespace Atis.Orm.DataAccess
         {
             this.InitializeInstance(connString, commandTimeout, null);
         }
+
         public DbCommunicationBase(DbConnection dbConnection)
         {
             this.InitializeInstance(null, null, dbConnection);
@@ -44,7 +53,7 @@ namespace Atis.Orm.DataAccess
         {
             return (this._transactionConnection ?? this._externalConnection)
                         ??
-                        this._currentConnection;
+                        this._localConnection;
         }
 
         private void InitializeInstance(string connString, int? commandTimeout, DbConnection dbConnection)
@@ -56,116 +65,122 @@ namespace Atis.Orm.DataAccess
 
         public void CloseConnection()
         {
-            if (this._currentConnection != null)
+            if (this._localConnection != null)
             {
-                this._currentConnection.Close();
-                this._currentConnection.Dispose();
-                this._currentConnection = null;
+                this._localConnection.Close();
+                this._localConnection.Dispose();
+                this._localConnection = null;
             }
         }
 
         public async Task CloseConnectionAsync()
         {
-            if (this._currentConnection != null)
+            if (this._localConnection != null)
             {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-                await this._currentConnection.CloseAsync();
-                await this._currentConnection.DisposeAsync();
+                await this._localConnection.CloseAsync();
+                await this._localConnection.DisposeAsync();
 #else
-                this._currentConnection.Close();
-                this._currentConnection.Dispose();
+                this._localConnection.Close();
+                this._localConnection.Dispose();
 #endif
-                this._currentConnection = null;
+                this._localConnection = null;
             }
         }
 
-        public abstract DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType);
+        protected abstract DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType);
 
-        public int ExecuteNonQueryCommand(DbCommand command)
+        private DbCommand CreateCommandInternal(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            if (this._transactionConnection == null && this._externalConnection == null)
+            var connection = this.GetCurrentConnection()
+                 ?? throw new InvalidOperationException("No connection is available; the connection must be opened before creating a command.");
+            var dbCommand = this.CreateCommand(commandText, dbParameters, commandType);
+            dbCommand.Connection = connection;
+            dbCommand.Transaction = this._transaction;
+            return dbCommand;
+        }
+
+        public virtual DbReaderExecutionResult ExecuteReader(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
+        {
+            DbCommand dbCommand = null;
+            try
             {
-                using (var conn = this.CreateConnection())
-                {
-                    if (conn.State != ConnectionState.Open)
-                    {
-                        conn.Open();
-                    }
-                    command.Connection = conn;
-                    return command.ExecuteNonQuery();
-                }
+                dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
+                var dataReader = dbCommand.ExecuteReader(CommandBehavior.SequentialAccess);
+                return new DbReaderExecutionResult(dataReader, dbCommand);
             }
-            else if (this._currentConnection != null)
+            catch
             {
-                throw new InvalidOperationException("_currentConnection should be null when _transactionConnection or _externalConnection is set.");
-            }
-            else
-            {
-                var conn = (this._transactionConnection ?? this._externalConnection);
-                command.Connection = conn;
-                bool wasOpened = false;
-                if (conn.State != ConnectionState.Open)
-                {
-                    conn.Open();
-                    wasOpened = true;
-                }
-                try
-                {
-                    return command.ExecuteNonQuery();
-                }
-                finally
-                {
-                    if (wasOpened)
-                        conn.Close();
-                }
+                dbCommand?.Dispose();
+                throw;
             }
         }
 
-        public async Task<int> ExecuteNonQueryCommandAsync(DbCommand command, CancellationToken cancellationToken)
+        public virtual async Task<DbReaderExecutionResult> ExecuteReaderAsync(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
         {
-            if (this._transactionConnection == null && this._externalConnection == null)
+            DbCommand dbCommand = null;
+            try
             {
-                using (var conn = this.CreateConnection())
-                {
-                    if (conn.State != ConnectionState.Open)
-                    {
-                        await conn.OpenAsync(cancellationToken);
-                    }
-                    command.Connection = conn;
-                    return await command.ExecuteNonQueryAsync(cancellationToken);
-                }
+                dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
+                var dataReader = await dbCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                return new DbReaderExecutionResult(dataReader, dbCommand);
             }
-            else if (this._currentConnection != null)
+            catch
+            {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+                if (dbCommand != null)
+                {
+                    await dbCommand.DisposeAsync();
+                }
+#else
+                dbCommand?.Dispose();
+#endif
+                throw;
+            }
+        }
+
+        public virtual int ExecuteNonQueryCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
+        {
+            if (this._localConnection != null)
             {
                 throw new InvalidOperationException("_currentConnection should be null when _transactionConnection or _externalConnection is set.");
             }
-            else
-            {
-                var conn = (this._transactionConnection ?? this._externalConnection);
-                command.Connection = conn;
-                bool wasOpened = false;
 
-                if (conn.State != ConnectionState.Open)
+            this.OpenConnection();
+            try
+            {
+                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
                 {
-                    await conn.OpenAsync(cancellationToken);
-                    wasOpened = true;
+                    return command.ExecuteNonQuery();
                 }
-                try
+            }
+            finally
+            {
+                this.CloseConnection();
+            }
+        }
+
+
+        public async Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken)
+        {
+            if (this._localConnection != null)
+            {
+                throw new InvalidOperationException("_currentConnection should be null when _transactionConnection or _externalConnection is set.");
+            }
+
+            await this.OpenConnectionAsync(cancellationToken);
+            try
+            {
+                using (var command = this.CreateCommandInternal(sql, dbParameters, text))
                 {
                     return await command.ExecuteNonQueryAsync(cancellationToken);
                 }
-                finally
-                {
-                    if (wasOpened)
-                    {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-                        await conn.CloseAsync();
-#else
-                        conn.Close();
-#endif
-                    }
-                }
             }
+            finally
+            {
+                await this.CloseConnectionAsync();
+            }
+
         }
 
         public T ExecuteScalarCommand<T>(DbCommand command)
@@ -182,11 +197,11 @@ namespace Atis.Orm.DataAccess
         {
             var conn = (this._transactionConnection ?? this._externalConnection)
                         ??
-                        this._currentConnection;
+                        this._localConnection;
             if (conn is null)
             {
                 conn = this.CreateConnection();
-                this._currentConnection = conn;
+                this._localConnection = conn;
             }
             if (conn.State != ConnectionState.Open)
             {
@@ -198,17 +213,108 @@ namespace Atis.Orm.DataAccess
         {
             var conn = (this._transactionConnection ?? this._externalConnection)
                         ??
-                        this._currentConnection;
+                        this._localConnection;
             if (conn is null)
             {
                 conn = this.CreateConnection();
-                this._currentConnection = conn;
+                this._localConnection = conn;
             }
             if (conn.State != ConnectionState.Open)
             {
                 return conn.OpenAsync(cancellationToken);
             }
             return Task.CompletedTask;
+        }
+
+        public virtual void Transaction(Action work)
+        {
+            if (work is null)
+                throw new ArgumentNullException(nameof(work));
+
+            this._transactionCount++;
+
+            using (this.GetTransactionConnection())
+            {
+                try
+                {
+                    work();
+                    this.CommitTransaction();
+                }
+                catch (Exception outerExp)
+                {
+                    try
+                    {
+                        this.RollbackTransaction();
+                    }
+                    catch (Exception ex)
+                    {
+                        throw new AggregateException(outerExp, ex);
+                    }
+                    throw;
+                }
+            }
+        }
+
+        protected virtual IDbConnection GetTransactionConnection()
+        {
+            IDbConnection result;
+            if (this._externalConnection == null && this._transactionConnection == null)
+            {
+                this._transactionConnection = this.CreateConnection();
+                this._transactionConnection.StateChange += new StateChangeEventHandler(this._transactionConnection_StateChange);
+                this.OpenConnection();
+                this._transaction = this._transactionConnection.BeginTransaction();
+                result = this._transactionConnection;
+            }
+            else
+            {
+                if (this._externalConnection != null)
+                {
+                    if (this._externalConnection.State != ConnectionState.Open)
+                    {
+                        this.OpenConnection();
+                    }
+                    if (this._transaction == null)
+                    {
+                        this._transaction = this._externalConnection.BeginTransaction();
+                    }
+                }
+                result = null;
+            }
+            return result;
+        }
+
+        private void _transactionConnection_StateChange(object sender, StateChangeEventArgs e)
+        {
+            if (e.CurrentState == ConnectionState.Closed)
+            {
+                this._transactionConnection = null;
+                this._transaction = null;
+            }
+        }
+        protected virtual void CommitTransaction()
+        {
+            this._transactionCount--;
+
+            if (this._transactionCount <= 0)
+            {
+                this._transaction.Commit();
+                this._transaction.Dispose();
+                this._transaction = null;
+                // TODO: implement save point
+                //this._savePoints = 0;
+            }
+        }
+        protected virtual void RollbackTransaction()
+        {
+            this._transactionCount--;
+
+            if (this._transactionCount <= 0)
+            {
+                this._transaction.Rollback();
+                this._transaction.Dispose();
+                this._transaction = null;
+            }
         }
     }
 }

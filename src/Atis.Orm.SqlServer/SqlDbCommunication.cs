@@ -56,7 +56,7 @@ namespace Atis.Orm.SqlServer
         /// <summary>The client this instance creates connections, commands and parameters from.</summary>
         public DbProviderFactory ProviderFactory => this._providerFactory;
 
-        public override DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
+        protected override DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
             var command = SqlServerClientFactory.Create(this._providerFactory, f => f.CreateCommand(), "DbCommand");
             command.CommandText = commandText;
@@ -72,10 +72,6 @@ namespace Atis.Orm.SqlServer
                     command.Parameters.Add(dbParameter);
                 }
             }
-            command.Connection = this.GetCurrentConnection()
-                                 ??
-                                 throw new InvalidOperationException(
-                                     "No connection is available; the connection must be opened before creating a command.");
             return command;
         }
 
