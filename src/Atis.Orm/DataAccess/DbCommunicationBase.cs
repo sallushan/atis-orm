@@ -226,95 +226,137 @@ namespace Atis.Orm.DataAccess
             return Task.CompletedTask;
         }
 
+        bool _transactionStarted = false;
+
         public virtual void Transaction(Action work)
         {
             if (work is null)
                 throw new ArgumentNullException(nameof(work));
 
-            this._transactionCount++;
-
-            using (this.GetTransactionConnection())
+            if (this._transactionStarted)
             {
+                work();
+                return;
+            }
+
+            _transactionStarted = true;
+
+            try
+            {
+                // conn will be null in-case of _externalConnection is set
+                var (conn, tx, wasClosed) = this.GetTransactionAndConnection();
+                this._transactionConnection = conn;
+                this._transaction = tx;
                 try
-                {
-                    work();
-                    this.CommitTransaction();
-                }
-                catch (Exception outerExp)
                 {
                     try
                     {
-                        this.RollbackTransaction();
+                        work();
                     }
                     catch (Exception ex)
                     {
-                        throw new AggregateException(outerExp, ex);
+                        try
+                        {
+                            this.RollbackTransaction(tx);
+                        }
+                        catch (Exception ex2)
+                        {
+                            throw new AggregateException(ex, ex2);
+                        }
+                        throw;
+                    }
+                    this.CommitTransaction(tx);
+                }
+                finally
+                {
+                    try { tx?.Dispose(); } catch { /*don't worry about it*/ }
+                    // conn will be null in-case if _externalConnection is set.
+                    try { conn?.Dispose(); } catch { /*don't worry about it*/ }
+
+                    if (wasClosed && this._externalConnection != null)
+                    {
+                        try { this._externalConnection.Close(); } catch { /*don't worry about it*/ }
+                    }
+                }
+            }
+            finally
+            {
+                this._transaction = null;
+                this._transactionConnection = null;
+                _transactionStarted = false;
+            }
+        }
+
+        // TODO: see if we can create a readonly struct for this tuple to avoid heap allocation.
+        protected virtual (DbConnection, DbTransaction, bool) GetTransactionAndConnection()
+        {
+            if (this._externalConnection != null)
+            {
+                DbTransaction transaction1;
+
+                var wasClosed = false;
+                if (this._externalConnection.State != ConnectionState.Open)
+                {
+                    wasClosed = true;
+                    this._externalConnection.Open();
+                }
+                try
+                {
+                    transaction1 = this._externalConnection.BeginTransaction();
+                }
+                catch (Exception ex)
+                {
+                    if (wasClosed)
+                    {
+                        try
+                        {
+                            this._externalConnection.Close();
+                        }
+                        catch (Exception ex2)
+                        {
+                            throw new AggregateException(ex, ex2);
+                        }
                     }
                     throw;
                 }
+
+                return (null, transaction1, wasClosed);
             }
+
+            DbConnection transactionConnection = null;
+            DbTransaction transaction = null;
+
+            try
+            {
+                transactionConnection = this.CreateConnection();
+                transactionConnection.Open();
+                transaction = transactionConnection.BeginTransaction();
+            }
+            catch
+            {
+                try { transaction?.Dispose(); } catch { /*don't worry*/ }
+                try { transactionConnection?.Dispose(); } catch { /*don't worry*/ }
+                throw;
+            }
+
+            return (transactionConnection, transaction, false);
         }
 
-        protected virtual IDbConnection GetTransactionConnection()
+        protected virtual void CommitTransaction(DbTransaction tx)
         {
-            IDbConnection result;
-            if (this._externalConnection == null && this._transactionConnection == null)
-            {
-                this._transactionConnection = this.CreateConnection();
-                this._transactionConnection.StateChange += new StateChangeEventHandler(this._transactionConnection_StateChange);
-                this.OpenConnection();
-                this._transaction = this._transactionConnection.BeginTransaction();
-                result = this._transactionConnection;
-            }
-            else
-            {
-                if (this._externalConnection != null)
-                {
-                    if (this._externalConnection.State != ConnectionState.Open)
-                    {
-                        this.OpenConnection();
-                    }
-                    if (this._transaction == null)
-                    {
-                        this._transaction = this._externalConnection.BeginTransaction();
-                    }
-                }
-                result = null;
-            }
-            return result;
+            if (tx is null)
+                throw new ArgumentNullException(nameof(tx));
+
+            tx.Commit();
+            // TODO: save point
         }
 
-        private void _transactionConnection_StateChange(object sender, StateChangeEventArgs e)
+        protected virtual void RollbackTransaction(DbTransaction tx)
         {
-            if (e.CurrentState == ConnectionState.Closed)
-            {
-                this._transactionConnection = null;
-                this._transaction = null;
-            }
-        }
-        protected virtual void CommitTransaction()
-        {
-            this._transactionCount--;
+            if (tx is null)
+                throw new ArgumentNullException(nameof(tx));
 
-            if (this._transactionCount <= 0)
-            {
-                this._transaction.Commit();
-                this._transaction.Dispose();
-                this._transaction = null;
-                // TODO: implement save point
-                //this._savePoints = 0;
-            }
-        }
-        protected virtual void RollbackTransaction()
-        {
-            this._transactionCount--;
-
-            if (this._transactionCount <= 0)
-            {
-                this._transaction.Rollback();
-                this._transaction.Dispose();
-                this._transaction = null;
-            }
+            tx.Rollback();
         }
     }
 }
