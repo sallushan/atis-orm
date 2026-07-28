@@ -8,6 +8,8 @@ using Atis.SqlExpressionEngine.SqlExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
+using System.Data;
+using System.Data.Common;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
@@ -224,6 +226,90 @@ namespace Atis.Orm
             // auto-builds metadata for T, so fluent configuration is not lost.
             _ = this.Model;
             return this.QueryableFactory.CreateQueryable<T>();
+        }
+
+        private IDbCommunication _dbCommunication;
+        /// <summary>
+        ///     Gets the <see cref="IDbCommunication"/> for this context — connection lifetime, command
+        ///     execution and transactions.
+        /// </summary>
+        protected IDbCommunication DbCommunication
+        {
+            get
+            {
+                if (this._dbCommunication is null)
+                {
+                    this._dbCommunication = this.ServiceProvider.GetRequiredService<IDbCommunication>();
+                }
+                return this._dbCommunication;
+            }
+        }
+
+        private IDatabaseAdapter _databaseAdapter;
+        /// <summary>
+        ///     Gets the <see cref="IDatabaseAdapter"/> for this context, which turns SQL plus parameters
+        ///     into materialized results.
+        /// </summary>
+        protected IDatabaseAdapter DatabaseAdapter
+        {
+            get
+            {
+                if (this._databaseAdapter is null)
+                {
+                    this._databaseAdapter = this.ServiceProvider.GetRequiredService<IDatabaseAdapter>();
+                }
+                return this._databaseAdapter;
+            }
+        }
+
+        // NOTE: the four members below are a provisional surface so the DB layer can be exercised end to
+        // end. The shape will be revisited once that layer is finalized.
+
+        /// <summary>
+        ///     <para>
+        ///         Runs <paramref name="work"/> inside a database transaction, committing when it returns
+        ///         and rolling back when it throws.
+        ///     </para>
+        ///     <para>
+        ///         Nesting is allowed: an inner call joins the transaction already in progress and does not
+        ///         commit or roll back on its own — only the outermost call does. Because of that, do not
+        ///         swallow an exception thrown out of a nested call; the work it did cannot be undone
+        ///         separately and the outer call would commit it. Use
+        ///         <see cref="TransactionWithSavepoint(Action)"/> when you need to catch and carry on.
+        ///     </para>
+        /// </summary>
+        public virtual void Transaction(Action work) => this.DbCommunication.Transaction(work);
+
+        /// <summary>
+        ///     Runs <paramref name="work"/> inside a savepoint of the surrounding transaction. If it
+        ///     throws, only the work done since the savepoint is undone and the exception is rethrown,
+        ///     leaving the surrounding transaction usable — so catching around this call is safe.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">There is no surrounding transaction.</exception>
+        public virtual void TransactionWithSavepoint(Action work)
+            => this.DbCommunication.TransactionWithSavepoint(work);
+
+        /// <summary>
+        ///     Executes <paramref name="sql"/> and returns the number of rows affected. Runs inside the
+        ///     current transaction when there is one.
+        /// </summary>
+        public virtual int ExecuteNonQuery(string sql, IEnumerable<DbParameter> dbParameters = null)
+            => this.DatabaseAdapter.ExecuteNonQuery(sql, dbParameters);
+
+        /// <summary>
+        ///     Executes <paramref name="sql"/> and materializes each row with
+        ///     <paramref name="elementFactory"/>. Runs inside the current transaction when there is one.
+        ///     Enumeration is lazy — the reader stays open until the sequence is fully enumerated or
+        ///     disposed.
+        /// </summary>
+        public virtual IEnumerable<T> ExecuteQuery<T>(string sql, Func<IDataReader, T> elementFactory, IEnumerable<DbParameter> dbParameters = null)
+        {
+            if (elementFactory is null)
+                throw new ArgumentNullException(nameof(elementFactory));
+            // DbEnumerable rejects a null parameter list where ExecuteNonQuery tolerates one; normalize
+            // here so both entry points behave the same from a caller's point of view.
+            return this.DatabaseAdapter.ExecuteEnumerable<T>(
+                sql, dbParameters ?? Array.Empty<DbParameter>(), r => elementFactory(r));
         }
 
         /// <summary>
