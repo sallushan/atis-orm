@@ -17,7 +17,7 @@ namespace Atis.Orm.Querying
         public DbEnumerable(string sql, IEnumerable<DbParameter> dbParameters, Func<IDataReader, object> elementFactory, IDbCommunication db)
         {
             this.sql = sql ?? throw new ArgumentNullException(nameof(sql));
-            this.dbParameters = dbParameters ?? throw new ArgumentNullException(nameof(dbParameters));
+            this.dbParameters = dbParameters;
             this.elementFactory = elementFactory ?? throw new ArgumentNullException(nameof(elementFactory));
             this.db = db ?? throw new ArgumentNullException(nameof(db));
         }
