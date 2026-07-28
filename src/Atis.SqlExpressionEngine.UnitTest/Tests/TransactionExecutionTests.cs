@@ -5,6 +5,7 @@ using Microsoft.Data.SqlClient;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
@@ -253,6 +254,140 @@ delete from dbo.TranTest;");
                 () => db.TransactionWithSavepoint(() => { }));
 
             StringAssert.Contains(thrown.Message, "outer transaction");
+        }
+
+        // ---------- async ----------
+
+        [TestMethod]
+        public async Task TransactionAsync_CommitsItsWork()
+        {
+            using var db = new TranTestContext();
+
+            await db.TransactionAsync(() => db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (1, 'a')"));
+
+            CollectionAssert.AreEqual(new[] { 1 }, ReadIds());
+        }
+
+        [TestMethod]
+        public async Task TransactionAsync_DiscardsEverything_WhenItThrows()
+        {
+            using var db = new TranTestContext();
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => db.TransactionAsync(async () =>
+            {
+                await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (1, 'a')");
+                await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (2, 'b')");
+                throw new InvalidOperationException("boom");
+            }));
+
+            Assert.AreEqual(0, ReadIds().Length);
+        }
+
+        [TestMethod]
+        public async Task TransactionAsync_HoldsItsLocks_UntilCommit()
+        {
+            using var db = new TranTestContext();
+
+            await db.TransactionAsync(async () =>
+            {
+                await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (1, 'a')");
+                Assert.IsTrue(RowsAreLocked(), "The async insert must have enlisted in the transaction.");
+            });
+
+            Assert.IsFalse(RowsAreLocked());
+            CollectionAssert.AreEqual(new[] { 1 }, ReadIds());
+        }
+
+        /// <summary>
+        ///     An async read inside an async transaction must run on the transaction's own connection.
+        /// </summary>
+        [TestMethod]
+        public async Task QueryAsync_InsideATransaction_SeesTheTransactionsOwnWork()
+        {
+            using var db = new TranTestContext();
+
+            await db.TransactionAsync(async () =>
+            {
+                await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (1, 'a')");
+
+                var tags = new List<string>();
+                await foreach (var tag in db.ExecuteQueryAsync("select Tag from dbo.TranTest order by Id", r => r.GetString(0)))
+                    tags.Add(tag);
+
+                CollectionAssert.AreEqual(new[] { "a" }, tags);
+            });
+        }
+
+        /// <summary>
+        ///     Both entry points share one flag, so a synchronous call inside an asynchronous transaction
+        ///     joins it rather than opening a second one.
+        /// </summary>
+        [TestMethod]
+        public async Task SyncWorkInsideAnAsyncTransaction_IsRolledBackWithIt()
+        {
+            using var db = new TranTestContext();
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => db.TransactionAsync(() =>
+            {
+                db.Transaction(() => db.ExecuteNonQuery("insert into dbo.TranTest (Id, Tag) values (1, 'sync')"));
+                throw new InvalidOperationException("boom");
+            }));
+
+            Assert.AreEqual(0, ReadIds().Length);
+        }
+
+        [TestMethod]
+        public async Task SavepointAsync_UndoesOnlyItsOwnWork_AndTheRestCommits()
+        {
+            using var db = new TranTestContext();
+
+            await db.TransactionAsync(async () =>
+            {
+                await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (1, 'before')");
+
+                try
+                {
+                    await db.TransactionWithSavepointAsync(async () =>
+                    {
+                        await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (2, 'inside')");
+                        throw new InvalidOperationException("this item failed");
+                    });
+                }
+                catch (InvalidOperationException)
+                {
+                }
+
+                await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (3, 'after')");
+            });
+
+            CollectionAssert.AreEqual(new[] { 1, 3 }, ReadIds());
+        }
+
+        [TestMethod]
+        public async Task SavepointAsync_KeepsItsWork_WhenItSucceeds()
+        {
+            using var db = new TranTestContext();
+
+            await db.TransactionAsync(async () =>
+            {
+                await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (1, 'before')");
+                await db.TransactionWithSavepointAsync(
+                    () => db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (2, 'inside')"));
+            });
+
+            CollectionAssert.AreEqual(new[] { 1, 2 }, ReadIds());
+        }
+
+        [TestMethod]
+        public async Task TransactionAsync_RunsAgain_OnTheSameContext()
+        {
+            using var db = new TranTestContext();
+
+            await db.TransactionAsync(() => db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (1, 'a')"));
+            await db.TransactionAsync(() => db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (2, 'b')"));
+            await db.ExecuteNonQueryAsync("insert into dbo.TranTest (Id, Tag) values (3, 'c')");
+
+            CollectionAssert.AreEqual(new[] { 1, 2, 3 }, ReadIds());
         }
 
         // ---------- helpers ----------

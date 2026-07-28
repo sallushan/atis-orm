@@ -30,7 +30,9 @@ namespace Atis.Orm.DataAccess
         int ExecuteNonQueryCommand(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
         Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
         void Transaction(Action work);
+        Task TransactionAsync(Func<Task> work, CancellationToken cancellationToken = default);
         void TransactionWithSavepoint(Action work);
+        Task TransactionWithSavepointAsync(Func<Task> work, CancellationToken cancellationToken = default);
         DbReaderExecutionResult ExecuteReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
         Task<DbReaderExecutionResult> ExecuteReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
     }

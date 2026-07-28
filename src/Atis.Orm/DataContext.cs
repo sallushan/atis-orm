@@ -14,6 +14,8 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Atis.Orm.Abstractions;
 using Atis.Orm.DataAccess;
@@ -288,6 +290,35 @@ namespace Atis.Orm
         /// <exception cref="InvalidOperationException">There is no surrounding transaction.</exception>
         public virtual void TransactionWithSavepoint(Action work)
             => this.DbCommunication.TransactionWithSavepoint(work);
+
+        /// <summary>
+        ///     The asynchronous <see cref="Transaction(Action)"/>. Nests with the synchronous version in
+        ///     either direction. One transaction per context at a time — do not run two concurrently on the
+        ///     same context.
+        /// </summary>
+        public virtual Task TransactionAsync(Func<Task> work, CancellationToken cancellationToken = default)
+            => this.DbCommunication.TransactionAsync(work, cancellationToken);
+
+        /// <summary>The asynchronous <see cref="TransactionWithSavepoint(Action)"/>.</summary>
+        /// <exception cref="InvalidOperationException">There is no surrounding transaction.</exception>
+        public virtual Task TransactionWithSavepointAsync(Func<Task> work, CancellationToken cancellationToken = default)
+            => this.DbCommunication.TransactionWithSavepointAsync(work, cancellationToken);
+
+        /// <summary>The asynchronous <see cref="ExecuteNonQuery(string, IEnumerable{DbParameter})"/>.</summary>
+        public virtual Task<int> ExecuteNonQueryAsync(string sql, IEnumerable<DbParameter> dbParameters = null, CancellationToken cancellationToken = default)
+            => this.DatabaseAdapter.ExecuteNonQueryAsync(sql, dbParameters, cancellationToken);
+
+        /// <summary>
+        ///     The asynchronous <see cref="ExecuteQuery{T}(string, Func{IDataReader, T}, IEnumerable{DbParameter})"/>.
+        ///     Enumeration is lazy — the reader stays open until the sequence is fully enumerated or disposed.
+        /// </summary>
+        public virtual IAsyncEnumerable<T> ExecuteQueryAsync<T>(string sql, Func<IDataReader, T> elementFactory, IEnumerable<DbParameter> dbParameters = null)
+        {
+            if (elementFactory is null)
+                throw new ArgumentNullException(nameof(elementFactory));
+            return this.DatabaseAdapter.ExecuteEnumerableAsync<T>(
+                sql, dbParameters ?? Array.Empty<DbParameter>(), r => elementFactory(r));
+        }
 
         /// <summary>
         ///     Executes <paramref name="sql"/> and returns the number of rows affected. Runs inside the

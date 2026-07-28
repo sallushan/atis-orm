@@ -3,6 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
@@ -315,6 +317,181 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.IsTrue(db.Transaction1.Committed);
         }
 
+        // ---------- async ----------
+
+        [TestMethod]
+        public async Task TransactionAsync_Commits_AndClearsState()
+        {
+            var db = new TestCommunication();
+
+            await db.TransactionAsync(() => { db.Log.Add("work"); return Task.CompletedTask; });
+
+            CollectionAssert.AreEqual(new[] { "begin", "work", "commit" }, db.Log);
+            Assert.IsTrue(db.Transaction1.Committed);
+            Assert.IsTrue(db.Transaction1.Disposed);
+            Assert.IsNull(db.CurrentTransaction);
+        }
+
+        [TestMethod]
+        public async Task TransactionAsync_RollsBack_AndRethrowsTheOriginalException()
+        {
+            var db = new TestCommunication();
+
+            var thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => db.TransactionAsync(() => throw new InvalidOperationException("boom")));
+
+            Assert.AreEqual("boom", thrown.Message);
+            CollectionAssert.AreEqual(new[] { "begin", "rollback" }, db.Log);
+            Assert.IsTrue(db.Transaction1.RolledBack);
+            Assert.IsNull(db.CurrentTransaction);
+        }
+
+        [TestMethod]
+        public async Task TransactionAsync_CommitFailure_PropagatesRaw_WithoutAttemptingRollback()
+        {
+            var db = new TestCommunication();
+            db.FailCommit = true;
+
+            var thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => db.TransactionAsync(() => Task.CompletedTask));
+
+            Assert.AreEqual("commit failed", thrown.Message);
+            Assert.IsFalse(db.Transaction1.RolledBack);
+            Assert.IsNull(db.CurrentTransaction);
+        }
+
+        /// <summary>
+        ///     The whole point of sharing one flag between the two entry points: neither direction may start
+        ///     a second transaction.
+        /// </summary>
+        [TestMethod]
+        public async Task SyncAndAsync_NestInEitherDirection()
+        {
+            var db = new TestCommunication();
+
+            await db.TransactionAsync(async () =>
+            {
+                db.Log.Add("async-outer");
+                db.Transaction(() => db.Log.Add("sync-inner"));
+                await db.TransactionAsync(() => { db.Log.Add("async-inner"); return Task.CompletedTask; });
+            });
+
+            CollectionAssert.AreEqual(
+                new[] { "begin", "async-outer", "sync-inner", "async-inner", "commit" }, db.Log);
+            Assert.AreEqual(1, db.BeginCount);
+
+            db.Log.Clear();
+            db.Transaction(() => db.TransactionAsync(() => { db.Log.Add("async-in-sync"); return Task.CompletedTask; }).GetAwaiter().GetResult());
+
+            CollectionAssert.AreEqual(new[] { "begin", "async-in-sync", "commit" }, db.Log);
+        }
+
+        [TestMethod]
+        public async Task SavepointAsync_CreatesAndReleases_OnSuccess()
+        {
+            var db = new TestCommunication();
+
+            await db.TransactionAsync(() => db.TransactionWithSavepointAsync(
+                () => { db.Log.Add("work"); return Task.CompletedTask; }));
+
+            CollectionAssert.AreEqual(
+                new[] { "begin", "save:at_tran_savepoint_1", "work", "release:at_tran_savepoint_1", "commit" },
+                db.Log);
+        }
+
+        [TestMethod]
+        public async Task SavepointAsync_RollsBack_AndTheTransactionStillCommits()
+        {
+            var db = new TestCommunication();
+
+            await db.TransactionAsync(async () =>
+            {
+                try
+                {
+                    await db.TransactionWithSavepointAsync(() => throw new InvalidOperationException("item failed"));
+                }
+                catch (InvalidOperationException)
+                {
+                    db.Log.Add("caught");
+                }
+            });
+
+            CollectionAssert.AreEqual(
+                new[] { "begin", "save:at_tran_savepoint_1", "rollbackto:at_tran_savepoint_1", "caught", "commit" },
+                db.Log);
+            Assert.IsTrue(db.Transaction1.Committed);
+        }
+
+        /// <summary>The savepoint counter is shared, so mixing the two entry points still numbers in order.</summary>
+        [TestMethod]
+        public async Task SavepointAsync_SharesTheCounterWithSync()
+        {
+            var db = new TestCommunication();
+
+            await db.TransactionAsync(async () =>
+            {
+                db.TransactionWithSavepoint(() => { });
+                await db.TransactionWithSavepointAsync(() => Task.CompletedTask);
+            });
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "begin",
+                    "save:at_tran_savepoint_1", "release:at_tran_savepoint_1",
+                    "save:at_tran_savepoint_2", "release:at_tran_savepoint_2",
+                    "commit",
+                },
+                db.Log);
+        }
+
+        [TestMethod]
+        public async Task SavepointAsync_RollbackFailure_PoisonsTheTransaction()
+        {
+            var db = new TestCommunication();
+            db.FailRollbackToSavepoint = true;
+
+            var thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                db.TransactionAsync(async () =>
+                {
+                    try
+                    {
+                        await db.TransactionWithSavepointAsync(() => throw new InvalidOperationException("item failed"));
+                    }
+                    catch (AggregateException ex)
+                    {
+                        Assert.AreEqual(2, ex.InnerExceptions.Count);
+                        Assert.AreEqual("item failed", ex.InnerExceptions[0].Message);
+                        Assert.AreEqual("3931", ex.InnerExceptions[1].Message);
+                        db.Log.Add("caught");
+                    }
+                }));
+
+            StringAssert.Contains(thrown.Message, "rolled back");
+            Assert.IsTrue(db.Transaction1.RolledBack);
+            Assert.IsFalse(db.Transaction1.Committed);
+        }
+
+        [TestMethod]
+        public async Task SavepointAsync_OutsideATransaction_Throws()
+        {
+            var db = new TestCommunication();
+
+            var thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => db.TransactionWithSavepointAsync(() => Task.CompletedTask));
+
+            StringAssert.Contains(thrown.Message, "outer transaction");
+        }
+
+        [TestMethod]
+        public async Task TransactionAsync_RejectsNullWork()
+        {
+            var db = new TestCommunication();
+
+            await Assert.ThrowsExceptionAsync<ArgumentNullException>(() => db.TransactionAsync(null));
+            Assert.AreEqual(0, db.BeginCount);
+        }
+
         // ---------- harness ----------
 
         /// <summary>
@@ -355,6 +532,20 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 base.RollbackTransaction(tx);
             }
 
+            // DbTransaction's default CommitAsync/RollbackAsync/DisposeAsync delegate to the synchronous
+            // members, so FakeTransaction's behaviour (including FailOnCommit) applies to both paths.
+            protected override Task CommitTransactionAsync(DbTransaction tx, CancellationToken cancellationToken)
+            {
+                this.Log.Add("commit");
+                return base.CommitTransactionAsync(tx, cancellationToken);
+            }
+
+            protected override Task RollbackTransactionAsync(DbTransaction tx, CancellationToken cancellationToken)
+            {
+                this.Log.Add("rollback");
+                return base.RollbackTransactionAsync(tx, cancellationToken);
+            }
+
             protected override void CreateSavepoint(string savepoint) => this.Log.Add("save:" + savepoint);
 
             protected override void RollbackToSavepoint(string savepoint)
@@ -365,6 +556,28 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             }
 
             protected override void ReleaseSavepoint(string savepoint) => this.Log.Add("release:" + savepoint);
+
+            // The async overrides log identically, so the same expected sequences assert both paths.
+            protected override Task CreateSavepointAsync(string savepoint, CancellationToken cancellationToken)
+            {
+                this.CreateSavepoint(savepoint);
+                return Task.CompletedTask;
+            }
+
+            protected override Task RollbackToSavepointAsync(string savepoint, CancellationToken cancellationToken)
+            {
+                this.RollbackToSavepoint(savepoint);
+                return Task.CompletedTask;
+            }
+
+            protected override Task ReleaseSavepointAsync(string savepoint, CancellationToken cancellationToken)
+            {
+                this.ReleaseSavepoint(savepoint);
+                return Task.CompletedTask;
+            }
+
+            protected override Task<(DbConnection, DbTransaction, bool)> GetTransactionAndConnectionAsync(CancellationToken cancellationToken)
+                => Task.FromResult(this.GetTransactionAndConnection());
 
             protected override DbConnection CreateConnection()
                 => throw new NotSupportedException("These tests never reach the database.");

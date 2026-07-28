@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Atis.Orm.DataAccess;
 namespace Atis.Orm.SqlServer
@@ -95,6 +97,26 @@ namespace Atis.Orm.SqlServer
         protected override void RollbackToSavepoint(string savepoint)
         {
             this.ExecuteNonQueryCommand("ROLLBACK TRANSACTION " + ValidateSavepointName(savepoint), null, CommandType.Text);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The asynchronous savepoint pair. Because these go through SQL rather than
+        ///         <c>DbTransaction.SaveAsync</c> -- which is .NET 6 only -- they need no conditional
+        ///         compilation and behave identically on both target frameworks.
+        ///     </para>
+        /// </summary>
+        protected override Task CreateSavepointAsync(string savepoint, CancellationToken cancellationToken)
+        {
+            return this.ExecuteNonQueryCommandAsync(
+                "SAVE TRANSACTION " + ValidateSavepointName(savepoint), null, CommandType.Text, cancellationToken);
+        }
+
+        /// <inheritdoc cref="CreateSavepointAsync"/>
+        protected override Task RollbackToSavepointAsync(string savepoint, CancellationToken cancellationToken)
+        {
+            return this.ExecuteNonQueryCommandAsync(
+                "ROLLBACK TRANSACTION " + ValidateSavepointName(savepoint), null, CommandType.Text, cancellationToken);
         }
 
         /// <summary>
