@@ -1,0 +1,23 @@
+root = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+
+# ---------------------------------------------------------------------------------------------------
+# CA2007 -- "Do not directly await a Task".
+#
+# Library code must not capture the caller's SynchronizationContext. The netstandard2.0 leg can be
+# consumed from WinForms, WPF or classic ASP.NET, where a caller that blocks on one of our tasks
+# (.Result / .Wait()) would deadlock without ConfigureAwait(false). ASP.NET Core and console apps have
+# no context, so this costs them nothing.
+#
+# Enforced rather than swept once, so new async code cannot quietly reintroduce the problem. Scoped to
+# the shipping libraries only -- test and benchmark code is an application, not a library, and the rule
+# would be pure noise there.
+# ---------------------------------------------------------------------------------------------------
+[src/Atis.Orm/**.cs]
+dotnet_diagnostic.CA2007.severity = error
+
+[src/Atis.Orm.SqlServer/**.cs]
+dotnet_diagnostic.CA2007.severity = error

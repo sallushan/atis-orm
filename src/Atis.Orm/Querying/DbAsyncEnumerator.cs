@@ -45,13 +45,13 @@ namespace Atis.Orm.Querying
             
             if (this.dataReader == null)
             {
-                await this.db.OpenConnectionAsync(this.cancellationToken);
-                var result = await this.db.ExecuteReaderAsync(sql, dbParameters, CommandType.Text, this.cancellationToken);
+                await this.db.OpenConnectionAsync(this.cancellationToken).ConfigureAwait(false);
+                var result = await this.db.ExecuteReaderAsync(sql, dbParameters, CommandType.Text, this.cancellationToken).ConfigureAwait(false);
                 this.dataReader = result.DataReader;
                 this.dbCommand = result.Command;
             }
             
-            var hasData = await this.dataReader.ReadAsync(this.cancellationToken);
+            var hasData = await this.dataReader.ReadAsync(this.cancellationToken).ConfigureAwait(false);
             this.currentIsSet = false;
             return hasData;
         }
@@ -110,17 +110,17 @@ namespace Atis.Orm.Querying
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (this.dataReader != null)
             {
-                await this.dataReader.DisposeAsync();
+                await this.dataReader.DisposeAsync().ConfigureAwait(false);
                 this.dataReader = null;
             }
 
             if (this.dbCommand != null)
             {
-                await this.dbCommand.DisposeAsync();
+                await this.dbCommand.DisposeAsync().ConfigureAwait(false);
                 this.dbCommand = null;
             }
 
-            await this.db.CloseConnectionAsync();
+            await this.db.CloseConnectionAsync().ConfigureAwait(false);
             this.disposed = true;
             GC.SuppressFinalize(this);
 #else

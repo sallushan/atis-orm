@@ -88,8 +88,8 @@ namespace Atis.Orm.DataAccess
             if (this._localConnection != null)
             {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-                await this._localConnection.CloseAsync();
-                await this._localConnection.DisposeAsync();
+                await this._localConnection.CloseAsync().ConfigureAwait(false);
+                await this._localConnection.DisposeAsync().ConfigureAwait(false);
 #else
                 this._localConnection.Close();
                 this._localConnection.Dispose();
@@ -132,7 +132,7 @@ namespace Atis.Orm.DataAccess
             try
             {
                 dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
-                var dataReader = await dbCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken);
+                var dataReader = await dbCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
                 return new DbReaderExecutionResult(dataReader, dbCommand);
             }
             catch
@@ -140,7 +140,7 @@ namespace Atis.Orm.DataAccess
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
                 if (dbCommand != null)
                 {
-                    await dbCommand.DisposeAsync();
+                    await dbCommand.DisposeAsync().ConfigureAwait(false);
                 }
 #else
                 dbCommand?.Dispose();
@@ -178,17 +178,17 @@ namespace Atis.Orm.DataAccess
                 throw new InvalidOperationException("_currentConnection should be null when _transactionConnection or _externalConnection is set.");
             }
 
-            await this.OpenConnectionAsync(cancellationToken);
+            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 using (var command = this.CreateCommandInternal(sql, dbParameters, text))
                 {
-                    return await command.ExecuteNonQueryAsync(cancellationToken);
+                    return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
             }
             finally
             {
-                await this.CloseConnectionAsync();
+                await this.CloseConnectionAsync().ConfigureAwait(false);
             }
 
         }
@@ -345,7 +345,7 @@ namespace Atis.Orm.DataAccess
 
             if (this._transactionStarted)
             {
-                await work();
+                await work().ConfigureAwait(false);
                 return;
             }
 
@@ -354,20 +354,20 @@ namespace Atis.Orm.DataAccess
             try
             {
                 // conn will be null in-case of _externalConnection is set
-                var (conn, tx, wasClosed) = await this.GetTransactionAndConnectionAsync(cancellationToken);
+                var (conn, tx, wasClosed) = await this.GetTransactionAndConnectionAsync(cancellationToken).ConfigureAwait(false);
                 this._transactionConnection = conn;
                 this._transaction = tx;
                 try
                 {
                     try
                     {
-                        await work();
+                        await work().ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
                         try
                         {
-                            await this.RollbackTransactionAsync(tx, cancellationToken);
+                            await this.RollbackTransactionAsync(tx, cancellationToken).ConfigureAwait(false);
                         }
                         catch (Exception ex2)
                         {
@@ -383,7 +383,7 @@ namespace Atis.Orm.DataAccess
                             "the whole transaction has been rolled back.");
                         try
                         {
-                            await this.RollbackTransactionAsync(tx, cancellationToken);
+                            await this.RollbackTransactionAsync(tx, cancellationToken).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -392,23 +392,23 @@ namespace Atis.Orm.DataAccess
                         throw poisonExp;
                     }
 
-                    await this.CommitTransactionAsync(tx, cancellationToken);
+                    await this.CommitTransactionAsync(tx, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
                     if (tx != null)
                     {
-                        try { await tx.DisposeAsync(); } catch { /*don't worry about it*/ }
+                        try { await tx.DisposeAsync().ConfigureAwait(false); } catch { /*don't worry about it*/ }
                     }
                     // conn will be null in-case if _externalConnection is set.
                     if (conn != null)
                     {
-                        try { await conn.DisposeAsync(); } catch { /*don't worry about it*/ }
+                        try { await conn.DisposeAsync().ConfigureAwait(false); } catch { /*don't worry about it*/ }
                     }
                     if (wasClosed && this._externalConnection != null)
                     {
-                        try { await this._externalConnection.CloseAsync(); } catch { /*don't worry about it*/ }
+                        try { await this._externalConnection.CloseAsync().ConfigureAwait(false); } catch { /*don't worry about it*/ }
                     }
 #else
                     try { tx?.Dispose(); } catch { /*don't worry about it*/ }
@@ -520,17 +520,17 @@ namespace Atis.Orm.DataAccess
 
             // Outside the try: if creating the savepoint fails there is nothing to roll back to, and
             // rolling back to a name the server never saw would mask the real failure.
-            await this.CreateSavepointAsync(savepoint, cancellationToken);
+            await this.CreateSavepointAsync(savepoint, cancellationToken).ConfigureAwait(false);
 
             try
             {
-                await work();
+                await work().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 try
                 {
-                    await this.RollbackToSavepointAsync(savepoint, cancellationToken);
+                    await this.RollbackToSavepointAsync(savepoint, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex2)
                 {
@@ -543,7 +543,7 @@ namespace Atis.Orm.DataAccess
                 throw;
             }
 
-            await this.ReleaseSavepointAsync(savepoint, cancellationToken);
+            await this.ReleaseSavepointAsync(savepoint, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -687,11 +687,11 @@ namespace Atis.Orm.DataAccess
                 if (this._externalConnection.State != ConnectionState.Open)
                 {
                     wasClosed = true;
-                    await this._externalConnection.OpenAsync(cancellationToken);
+                    await this._externalConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 }
                 try
                 {
-                    transaction1 = await BeginTransactionAsync(this._externalConnection, cancellationToken);
+                    transaction1 = await BeginTransactionAsync(this._externalConnection, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -700,7 +700,7 @@ namespace Atis.Orm.DataAccess
                         try
                         {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-                            await this._externalConnection.CloseAsync();
+                            await this._externalConnection.CloseAsync().ConfigureAwait(false);
 #else
                             this._externalConnection.Close();
 #endif
@@ -722,8 +722,8 @@ namespace Atis.Orm.DataAccess
             try
             {
                 transactionConnection = this.CreateConnection();
-                await transactionConnection.OpenAsync(cancellationToken);
-                transaction = await BeginTransactionAsync(transactionConnection, cancellationToken);
+                await transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                transaction = await BeginTransactionAsync(transactionConnection, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -743,9 +743,9 @@ namespace Atis.Orm.DataAccess
         private static async Task<DbTransaction> BeginTransactionAsync(DbConnection connection, CancellationToken cancellationToken)
         {
 #if NET6_0_OR_GREATER
-            return await connection.BeginTransactionAsync(cancellationToken);
+            return await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 #else
-            await Task.CompletedTask;
+            await Task.CompletedTask.ConfigureAwait(false);
             return connection.BeginTransaction();
 #endif
         }
@@ -757,9 +757,9 @@ namespace Atis.Orm.DataAccess
                 throw new ArgumentNullException(nameof(tx));
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-            await tx.CommitAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
 #else
-            await Task.CompletedTask;
+            await Task.CompletedTask.ConfigureAwait(false);
             tx.Commit();
 #endif
         }
@@ -771,9 +771,9 @@ namespace Atis.Orm.DataAccess
                 throw new ArgumentNullException(nameof(tx));
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-            await tx.RollbackAsync(cancellationToken);
+            await tx.RollbackAsync(cancellationToken).ConfigureAwait(false);
 #else
-            await Task.CompletedTask;
+            await Task.CompletedTask.ConfigureAwait(false);
             tx.Rollback();
 #endif
         }

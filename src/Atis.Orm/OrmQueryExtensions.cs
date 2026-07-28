@@ -164,12 +164,12 @@ namespace Atis.Orm
             var enumerator = asyncEnumerable.GetAsyncEnumerator(cancellationToken);
             try
             {
-                while (await enumerator.MoveNextAsync())
+                while (await enumerator.MoveNextAsync().ConfigureAwait(false))
                     list.Add(enumerator.Current);
             }
             finally
             {
-                await enumerator.DisposeAsync();
+                await enumerator.DisposeAsync().ConfigureAwait(false);
             }
             return list;
         }

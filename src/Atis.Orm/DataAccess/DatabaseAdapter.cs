@@ -81,14 +81,14 @@ namespace Atis.Orm.DataAccess
             var enumerator = enumerableAsync.GetAsyncEnumerator(cancellationToken);
             try
             {
-                if (await enumerator.MoveNextAsync())
+                if (await enumerator.MoveNextAsync().ConfigureAwait(false))
                     return enumerator.Current;
                 else
                     return default;
             }
             finally
             {
-                await enumerator.DisposeAsync();
+                await enumerator.DisposeAsync().ConfigureAwait(false);
             }
         }
 
