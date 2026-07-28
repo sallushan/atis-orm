@@ -75,6 +75,50 @@ namespace Atis.Orm.SqlServer
             return command;
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Issues <c>SAVE TRANSACTION</c>. Deliberately plain T-SQL rather than
+        ///         <c>DbTransaction.Save</c>: that overload only exists on .NET 6+, and a cast to a
+        ///         concrete <c>SqlTransaction</c> would break the <see cref="DbProviderFactory"/>
+        ///         indirection that lets either SqlClient drive this class. The wire cost is identical.
+        ///     </para>
+        /// </summary>
+        protected override void CreateSavepoint(string savepoint)
+        {
+            this.ExecuteNonQueryCommand("SAVE TRANSACTION " + ValidateSavepointName(savepoint), null, CommandType.Text);
+        }
+
+        /// <summary>
+        ///     Issues <c>ROLLBACK TRANSACTION &lt;savepoint&gt;</c>, which undoes work back to the
+        ///     savepoint without ending the transaction or changing <c>@@TRANCOUNT</c>.
+        /// </summary>
+        protected override void RollbackToSavepoint(string savepoint)
+        {
+            this.ExecuteNonQueryCommand("ROLLBACK TRANSACTION " + ValidateSavepointName(savepoint), null, CommandType.Text);
+        }
+
+        /// <summary>
+        ///     Savepoint names cannot be parameterised the way values can, so the name is concatenated
+        ///     into the statement. It is generated internally, but this keeps that guarantee local: a
+        ///     derived class overriding <c>TransactionWithSavepoint</c> cannot turn it into an injection
+        ///     point. SQL Server caps savepoint names at 32 characters.
+        /// </summary>
+        private static string ValidateSavepointName(string savepoint)
+        {
+            if (string.IsNullOrEmpty(savepoint))
+                throw new ArgumentException("Savepoint name cannot be null or empty.", nameof(savepoint));
+            if (savepoint.Length > 32)
+                throw new ArgumentException($"Savepoint name '{savepoint}' exceeds SQL Server's 32 character limit.", nameof(savepoint));
+            if (!char.IsLetter(savepoint[0]) && savepoint[0] != '_')
+                throw new ArgumentException($"Savepoint name '{savepoint}' must start with a letter or underscore.", nameof(savepoint));
+            foreach (var c in savepoint)
+            {
+                if (!char.IsLetterOrDigit(c) && c != '_')
+                    throw new ArgumentException($"Savepoint name '{savepoint}' may only contain letters, digits and underscores.", nameof(savepoint));
+            }
+            return savepoint;
+        }
+
         protected override DbConnection CreateConnection()
         {
             var connection = SqlServerClientFactory.Create(this._providerFactory, f => f.CreateConnection(), "DbConnection");

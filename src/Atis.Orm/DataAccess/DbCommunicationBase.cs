@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
@@ -22,7 +22,6 @@ namespace Atis.Orm.DataAccess
         // is done in DbAsyncEnumerator and DbEnumerator.
         private DbConnection _localConnection;
         private DbTransaction _transaction;
-        private int _transactionCount = 0;
 
         public string ConnectionString { get; set; }
         public int? CommandTimeout { get; set; }
@@ -54,6 +53,17 @@ namespace Atis.Orm.DataAccess
             return (this._transactionConnection ?? this._externalConnection)
                         ??
                         this._localConnection;
+        }
+
+        /// <summary>
+        ///     The transaction the current <see cref="Transaction(Action)"/> scope is running under, or
+        ///     <c>null</c> when there is no active transaction. Provided so a derived class can implement
+        ///     savepoints through the ADO.NET API (<c>DbTransaction.Save</c> on .NET 6+, or
+        ///     <c>SqlTransaction.Save</c>) instead of issuing SQL.
+        /// </summary>
+        protected DbTransaction GetCurrentTransaction()
+        {
+            return this._transaction;
         }
 
         private void InitializeInstance(string connString, int? commandTimeout, DbConnection dbConnection)
@@ -227,6 +237,14 @@ namespace Atis.Orm.DataAccess
         }
 
         bool _transactionStarted = false;
+        // Savepoint counter for the *current* transaction only; reset when the transaction ends so the
+        // generated names stay short and predictable.
+        private int _savepointCount = 0;
+        // Set when rolling back to a savepoint fails. At that point SQL Server reports
+        // XACT_STATE() = -1 and the transaction can no longer be committed, but the caller of
+        // TransactionWithSavepoint is *expected* to catch and carry on -- so without this flag they would
+        // keep piling work onto a transaction that is already dead. Checked before commit.
+        private bool _transactionPoisoned = false;
 
         public virtual void Transaction(Action work)
         {
@@ -265,6 +283,23 @@ namespace Atis.Orm.DataAccess
                         }
                         throw;
                     }
+
+                    if (this._transactionPoisoned)
+                    {
+                        var poisonExp = new InvalidOperationException(
+                            "The transaction cannot be committed because rolling back to a savepoint failed; " +
+                            "the whole transaction has been rolled back.");
+                        try
+                        {
+                            this.RollbackTransaction(tx);
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new AggregateException(poisonExp, ex);
+                        }
+                        throw poisonExp;
+                    }
+
                     this.CommitTransaction(tx);
                 }
                 finally
@@ -283,8 +318,113 @@ namespace Atis.Orm.DataAccess
             {
                 this._transaction = null;
                 this._transactionConnection = null;
+                this._savepointCount = 0;
+                this._transactionPoisoned = false;
                 _transactionStarted = false;
             }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Runs <paramref name="work"/> inside a savepoint of the surrounding transaction. If it
+        ///         throws, only the work done since the savepoint is undone and the exception is
+        ///         rethrown -- the surrounding transaction stays usable.
+        ///     </para>
+        ///     <para>
+        ///         This is the one place where catching an exception inside a transaction is safe: a plain
+        ///         nested <see cref="Transaction(Action)"/> has no way to undo partial work, so swallowing
+        ///         there would commit it. Catch around this method instead.
+        ///     </para>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">There is no surrounding transaction.</exception>
+        public virtual void TransactionWithSavepoint(Action work)
+        {
+            if (work is null)
+                throw new ArgumentNullException(nameof(work));
+            if (!this._transactionStarted)
+                throw new InvalidOperationException(
+                    $"{nameof(TransactionWithSavepoint)} cannot be called without an outer transaction.");
+            if (this._transactionPoisoned)
+                throw new InvalidOperationException(
+                    "The transaction can no longer be used because rolling back to an earlier savepoint failed.");
+
+            var tx = this._transaction
+                     ?? throw new InvalidOperationException(
+                         "Savepoint: transaction is no longer available; probably the connection was lost.");
+
+            this._savepointCount++;
+            var savepoint = $"at_tran_savepoint_{this._savepointCount}";
+
+            // Outside the try: if creating the savepoint fails there is nothing to roll back to, and
+            // rolling back to a name the server never saw would mask the real failure.
+            this.CreateSavepoint(savepoint);
+
+            try
+            {
+                work();
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    this.RollbackToSavepoint(savepoint);
+                }
+                catch (Exception ex2)
+                {
+                    // SQL Server error 3931 lands here: the transaction is doomed and cannot roll back to
+                    // a savepoint. The caller is expected to catch and continue, so mark the transaction
+                    // dead rather than let them keep working in it.
+                    this._transactionPoisoned = true;
+                    throw new AggregateException(ex, ex2);
+                }
+                throw;
+            }
+
+            // Success only -- the failure path is RollbackToSavepoint's to clean up, since whether a
+            // rollback discards the savepoint is provider specific. Exceptions propagate: a failed
+            // release means the sub transaction is in a bad state, and the work itself has already
+            // succeeded, so nothing is being masked.
+            this.ReleaseSavepoint(savepoint);
+        }
+
+        /// <summary>
+        ///     Creates a savepoint with the given name inside the current transaction. The name is
+        ///     generated by <see cref="TransactionWithSavepoint(Action)"/>; implementations may use
+        ///     <see cref="GetCurrentTransaction"/> or issue provider-specific SQL.
+        /// </summary>
+        protected abstract void CreateSavepoint(string savepoint);
+
+        /// <summary>
+        ///     <para>
+        ///         Undoes everything done since <paramref name="savepoint"/> was created, leaving the
+        ///         surrounding transaction open and usable.
+        ///     </para>
+        ///     <para>
+        ///         <see cref="ReleaseSavepoint"/> is <em>not</em> called afterwards, because whether a
+        ///         rollback discards the savepoint is provider specific: SQLite discards it, PostgreSQL
+        ///         explicitly does not -- the savepoint stays established and can be rolled back to again.
+        ///         An implementation whose rollback leaves the savepoint behind, and for which that costs
+        ///         something, must release it here itself.
+        ///     </para>
+        /// </summary>
+        protected abstract void RollbackToSavepoint(string savepoint);
+
+        /// <summary>
+        ///     <para>
+        ///         Discards <paramref name="savepoint"/> after the work inside it succeeded. Called only
+        ///         on the success path -- rolling back to a savepoint already discards it.
+        ///     </para>
+        ///     <para>
+        ///         SQL Server and Oracle have no such statement; their savepoints simply persist until the
+        ///         transaction ends, so the default here does nothing. Providers that do have it
+        ///         (PostgreSQL, MySQL, SQLite, DB2 -- <c>RELEASE SAVEPOINT</c>) should override. For those,
+        ///         releasing is not cosmetic: an unreleased savepoint leaves a live sub transaction, and a
+        ///         loop that takes one savepoint per item will accumulate them for the life of the
+        ///         transaction.
+        ///     </para>
+        /// </summary>
+        protected virtual void ReleaseSavepoint(string savepoint)
+        {
         }
 
         // TODO: see if we can create a readonly struct for this tuple to avoid heap allocation.
@@ -348,7 +488,7 @@ namespace Atis.Orm.DataAccess
                 throw new ArgumentNullException(nameof(tx));
 
             tx.Commit();
-            // TODO: save point
+            // TODO: savepoint
         }
 
         protected virtual void RollbackTransaction(DbTransaction tx)
