@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -110,6 +112,30 @@ namespace Atis.Orm.DataAccess
             return dbCommand;
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Guards the methods that own a connection for the length of one command -- they open it,
+        ///         run, and close it again. Those may only start from a clean slate, so a local connection
+        ///         already being open means one such command never finished closing up after itself.
+        ///     </para>
+        ///     <para>
+        ///         In practice that is a data reader this instance opened and that has not been enumerated
+        ///         to the end or disposed: reader enumeration is the one thing that deliberately holds
+        ///         <c>_localConnection</c> open across calls. Running here anyway would close the
+        ///         connection out from under that reader in the <c>finally</c>.
+        ///     </para>
+        /// </summary>
+        private void EnsureNoCommandInFlight([CallerMemberName] string caller = null)
+        {
+            if (this._localConnection != null)
+            {
+                throw new InvalidOperationException(
+                    $"{caller} cannot run because this {nameof(IDbCommunication)} already has a connection of " +
+                    "its own open -- a data reader it returned is still being enumerated. Finish or dispose " +
+                    "that enumeration first, or give the concurrent work its own instance.");
+            }
+        }
+
         public virtual DbReaderExecutionResult ExecuteReader(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
             DbCommand dbCommand = null;
@@ -151,10 +177,7 @@ namespace Atis.Orm.DataAccess
 
         public virtual int ExecuteNonQueryCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            if (this._localConnection != null)
-            {
-                throw new InvalidOperationException("_currentConnection should be null when _transactionConnection or _externalConnection is set.");
-            }
+            this.EnsureNoCommandInFlight();
 
             this.OpenConnection();
             try
@@ -173,10 +196,7 @@ namespace Atis.Orm.DataAccess
 
         public async Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken)
         {
-            if (this._localConnection != null)
-            {
-                throw new InvalidOperationException("_currentConnection should be null when _transactionConnection or _externalConnection is set.");
-            }
+            this.EnsureNoCommandInFlight();
 
             await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -193,14 +213,83 @@ namespace Atis.Orm.DataAccess
 
         }
 
-        public T ExecuteScalarCommand<T>(DbCommand command)
+        /// <summary>
+        ///     Runs <paramref name="commandText"/> and returns the first column of the first row, converted
+        ///     to <typeparamref name="T"/>. A missing row or a <c>NULL</c> comes back as
+        ///     <c>default(T)</c>.
+        /// </summary>
+        public virtual T ExecuteScalarCommand<T>(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            throw new NotImplementedException();
+            this.EnsureNoCommandInFlight();
+
+            this.OpenConnection();
+            try
+            {
+                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                {
+                    return ConvertScalarResult<T>(command.ExecuteScalar());
+                }
+            }
+            finally
+            {
+                this.CloseConnection();
+            }
         }
 
-        public Task<T> ExecuteScalarCommandAsync<T>(DbCommand command, CancellationToken cancellationToken)
+        /// <summary>The asynchronous <see cref="ExecuteScalarCommand{T}"/>.</summary>
+        public virtual async Task<T> ExecuteScalarCommandAsync<T>(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
         {
-            throw new NotImplementedException();
+            this.EnsureNoCommandInFlight();
+
+            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                {
+                    return ConvertScalarResult<T>(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+                }
+            }
+            finally
+            {
+                await this.CloseConnectionAsync().ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Maps the raw value <c>ExecuteScalar</c> returned onto <typeparamref name="T"/>. The cast
+        ///         is tried first, so the common case -- the provider already handed back the right type --
+        ///         costs nothing; only a mismatch falls through to <see cref="Convert.ChangeType(object, Type)"/>.
+        ///         That mismatch is normal rather than exceptional: <c>COUNT</c> is <c>int</c> where the
+        ///         caller may want <c>long</c>, and <c>SUM</c> over an integer column can come back wider
+        ///         than the column.
+        ///     </para>
+        /// </summary>
+        private static T ConvertScalarResult<T>(object value)
+        {
+            // No row at all, or the single column was NULL -- both are "nothing to convert".
+            if (value is null || value is DBNull)
+            {
+                return default;
+            }
+
+            if (value is T typedValue)
+            {
+                return typedValue;
+            }
+
+            // Convert to the underlying type: ChangeType cannot target Nullable<> and would throw on it,
+            // and the boxed result of the underlying type unboxes into T? fine.
+            var targetType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+            if (targetType.IsEnum)
+            {
+                // ChangeType cannot produce an enum, so neither storage shape gets there on its own:
+                // an int column is the underlying value, a varchar one is the member name.
+                return value is string enumName
+                        ? (T)Enum.Parse(targetType, enumName, ignoreCase: true)
+                        : (T)Enum.ToObject(targetType, value);
+            }
+            return (T)Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture);
         }
 
         public void OpenConnection()
