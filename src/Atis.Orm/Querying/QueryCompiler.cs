@@ -35,7 +35,9 @@ namespace Atis.Orm.Querying
             var queryTranslationResult = this.queryTranslator.Translate(expression);
             var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, queryTranslationResult.PreprocessedExpression);
             var isNonQuery = queryTranslationResult.SqlExpression is SqlUpdateExpression || queryTranslationResult.SqlExpression is SqlInsertIntoExpression || queryTranslationResult.SqlExpression is SqlDeleteExpression;
-            Func<IDataReader, object> elementFactory = this.CreateElementFactory(expression, queryTranslationResult.SqlExpression);
+            Func<IDataReader, object> elementFactory = null;
+            if (!isNonQuery)
+                elementFactory = this.CreateElementFactory(expression, queryTranslationResult.SqlExpression);
             var translation = queryTranslationResult.SqlTranslation;
             // The shape is decided once, here: an expandable query must re-render per execution; everything
             // else renders its SQL a single time and only rebinds parameters.

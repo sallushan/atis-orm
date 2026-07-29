@@ -540,5 +540,31 @@ OUTER APPLY (
 
             Assert.AreEqual(1, OrmDbContext._onModelCreatingCallCount);
         }
+
+        [TestMethod]
+        public async Task Update_execution_test()
+        {
+            var setup = new TestDatabaseSetup($"Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            await setup.SetupAsync();
+            var db = new OrmDbContext();
+            var employees = db.CreateQuery<TestEntities.Employee>();
+            db.Transaction(() =>
+            {
+                employees.Update(x => new TestEntities.Employee { FirstName = x.FirstName + "_Updated" }, x => x.EmployeeId < 5);
+            });
+        }
+
+        [TestMethod]
+        public async Task Delete_execution_test()
+        {
+            var setup = new TestDatabaseSetup($"Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            await setup.SetupAsync();
+            var db = new OrmDbContext();
+            var employees = db.CreateQuery<TestEntities.AuditLog>();
+            db.Transaction(() =>
+            {
+                employees.Delete(x => x.AuditId < 5);
+            });
+        }
     }
 }
