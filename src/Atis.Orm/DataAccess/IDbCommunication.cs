@@ -27,6 +27,8 @@ namespace Atis.Orm.DataAccess
         Task CloseConnectionAsync();
         T ExecuteScalarCommand<T>(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
         Task<T> ExecuteScalarCommandAsync<T>(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
+        IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
+        Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
         int ExecuteNonQueryCommand(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
         Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
         void Transaction(Action work);

@@ -257,6 +257,146 @@ namespace Atis.Orm.DataAccess
 
         /// <summary>
         ///     <para>
+        ///         Runs <paramref name="commandText"/> and buffers every row of the first result set as a
+        ///         map of column name to value. Keys are matched with
+        ///         <see cref="DictionaryKeyComparer"/>, case-insensitively unless a derived class says
+        ///         otherwise; a <c>NULL</c> column comes back as <c>null</c> rather than
+        ///         <see cref="DBNull"/>, and the key is still there. A query that returns no rows gives an
+        ///         empty list, never <c>null</c>.
+        ///     </para>
+        ///     <para>
+        ///         Everything is read before the method returns, so unlike <see cref="ExecuteReader"/> the
+        ///         caller owns nothing afterwards -- no reader, no command, no connection.
+        ///     </para>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">
+        ///     Two columns in the result set have the same name, so one would overwrite the other.
+        /// </exception>
+        public virtual IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
+        {
+            this.EnsureNoCommandInFlight();
+
+            this.OpenConnection();
+            try
+            {
+                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                // Not SequentialAccess: ExecuteReader streams and benefits from it, this buffers the whole
+                // result set anyway, so the constraint would only buy a way to break later.
+                using (var reader = command.ExecuteReader(CommandBehavior.Default))
+                {
+                    // Read the seam once rather than once per row -- an override is free to compute it.
+                    var keyComparer = this.DictionaryKeyComparer ?? StringComparer.OrdinalIgnoreCase;
+                    var columnNames = GetColumnNames(reader, keyComparer);
+                    var rows = new List<IReadOnlyDictionary<string, object>>();
+                    while (reader.Read())
+                    {
+                        rows.Add(ReadRow(reader, columnNames, keyComparer));
+                    }
+                    return rows;
+                }
+            }
+            finally
+            {
+                this.CloseConnection();
+            }
+        }
+
+        /// <summary>The asynchronous <see cref="ExecuteDictionary"/>.</summary>
+        public virtual async Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
+        {
+            this.EnsureNoCommandInFlight();
+
+            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                {
+                    // The reader cannot go in a `using` here: where the framework has DisposeAsync it is
+                    // the one to call, so the disposal has to be spelled out in a finally.
+                    var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        // Read the seam once rather than once per row -- an override is free to compute it.
+                        var keyComparer = this.DictionaryKeyComparer ?? StringComparer.OrdinalIgnoreCase;
+                        var columnNames = GetColumnNames(reader, keyComparer);
+                        var rows = new List<IReadOnlyDictionary<string, object>>();
+                        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                        {
+                            rows.Add(ReadRow(reader, columnNames, keyComparer));
+                        }
+                        return rows;
+                    }
+                    finally
+                    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+                        await reader.DisposeAsync().ConfigureAwait(false);
+#else
+                        reader.Dispose();
+#endif
+                    }
+                }
+            }
+            finally
+            {
+                await this.CloseConnectionAsync().ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         How <see cref="ExecuteDictionary"/> matches the column names it uses as keys. Case
+        ///         insensitive by default, which is what an ADO.NET reader itself does: <c>GetOrdinal</c>
+        ///         tries an exact match and then falls back to a case-insensitive one, so
+        ///         <c>reader["tag"]</c> already finds a column named <c>Tag</c> and a dictionary standing
+        ///         in for that indexer should not be stricter.
+        ///     </para>
+        ///     <para>
+        ///         Override to return <see cref="StringComparer.Ordinal"/> for a database where two
+        ///         columns of one result set can meaningfully differ only in case -- PostgreSQL and Oracle
+        ///         allow it through quoted identifiers. Under the default comparer such a result set is
+        ///         rejected as a duplicate rather than silently losing a column.
+        ///     </para>
+        /// </summary>
+        protected virtual StringComparer DictionaryKeyComparer => StringComparer.OrdinalIgnoreCase;
+
+        /// <summary>
+        ///     The column names of the result set, in ordinal order. Read once per result set rather than
+        ///     once per row: the names cannot change between rows, and neither can the answer to whether
+        ///     two of them collide.
+        /// </summary>
+        private static string[] GetColumnNames(DbDataReader reader, StringComparer keyComparer)
+        {
+            var names = new string[reader.FieldCount];
+            var seen = new HashSet<string>(keyComparer);
+            for (var i = 0; i < names.Length; i++)
+            {
+                var name = reader.GetName(i);
+                if (!seen.Add(name))
+                {
+                    // Letting Dictionary.Add throw instead would say only that some key was duplicated,
+                    // once per row, without naming the column that caused it.
+                    throw new InvalidOperationException(
+                        $"The result set has more than one column named '{name}', so it cannot be turned " +
+                        "into a dictionary. Alias the duplicate columns in the query.");
+                }
+                names[i] = name;
+            }
+            return names;
+        }
+
+        private static IReadOnlyDictionary<string, object> ReadRow(DbDataReader reader, string[] columnNames, StringComparer keyComparer)
+        {
+            var row = new Dictionary<string, object>(columnNames.Length, keyComparer);
+            for (var i = 0; i < columnNames.Length; i++)
+            {
+                var value = reader.GetValue(i);
+                row[columnNames[i]] = value is DBNull ? null : value;
+            }
+            return row;
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Maps the raw value <c>ExecuteScalar</c> returned onto <typeparamref name="T"/>. The cast
         ///         is tried first, so the common case -- the provider already handed back the right type --
         ///         costs nothing; only a mismatch falls through to <see cref="Convert.ChangeType(object, Type)"/>.
