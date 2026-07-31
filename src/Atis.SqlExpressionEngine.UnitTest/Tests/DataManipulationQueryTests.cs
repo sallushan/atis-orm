@@ -1,4 +1,5 @@
 ﻿using System.Linq.Expressions;
+using Atis.SqlExpressionEngine.SqlExpressions;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
@@ -196,6 +197,46 @@ from	Asset as a_1
 where	(a_1.ItemId = '123')
 ";
             Test("Update Fluent API Without Output Test", provider.CapturedExpression, expectedResult);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Two chained <c>Output</c> calls, the second one naming a value-type column. The
+        ///         second call binds to a different overload than the first, and that overload used
+        ///         to take <c>Expression&lt;Func&lt;T, object&gt;&gt;</c> — which boxes a value type
+        ///         behind a <c>Convert</c> node and defeated the converter's alias extraction.
+        ///     </para>
+        ///     <para>
+        ///         Asserted against the <see cref="SqlUpdateExpression"/> rather than the rendered
+        ///         SQL because this project's <see cref="SqlExpressionTranslator"/> does not render
+        ///         an OUTPUT clause at all — see <c>Update_fluent_api_output_columns_survive</c>.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_with_multiple_outputs_including_value_type()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.Description, () => "Check")
+                    .Key(x => x.ItemId, () => "123")
+                    .Output(x => x.SerialNumber)       // string  — first Output overload
+                    .Output(x => x.RowId)              // Guid    — chained Output overload
+                    .ExecuteDictionary();
+
+            var sqlExpression = ConvertExpressionToSqlExpression(provider.CapturedExpression, out _);
+
+            var update = sqlExpression as SqlUpdateExpression;
+            Assert.IsNotNull(update, "The fluent update must convert to a SqlUpdateExpression.");
+            Assert.AreEqual(2, update.Outputs.Count, "Both selected output columns must survive conversion.");
+
+            Assert.AreEqual("SerialNumber", update.Outputs[0].Alias);
+            Assert.AreEqual("RowId", update.Outputs[1].Alias,
+                "The value-type column selected by the chained Output overload must keep its member name as the alias.");
+
+            var rowIdColumn = update.Outputs[1].ColumnExpression as SqlColumnExpression;
+            Assert.IsNotNull(rowIdColumn, "An output column is read from the OUTPUT pseudo-table.");
+            Assert.AreEqual("RowId", rowIdColumn.ColumnName);
         }
 
         /// <summary>

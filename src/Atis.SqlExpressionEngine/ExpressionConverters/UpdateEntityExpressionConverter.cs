@@ -110,10 +110,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                     var outputColumnSelectionLambda = this.Expression.OutputFields.Expressions[i] as LambdaExpression
                                                         ??
                                                         throw new InvalidOperationException($"Output field expression at index {i} is not a LambdaExpression.");
-                    var outputColumnSelectionMemberExpression = outputColumnSelectionLambda.Body as MemberExpression
-                                ??
-                                throw new InvalidOperationException($"Output field expression at index {i} does not have a MemberExpression body.");
-                    var alias = outputColumnSelectionMemberExpression.Member.Name;
+                    var alias = GetOutputColumnAlias(outputColumnSelectionLambda, i);
                     var sqlColumnExpression = new SqlColumnExpression("inserted", columnName);
                     var selectColumn = new SelectColumn(sqlColumnExpression, alias, scalarColumn: false);
                     outputs.Add(selectColumn);
@@ -121,6 +118,32 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             }
             var updateExpression = this.SqlFactory.CreateUpdate(derivedTable, dataSourceToUpdate, columnNames, values, outputs: outputs);
             return updateExpression;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Gets the alias to emit for an output column, taken from the member the selector
+        ///         names.
+        ///     </para>
+        ///     <para>
+        ///         A selector whose column type does not match the lambda's declared return type
+        ///         arrives wrapped in a <see cref="ExpressionType.Convert"/> — a value-type column
+        ///         selected as <c>object</c>, for instance — so the conversion is unwrapped before
+        ///         the member is read.
+        ///     </para>
+        /// </summary>
+        private static string GetOutputColumnAlias(LambdaExpression outputSelector, int index)
+        {
+            var body = outputSelector.Body;
+            while (body is UnaryExpression unary &&
+                   (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+            {
+                body = unary.Operand;
+            }
+
+            return (body as MemberExpression)?.Member.Name
+                    ??
+                    throw new InvalidOperationException($"Output field expression at index {index} must select a member, for example 'x => x.EmployeeId', but was '{outputSelector.Body}'.");
         }
 
         public override bool IsChainedQueryArgument(Expression childNode) => childNode == this.Expression.Query;

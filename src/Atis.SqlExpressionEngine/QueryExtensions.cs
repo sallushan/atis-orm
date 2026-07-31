@@ -591,7 +591,10 @@ namespace Atis.SqlExpressionEngine
             return updateOutput;
         }
 
-        public static UpdateOutput<T> Output<T>(this UpdateOutput<T> updateOutput, Expression<Func<T, object>> outputSelector)
+        // Generic in the column type rather than taking Expression<Func<T, object>>: an `object`
+        // selector boxes value-type columns behind a Convert node, which hides the member access the
+        // OUTPUT alias is derived from.
+        public static UpdateOutput<T> Output<T, KT>(this UpdateOutput<T> updateOutput, Expression<Func<T, KT>> outputSelector)
         {
             if (updateOutput == null)
                 throw new ArgumentNullException(nameof(updateOutput));
@@ -649,16 +652,6 @@ namespace Atis.SqlExpressionEngine
             return updateEntityExpression;
         }
 
-        private static string GetMemberName(Expression expression, string paramName)
-        {
-            var memberExpression = expression as MemberExpression
-                                   ?? (expression is UnaryExpression unary ? unary.Operand as MemberExpression : null);
-
-            if (memberExpression == null)
-                throw new ArgumentException("Expression must be a simple member access.", paramName);
-
-            return memberExpression.Member.Name;
-        }
     }
 
     public class FieldValuePair
