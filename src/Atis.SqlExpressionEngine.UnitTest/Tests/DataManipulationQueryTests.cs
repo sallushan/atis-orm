@@ -1,4 +1,5 @@
 ﻿using System.Linq.Expressions;
+using Atis.Orm.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
@@ -228,6 +229,55 @@ where	(a_1.ItemId = '123')
 
         /// <summary>
         ///     <para>
+        ///         Running the same fluent update twice must produce the same compiled-query cache
+        ///         key, or the query is recompiled on every execution and the cache grows an entry
+        ///         per call.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_produces_a_stable_cache_key()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(BuildUpdate()),
+                keyProvider.GetCacheKey(BuildUpdate()),
+                "Two identical fluent updates must share a cache key.");
+
+            Expression BuildUpdate()
+            {
+                var provider = new ExpressionCapturingQueryProvider();
+                provider.UpdateEntity<Asset>()
+                        .Set(x => x.Description, () => "Check")
+                        .Key(x => x.ItemId, () => "123")
+                        .Execute();
+                return provider.CapturedExpression;
+            }
+        }
+
+        /// <summary>
+        ///     The control for <c>Update_fluent_api_produces_a_stable_cache_key</c>: the same key
+        ///     provider is stable for an ordinary LINQ query, so a difference is about how extension
+        ///     nodes are hashed and not about the mechanism as a whole.
+        /// </summary>
+        [TestMethod]
+        public void Ordinary_query_produces_a_stable_cache_key()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(BuildQuery()),
+                keyProvider.GetCacheKey(BuildQuery()),
+                "Two identical LINQ queries must share a cache key.");
+
+            Expression BuildQuery()
+                => new Queryable<Asset>(new QueryProvider())
+                        .Where(x => x.ItemId == "123")
+                        .Expression;
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Two chained <c>Output</c> calls, the second one naming a value-type column. The
         ///         second call binds to a different overload than the first, and that overload used
         ///         to take <c>Expression&lt;Func&lt;T, object&gt;&gt;</c> — which boxes a value type
@@ -300,22 +350,34 @@ where	(a_1.ItemId = '123')
             }
         }
 
+        /// <summary>
+        ///     The fluent update end to end against a real server, including the OUTPUT clause that
+        ///     feeds the returned rows.
+        /// </summary>
         [TestMethod]
-        public void Update_fluent_Api()
+        public void Update_fluent_api_execution()
         {
             var db = new OrmDbContext();
-            db.Transaction(() =>
+            // Rolled back: committing would overwrite the seeded employee 1 that other tests read.
+            db.TransactionWithRollback(() =>
             {
+                // Values deliberately unlike the seeded ones, so a no-op update cannot pass.
                 var results = db.UpdateEntity<TestEntities.Employee>()
-                            .Set(x => x.LastName, () => "Smith")
-                            .Set(x => x.FirstName, () => "John")
+                            .Set(x => x.LastName, () => "Smith_Fluent")
+                            .Set(x => x.FirstName, () => "John_Fluent")
                             .Key(x => x.EmployeeId, () => 1)
                             .Output(x => x.EmployeeId)
                             .ExecuteDictionary();
-                foreach (var item in results)
-                {
-                    Console.WriteLine(item["EmployeeId"]);
-                }
+
+                Assert.AreEqual(1, results.Count, "One employee matches the key, so one row comes back.");
+                Assert.AreEqual(1, results[0]["EmployeeId"], "OUTPUT must return the updated row's key.");
+
+                var names = db.CreateQuery<TestEntities.Employee>()
+                              .Where(x => x.EmployeeId == 1)
+                              .Select(x => x.FirstName)
+                              .ToList();
+                CollectionAssert.AreEqual(new[] { "John_Fluent" }, names,
+                    "The SET clause must actually have been applied.");
             });
         }
     }

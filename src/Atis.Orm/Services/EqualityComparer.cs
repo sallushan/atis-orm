@@ -256,7 +256,14 @@ namespace Atis.Orm.Services
                         }
                     case ExpressionType.Extension:
                         {
-                            hash.Add(obj);
+                            // Hashing the node itself would be an identity hash, because extension
+                            // nodes do not override GetHashCode. That is fatal for any expression
+                            // whose *root* is an extension node — it is rebuilt on every call, so it
+                            // never matches its own cache entry and the cache grows an entry per
+                            // execution. The runtime type separates one kind of extension node from
+                            // another, and the children carry the rest of the shape.
+                            hash.Add(obj.GetType());
+                            AddListToHash(ref hash, GetExtensionChildren(obj));
                             break;
                         }
                     case ExpressionType.Index:
@@ -288,6 +295,56 @@ namespace Atis.Orm.Services
             for (var i = 0; i < expressions.Count; i++)
             {
                 hash.Add(expressions[i], this);
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Returns the direct children of an extension node.
+        ///     </para>
+        ///     <para>
+        ///         An extension node exposes its children only through the protected
+        ///         <c>VisitChildren</c>, which <see cref="ExpressionVisitor.Visit(Expression)"/>
+        ///         dispatches into. Visiting the node with a collector that records each child and
+        ///         hands it back unchanged therefore yields the children, and — because nothing is
+        ///         replaced — leaves the node itself untouched.
+        ///     </para>
+        /// </summary>
+        private static IReadOnlyList<Expression> GetExtensionChildren(Expression extensionNode)
+            => ExtensionChildCollector.Collect(extensionNode);
+
+        private sealed class ExtensionChildCollector : ExpressionVisitor
+        {
+            private readonly List<Expression> children = new List<Expression>();
+            private bool atExtensionNode = true;
+
+            private ExtensionChildCollector() { }
+
+            public static IReadOnlyList<Expression> Collect(Expression extensionNode)
+            {
+                var collector = new ExtensionChildCollector();
+                collector.Visit(extensionNode);
+                return collector.children;
+            }
+
+            /// <inheritdoc />
+            public override Expression Visit(Expression node)
+            {
+                if (node is null)
+                    return null;
+
+                if (this.atExtensionNode)
+                {
+                    // The node itself: let the base dispatch into VisitChildren, which calls back
+                    // here once per child.
+                    this.atExtensionNode = false;
+                    return base.Visit(node);
+                }
+
+                // A direct child. Record it and stop: the comparer recurses on its own, so
+                // descending here would both duplicate that work and flatten the shape.
+                this.children.Add(node);
+                return node;
             }
         }
 
@@ -391,6 +448,23 @@ namespace Atis.Orm.Services
             private bool CompareDefault(DefaultExpression a, DefaultExpression b)
                 => a.Type == b.Type;
 
+            /// <summary>
+            ///     <para>
+            ///         Deliberately NOT the mirror of how <see cref="GetHashCode"/> treats extension
+            ///         nodes. Hashing walks the children, which can only ever cost an extra
+            ///         collision; equality cannot be derived the same way, because an extension node
+            ///         may carry state that is not a child expression at all —
+            ///         <c>NavigationJoinCallExpression.NavigationProperty</c> and its join/navigation
+            ///         kinds, for instance. Comparing children alone would call two such nodes equal
+            ///         when they are not.
+            ///     </para>
+            ///     <para>
+            ///         So equality stays opt-in: reference equality unless a node overrides
+            ///         <see cref="object.Equals(object)"/>, which this call picks up for free. The
+            ///         hash contract still holds in the direction that matters — nodes that compare
+            ///         equal are either the same instance or structurally equal, and both hash alike.
+            ///     </para>
+            /// </summary>
             private bool CompareExtension(Expression a, Expression b)
                 => a.Equals(b);
 
