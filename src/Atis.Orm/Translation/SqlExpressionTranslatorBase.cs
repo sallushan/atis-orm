@@ -286,6 +286,8 @@ namespace Atis.Orm.Translation
                 this.TranslateFragment(fragment);
             else if (node is SqlQueryableExpression queryable)
                 this.TranslateQueryable(queryable);
+            else if (node is SqlColumnExpression sqlColumn)
+                this.TranslateSqlColumn(sqlColumn);
             else
                 this.TranslateUnknown(node);
         }
@@ -509,6 +511,13 @@ namespace Atis.Orm.Translation
         #endregion
 
         #region Column and Table Translation
+
+        protected virtual void TranslateSqlColumn(SqlColumnExpression node)
+        {
+            this.writer.Append(node.DataSourceName);
+            this.writer.Append(".");
+            this.writer.Append(node.ColumnName);
+        }
 
         /// <summary>
         ///     <para>
@@ -1232,6 +1241,21 @@ namespace Atis.Orm.Translation
             }
 
             this.writer.Append("\r\n");
+
+            if (node.Outputs?.Count > 0)
+            {
+                this.writer.Append("OUTPUT ");
+                for (var i = 0; i < node.Outputs.Count; i++)
+                {
+                    if (i > 0)
+                        this.writer.Append(", ");
+                    this.TranslateExpression(node.Outputs[i].ColumnExpression);
+                    this.writer.Append(" as ");
+                    this.writer.Append(node.Outputs[i].Alias);
+                }
+                this.writer.Append("\r\n");
+            }
+
             // Source query is emitted bare (no outer parentheses).
             this.suppressDerivedTableParens = true;
             this.TranslateExpression(node.Source);

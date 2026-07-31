@@ -168,5 +168,24 @@ insert into SiteAuthorizationSetting(RowId, ModuleName, SiteId, AuthorizationUse
 ";
             Test("Bulk Insert Test", queryExpression, expectedResult);
         }
+
+        [TestMethod]
+        public void Update_fluent_Api()
+        {
+            var db = new OrmDbContext();
+            db.Transaction(() =>
+            {
+                var results = db.UpdateEntity<TestEntities.Employee>()
+                            .Set(x => x.LastName, () => "Smith")
+                            .Set(x => x.FirstName, () => "John")
+                            .Key(x => x.EmployeeId, () => 1)
+                            .Output(x => x.EmployeeId)
+                            .ExecuteDictionary();
+                foreach (var item in results)
+                {
+                    Console.WriteLine(item["EmployeeId"]);
+                }
+            });
+        }
     }
 }

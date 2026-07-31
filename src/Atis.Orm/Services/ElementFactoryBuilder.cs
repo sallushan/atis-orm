@@ -18,6 +18,32 @@ namespace Atis.Orm.Services
             {
                 return CreateElementFactoryForDerivedTable(expression, derivedTable);
             }
+            else if (sqlExpression is SqlUpdateExpression updateExpression)
+            {
+                if (!(updateExpression.Outputs?.Count > 0))
+                    throw new InvalidOperationException($"{nameof(sqlExpression)} of type {nameof(SqlUpdateExpression)} must have at least one output column to create an element factory.");
+                if (expression.Type == typeof(List<Dictionary<string, object>>))
+                {
+                    var outputs = updateExpression.Outputs;
+                    return (dr) =>
+                    {
+                        var row = new Dictionary<string, object>(outputs.Count, StringComparer.OrdinalIgnoreCase);
+                        for (var i = 0; i < outputs.Count; i++)
+                        {
+                            var value = dr.GetValue(i);
+                            row[outputs[i].Alias] = value is DBNull ? null : value;
+                        }
+                        return row;
+                    };
+                }
+                else
+                {
+                    // TODO: we have outputs in the SqlUpdateExpression but to create a shape
+                    // the method currently requires derivedTable which can be different than
+                    // updateExpression.Source as we can select different columns in output.
+                    throw new NotImplementedException();
+                }
+            }
 
             throw new NotSupportedException($"SQL expression of type {sqlExpression.GetType().Name} is not supported.");
         }

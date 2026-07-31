@@ -410,5 +410,10 @@ namespace Atis.SqlExpressionEngine.Visitors
         {
             return node;
         }
+
+        protected virtual internal SqlExpression VisitSqlColumn(SqlColumnExpression node)
+        {
+            return node;
+        }
     }
 }

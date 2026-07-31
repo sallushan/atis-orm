@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Linq.Expressions;
 using System.Linq;
+using System.Collections.Generic;
+using Atis.SqlExpressionEngine.ExpressionExtensions;
 
 namespace Atis.SqlExpressionEngine
 {
@@ -551,6 +553,182 @@ namespace Atis.SqlExpressionEngine
                     null,
                     new Func<IQueryable<T>, int>(BulkInsert).Method,
                     query.Expression));
+        }
+
+
+        public static UpdateSetters<T> UpdateEntity<T>(this IQueryProvider provider)
+        {
+            return new UpdateSetters<T>(provider);
+        }
+
+        public static UpdateSetters<T> Set<T, FT>(this UpdateSetters<T> updateSetters, Expression<Func<T, FT>> fieldSelector, Expression<Func<FT>> value)
+        {
+            updateSetters.AddSetExpression(fieldSelector, value);
+            return updateSetters;
+        }
+
+        public static UpdateKey<T> Key<T, KT>(this UpdateSetters<T> updateSetters, Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
+        {
+            var updateKey = new UpdateKey<T>(updateSetters.Provider, updateSetters.SetExpressions);
+            updateKey.AddKeyExpression(keySelector, value);
+            return updateKey;
+        }
+
+        public static UpdateKey<T> Key<T, KT>(this UpdateKey<T> updateKey, Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
+        {
+            updateKey.AddKeyExpression(keySelector, value);
+            return updateKey;
+        }
+
+        public static UpdateOutput<T> Output<T, KT>(this UpdateKey<T> updateKey, Expression<Func<T, KT>> outputSelector)
+        {
+            if (updateKey == null)
+                throw new ArgumentNullException(nameof(updateKey));
+            if (outputSelector == null)
+                throw new ArgumentNullException(nameof(outputSelector));
+            var updateOutput = new UpdateOutput<T>(updateKey.Provider, updateKey.SetExpressions, updateKey.KeyExpressions);
+            updateOutput.AddOutputExpression(outputSelector);
+            return updateOutput;
+        }
+
+        public static UpdateOutput<T> Output<T>(this UpdateOutput<T> updateOutput, Expression<Func<T, object>> outputSelector)
+        {
+            if (updateOutput == null)
+                throw new ArgumentNullException(nameof(updateOutput));
+            if (outputSelector == null)
+                throw new ArgumentNullException(nameof(outputSelector));
+            updateOutput.AddOutputExpression(outputSelector);
+            return updateOutput;
+        }
+
+        public static int Execute<T>(this UpdateKey<T> updateKey)
+        {
+            if (updateKey == null)
+                throw new ArgumentNullException(nameof(updateKey));
+            var updateEntityExpression = CreateUpdateEntityExpression(outputType: null, typeof(T), updateKey.SetExpressions, updateKey.KeyExpressions, outputs: null);
+            return updateKey.Provider.Execute<int>(updateEntityExpression);
+        }
+
+        public static IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary<T>(this UpdateOutput<T> updateOutput)
+        {
+            if (updateOutput == null)
+                throw new ArgumentNullException(nameof(updateOutput));
+            var setters = updateOutput.SetExpressions;
+            var keys = updateOutput.KeyExpressions;
+            var outputs = updateOutput.OutputExpressions;
+            var typeOfQuery = typeof(T);
+            // TODO: check if the type should be only Dictionary<string, object>
+            UpdateEntityExpression updateEntityExpression = CreateUpdateEntityExpression(typeof(List<Dictionary<string, object>>), typeOfQuery, setters, keys, outputs);
+            var q = updateOutput.Provider.CreateQuery<Dictionary<string, object>>(updateEntityExpression);
+            return new List<Dictionary<string, object>>(q);
+        }
+
+        private static UpdateEntityExpression CreateUpdateEntityExpression(Type outputType, Type typeOfQuery, IReadOnlyList<FieldValuePair> setters, IReadOnlyList<FieldValuePair> keys, IReadOnlyList<Expression> outputs)
+        {
+            var query = new QueryRootExpression(typeOfQuery);
+            var setExpressions = new List<Expression>(setters.Count);
+            foreach (var setter in setters)
+            {
+                var equalExpression = Expression.Equal(setter.FieldSelector.Body, setter.Value.Body);
+                var lambda = Expression.Lambda(equalExpression, setter.FieldSelector.Parameters[0]);
+                setExpressions.Add(lambda);
+            }
+            var keyExpressions = new List<Expression>(keys.Count);
+            foreach (var key in keys)
+            {
+                var equalExpression = Expression.Equal(key.FieldSelector.Body, key.Value.Body);
+                var lambda = Expression.Lambda(equalExpression, key.FieldSelector.Parameters[0]);
+                keyExpressions.Add(lambda);
+            }
+            AggregatedListExpression outputFields = null;
+            if (outputs?.Count > 0)
+            {
+                outputFields = new AggregatedListExpression(outputs);
+            }
+            var setterAggregated = new AggregatedListExpression(setExpressions);
+            var keyAggregated = new AggregatedListExpression(keyExpressions);
+            var updateEntityExpression = new UpdateEntityExpression(outputType, query, setterAggregated, keyAggregated, outputFields);
+            return updateEntityExpression;
+        }
+
+        private static string GetMemberName(Expression expression, string paramName)
+        {
+            var memberExpression = expression as MemberExpression
+                                   ?? (expression is UnaryExpression unary ? unary.Operand as MemberExpression : null);
+
+            if (memberExpression == null)
+                throw new ArgumentException("Expression must be a simple member access.", paramName);
+
+            return memberExpression.Member.Name;
+        }
+    }
+
+    public class FieldValuePair
+    {
+        public LambdaExpression FieldSelector { get; }
+        public LambdaExpression Value { get; }
+        public FieldValuePair(LambdaExpression fieldSelector, LambdaExpression value)
+        {
+            this.FieldSelector = fieldSelector ?? throw new ArgumentNullException(nameof(fieldSelector));
+            this.Value = value ?? throw new ArgumentNullException(nameof(value));
+        }
+    }
+
+    public class UpdateSetters<T>
+    {
+        public IQueryProvider Provider { get; }
+
+        public UpdateSetters(IQueryProvider provider)
+        {
+            this.Provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        }
+
+        private readonly List<FieldValuePair> setExpressions = new List<FieldValuePair>();
+        public IReadOnlyList<FieldValuePair> SetExpressions => setExpressions.AsReadOnly();
+
+        internal void AddSetExpression<FT>(Expression<Func<T, FT>> fieldSelector, Expression<Func<FT>> value)
+        {
+            this.setExpressions.Add(new FieldValuePair(fieldSelector, value));
+        }
+    }
+
+    public class UpdateKey<T>
+    {
+        public UpdateKey(IQueryProvider provider, IReadOnlyList<FieldValuePair> setExpressions)
+        {
+            this.Provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            this.SetExpressions = setExpressions ?? throw new ArgumentNullException(nameof(setExpressions));
+        }
+
+        public IQueryProvider Provider { get; }
+        public IReadOnlyList<FieldValuePair> SetExpressions { get; }
+
+        private readonly List<FieldValuePair> keyExpressions = new List<FieldValuePair>();
+        public IReadOnlyList<FieldValuePair> KeyExpressions => keyExpressions.AsReadOnly();
+
+        
+        internal void AddKeyExpression<KT>(Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
+        {
+            this.keyExpressions.Add(new FieldValuePair(keySelector, value));
+        }
+    }
+
+    public class UpdateOutput<T>
+    {
+        public UpdateOutput(IQueryProvider provider, IReadOnlyList<FieldValuePair> setExpressions, IReadOnlyList<FieldValuePair> keyExpressions)
+        {
+            this.Provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            this.SetExpressions = setExpressions ?? throw new ArgumentNullException(nameof(setExpressions));
+            this.KeyExpressions = keyExpressions ?? throw new ArgumentNullException(nameof(keyExpressions));
+        }
+        public IQueryProvider Provider { get; }
+        public IReadOnlyList<FieldValuePair> SetExpressions { get; }
+        public IReadOnlyList<FieldValuePair> KeyExpressions { get; }
+        private readonly List<LambdaExpression> outputExpressions = new List<LambdaExpression>();
+        public IReadOnlyList<LambdaExpression> OutputExpressions => outputExpressions.AsReadOnly();
+        internal void AddOutputExpression<KT>(Expression<Func<T, KT>> outputSelector)
+        {
+            this.outputExpressions.Add(outputSelector);
         }
     }
 }

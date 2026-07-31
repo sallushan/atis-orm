@@ -62,5 +62,6 @@
         QueryShapeMember,
         InsertInto,
         NewGuid,
+        Column,
     }
 }

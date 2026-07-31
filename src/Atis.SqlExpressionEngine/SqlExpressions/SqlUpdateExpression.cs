@@ -7,12 +7,13 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 {
     public class SqlUpdateExpression : SqlExpression
     {
-        public SqlUpdateExpression(SqlDerivedTableExpression source, Guid updatingDataSource, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values)
+        public SqlUpdateExpression(SqlDerivedTableExpression source, Guid updatingDataSource, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs)
         {
             this.Source = source ?? throw new ArgumentNullException(nameof(source));
             this.DataSource = updatingDataSource;
             this.Columns = columns ?? throw new ArgumentNullException(nameof(columns));
             this.Values = values ?? throw new ArgumentNullException(nameof(values));
+            this.Outputs = outputs;
             if (columns.Count == 0)
                 throw new ArgumentException("At least one column must be specified.", nameof(columns));
             if (columns.Count != values.Count)
@@ -25,6 +26,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         public Guid DataSource { get; }
         public IReadOnlyList<string> Columns { get; }
         public IReadOnlyList<SqlExpression> Values { get; }
+        public IReadOnlyList<SelectColumn> Outputs { get; }
 
         /// <inheritdoc />
         public override SqlExpressionType NodeType => SqlExpressionType.Update;
@@ -43,13 +45,18 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             {
                 return this;
             }
-            return new SqlUpdateExpression(sqlQuery, this.DataSource, this.Columns, values);
+            return new SqlUpdateExpression(sqlQuery, this.DataSource, this.Columns, values, this.Outputs);
         }
 
         /// <inheritdoc />
         public override string ToString()
         {
-            return $"update {this.DataSource}\r\nset {string.Join(",\r\n\t", this.Columns.Zip(this.Values, (c, v) => $"{c} = {v}"))}\r\n{this.Source}";
+            string output = string.Empty;
+            if (this.Outputs != null && this.Outputs.Count > 0)
+            {
+                output = $"output {string.Join(", ", this.Outputs)}";
+            }
+            return $"update {this.DataSource}\r\nset {string.Join(",\r\n\t", this.Columns.Zip(this.Values, (c, v) => $"{c} = {v}"))}\r\n{output}\r\n{this.Source}";
         }
     }
 }

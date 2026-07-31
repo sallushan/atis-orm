@@ -128,5 +128,12 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 e.Ignore(x => x.ScratchNote);
             });
         }
+
+        public UpdateSetters<T> UpdateEntity<T>()
+        {
+            _ = this.Model;
+            _ = this.CreateQuery<T>();
+            return this.QueryProvider.UpdateEntity<T>();
+        }
     }
 }

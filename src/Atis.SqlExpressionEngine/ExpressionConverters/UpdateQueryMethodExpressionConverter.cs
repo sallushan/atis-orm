@@ -58,7 +58,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             columnNames = memberInit.Bindings.Select(x => tableToUpdate.GetByPropertyName(x.MemberName)).ToArray();
             values = memberInit.Bindings.Select(x => x.SqlExpression).ToArray();
 
-            var updateSqlExpression = this.SqlFactory.CreateUpdate(sqlQuery, selectedDataSource, columnNames, values);
+            var updateSqlExpression = this.SqlFactory.CreateUpdate(sqlQuery, selectedDataSource, columnNames, values, outputs: null);
 
             return updateSqlExpression;
         }

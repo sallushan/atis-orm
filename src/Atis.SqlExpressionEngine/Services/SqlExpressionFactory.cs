@@ -388,9 +388,9 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlNotExpression(sqlExpression);
         }
 
-        public SqlUpdateExpression CreateUpdate(SqlDerivedTableExpression source, Guid dataSourceToUpdate, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values)
+        public SqlUpdateExpression CreateUpdate(SqlDerivedTableExpression source, Guid dataSourceToUpdate, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs = null)
         {
-            return new SqlUpdateExpression(source, dataSourceToUpdate, columns, values);
+            return new SqlUpdateExpression(source, dataSourceToUpdate, columns, values, outputs);
         }
 
         public SqlDerivedTableExpression ConvertSelectQueryToDataManipulationDerivedTable(SqlSelectExpression selectQuery)

@@ -105,6 +105,30 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         //    this.ParameterMapper.UpdateExpression(oldQueryShape, newQueryShape);
         //    selectQuery?.UpdateModelBinding(newQueryShape);
         //}
+
+        /// <summary>
+        ///     <para>
+        ///         Maps a parameter expression to a SQL expression extractor function. 
+        ///         This method removes any existing mapping for the specified parameter expression 
+        ///         and sets a new mapping using the provided SQL expression extractor function. 
+        ///         The mapped parameter is also added to the <see cref="MappedParameters"/> collection for tracking.
+        ///     </para>    
+        /// </summary>
+        /// <remarks>
+        ///     <para>
+        ///         Method argument <paramref name="sqlExpressionExtractor"/> is a function because this is possible that at the time of calling
+        ///         this method the shape is not finalized, therefore, we need to defer the extraction of the SQL expression 
+        ///         until it's actually needed.
+        ///     </para>
+        ///     <para>
+        ///         This method adds the given <paramref name="parameterExpression"/> in <see cref="MappedParameters"/> so that
+        ///         later on when the conversion is completed we can remove the mapping for this parameter expression from the <see cref="ParameterMapper"/>.
+        ///         Child classes calling this method don't need to worry about removing the mapping for the parameter expression, as it will be handled automatically 
+        ///         in the <see cref="OnAfterVisit"/> method.
+        ///     </para>
+        /// </remarks>
+        /// <param name="parameterExpression">The parameter expression to map.</param>
+        /// <param name="sqlExpressionExtractor">A function that extracts the corresponding SQL expression.</param>
         protected void MapParameter(ParameterExpression parameterExpression, Func<SqlExpression> sqlExpressionExtractor)
         {
             this.ParameterMapper.RemoveParameterMap(parameterExpression);
