@@ -17,7 +17,9 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
             this.OutputType = outputType;
             this.Setters = setters ?? throw new ArgumentNullException(nameof(setters));
             this.Keys = keys ?? throw new ArgumentNullException(nameof(keys));
-            this.OutputFields = outputFields;
+            // Never null: an update with no output clause carries an empty list, so that consumers can
+            // treat Setters, Keys and OutputFields alike instead of null-checking this one.
+            this.OutputFields = outputFields ?? throw new ArgumentNullException(nameof(outputFields));
         }
 
         public override Type Type => this.OutputType;
@@ -45,10 +47,7 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
         /// <inheritdoc />
         public override string ToString()
         {
-            string outputFields = "";
-            if (this.OutputFields != null)
-                outputFields = $"{this.OutputFields}";
-            return $"{this.GetType().Name}(set[{this.Setters}], keys[{this.Keys}], outputFields[{outputFields}])";
+            return $"{this.GetType().Name}(set{this.Setters}, keys{this.Keys}, outputFields{this.OutputFields})";
         }
     }
 }

@@ -142,7 +142,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             {
                 this.convertedKeys = convertedExpression.CastTo<SqlCollectionExpression>();
             }
-            else if (this.Expression.OutputFields != null && childNode == this.Expression.OutputFields)
+            else if (childNode == this.Expression.OutputFields)
             {
                 this.outputFields = convertedExpression.CastTo<SqlCollectionExpression>();
             }

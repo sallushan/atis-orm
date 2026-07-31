@@ -640,11 +640,9 @@ namespace Atis.SqlExpressionEngine
                 var lambda = Expression.Lambda(equalExpression, key.FieldSelector.Parameters[0]);
                 keyExpressions.Add(lambda);
             }
-            AggregatedListExpression outputFields = null;
-            if (outputs?.Count > 0)
-            {
-                outputFields = new AggregatedListExpression(outputs);
-            }
+            // An update without an output clause carries an empty list rather than null, so that all three
+            // lists can be handled uniformly by the converter (see UpdateEntityExpressionConverter).
+            var outputFields = new AggregatedListExpression(outputs ?? (IReadOnlyList<Expression>)new Expression[0]);
             var setterAggregated = new AggregatedListExpression(setExpressions);
             var keyAggregated = new AggregatedListExpression(keyExpressions);
             var updateEntityExpression = new UpdateEntityExpression(outputType, query, setterAggregated, keyAggregated, outputFields);

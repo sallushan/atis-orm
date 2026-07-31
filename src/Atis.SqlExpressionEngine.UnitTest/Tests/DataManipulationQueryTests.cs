@@ -169,6 +169,69 @@ insert into SiteAuthorizationSetting(RowId, ModuleName, SiteId, AuthorizationUse
             Test("Bulk Insert Test", queryExpression, expectedResult);
         }
 
+        /// <summary>
+        ///     <para>
+        ///         The fluent update without an <c>Output</c> clause. This goes through
+        ///         <c>Execute()</c>, which builds the <c>UpdateEntityExpression</c> with no output
+        ///         fields — the case that used to die with a <see cref="NullReferenceException"/>
+        ///         inside the converter before it ever reached a database.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_without_output()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.SerialNumber, () => "ABC")
+                    .Set(x => x.Description, () => "Check")
+                    .Key(x => x.ItemId, () => "123")
+                    .Execute();
+
+            string expectedResult = @"
+update a_1
+	set SerialNumber = 'ABC',
+		Description = 'Check'
+from	Asset as a_1
+where	(a_1.ItemId = '123')
+";
+            Test("Update Fluent API Without Output Test", provider.CapturedExpression, expectedResult);
+        }
+
+        /// <summary>
+        ///     Stands in for a real provider so the expression the fluent builder produces can be
+        ///     translated without a database. The unit-test <see cref="QueryProvider"/> throws from
+        ///     <c>Execute</c>, which would hide the expression under test.
+        /// </summary>
+        private sealed class ExpressionCapturingQueryProvider : IQueryProvider
+        {
+            public Expression CapturedExpression { get; private set; }
+
+            public IQueryable CreateQuery(Expression expression)
+            {
+                this.CapturedExpression = expression;
+                return new Queryable(this, expression);
+            }
+
+            public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
+            {
+                this.CapturedExpression = expression;
+                return Enumerable.Empty<TElement>().AsQueryable();
+            }
+
+            public object Execute(Expression expression)
+            {
+                this.CapturedExpression = expression;
+                return null;
+            }
+
+            public TResult Execute<TResult>(Expression expression)
+            {
+                this.CapturedExpression = expression;
+                return default;
+            }
+        }
+
         [TestMethod]
         public void Update_fluent_Api()
         {
