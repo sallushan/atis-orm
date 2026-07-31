@@ -286,8 +286,8 @@ namespace Atis.Orm.Translation
                 this.TranslateFragment(fragment);
             else if (node is SqlQueryableExpression queryable)
                 this.TranslateQueryable(queryable);
-            else if (node is SqlColumnExpression sqlColumn)
-                this.TranslateSqlColumn(sqlColumn);
+            else if (node is SqlOutputColumnExpression outputColumn)
+                this.TranslateOutputColumn(outputColumn);
             else
                 this.TranslateUnknown(node);
         }
@@ -512,9 +512,31 @@ namespace Atis.Orm.Translation
 
         #region Column and Table Translation
 
-        protected virtual void TranslateSqlColumn(SqlColumnExpression node)
+        /// <summary>
+        ///     <para>
+        ///         Translates a column of the rows a data-manipulation statement returns.
+        ///     </para>
+        ///     <para>
+        ///         The default is the SQL Server spelling — the <c>inserted</c> and <c>deleted</c>
+        ///         pseudo-tables — matching the rest of this base class, whose UPDATE ... FROM is
+        ///         already T-SQL shaped. A dialect that returns rows differently overrides this: a
+        ///         PostgreSQL translator emitting <c>RETURNING</c> would write the bare column name,
+        ///         since there is no pseudo-table to qualify it with.
+        ///     </para>
+        /// </summary>
+        protected virtual void TranslateOutputColumn(SqlOutputColumnExpression node)
         {
-            this.writer.Append(node.DataSourceName);
+            switch (node.Source)
+            {
+                case SqlOutputSource.Inserted:
+                    this.writer.Append("inserted");
+                    break;
+                case SqlOutputSource.Deleted:
+                    this.writer.Append("deleted");
+                    break;
+                default:
+                    throw new NotSupportedException($"Output source '{node.Source}' is not supported by {this.GetType().Name}.");
+            }
             this.writer.Append(".");
             this.writer.Append(node.ColumnName);
         }
@@ -1250,7 +1272,7 @@ namespace Atis.Orm.Translation
                     if (i > 0)
                         this.writer.Append(", ");
                     this.TranslateExpression(node.Outputs[i].ColumnExpression);
-                    this.writer.Append(" as ");
+                    this.writer.Append(" AS ");
                     this.writer.Append(node.Outputs[i].Alias);
                 }
                 this.writer.Append("\r\n");

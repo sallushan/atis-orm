@@ -83,6 +83,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateSqlUpdateExpression(sqlUpdateExpression);
             }
+            else if (sqlExpression is SqlOutputColumnExpression sqlOutputColumnExpression)
+            {
+                return this.TranslateSqlOutputColumnExpression(sqlOutputColumnExpression);
+            }
             else if (sqlExpression is SqlDeleteExpression sqlDeleteExpression)
             {
                 return this.TranslateSqlDeleteExpression(sqlDeleteExpression);
@@ -555,8 +559,19 @@ namespace Atis.SqlExpressionEngine.UnitTest
             var updateColumns = sqlUpdateExpression.Columns.Zip(sqlUpdateExpression.Values, (c, v) => $"{c} = {this.Translate(v)}");
             var sqlQuery = this.Translate(sqlUpdateExpression.Source);
             sqlQuery = this.RemoveParenthesis(sqlQuery);
-            var query = $"update {this.GetSimpleAlias(sqlUpdateExpression.DataSource)}\r\n\tset {string.Join(",\r\n\t\t", updateColumns)}\r\n{sqlQuery}";
-            return query;
+            var query = $"update {this.GetSimpleAlias(sqlUpdateExpression.DataSource)}\r\n\tset {string.Join(",\r\n\t\t", updateColumns)}\r\n";
+            if (sqlUpdateExpression.Outputs?.Count > 0)
+            {
+                var outputColumns = sqlUpdateExpression.Outputs.Select(x => $"{this.Translate(x.ColumnExpression)} as {x.Alias}");
+                query += $"output {string.Join(", ", outputColumns)}\r\n";
+            }
+            return query + sqlQuery;
+        }
+
+        private string TranslateSqlOutputColumnExpression(SqlOutputColumnExpression sqlOutputColumnExpression)
+        {
+            var source = sqlOutputColumnExpression.Source == SqlOutputSource.Inserted ? "inserted" : "deleted";
+            return $"{source}.{sqlOutputColumnExpression.ColumnName}";
         }
 
         private string TranslateSqlDeleteExpression(SqlDeleteExpression sqlDeleteExpression)

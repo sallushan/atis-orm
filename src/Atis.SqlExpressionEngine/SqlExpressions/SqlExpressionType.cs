@@ -62,6 +62,6 @@
         QueryShapeMember,
         InsertInto,
         NewGuid,
-        Column,
+        OutputColumn,
     }
 }

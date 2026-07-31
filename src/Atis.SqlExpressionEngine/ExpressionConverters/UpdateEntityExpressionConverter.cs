@@ -111,8 +111,9 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                                                         ??
                                                         throw new InvalidOperationException($"Output field expression at index {i} is not a LambdaExpression.");
                     var alias = GetOutputColumnAlias(outputColumnSelectionLambda, i);
-                    var sqlColumnExpression = new SqlColumnExpression("inserted", columnName);
-                    var selectColumn = new SelectColumn(sqlColumnExpression, alias, scalarColumn: false);
+                    // The post-update image: an update's output reports the row as it now stands.
+                    var outputColumn = new SqlOutputColumnExpression(SqlOutputSource.Inserted, columnName);
+                    var selectColumn = new SelectColumn(outputColumn, alias, scalarColumn: false);
                     outputs.Add(selectColumn);
                 }
             }

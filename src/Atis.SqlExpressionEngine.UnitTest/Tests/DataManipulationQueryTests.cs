@@ -284,9 +284,8 @@ where	(a_1.ItemId = '123')
         ///         behind a <c>Convert</c> node and defeated the converter's alias extraction.
         ///     </para>
         ///     <para>
-        ///         Asserted against the <see cref="SqlUpdateExpression"/> rather than the rendered
-        ///         SQL because this project's <see cref="SqlExpressionTranslator"/> does not render
-        ///         an OUTPUT clause at all — see <c>Update_fluent_api_output_columns_survive</c>.
+        ///         Asserts the node as well as the SQL: the aliases are what the fix is about, and
+        ///         reading them off <see cref="SqlUpdateExpression.Outputs"/> says so directly.
         ///     </para>
         /// </summary>
         [TestMethod]
@@ -311,9 +310,20 @@ where	(a_1.ItemId = '123')
             Assert.AreEqual("RowId", update.Outputs[1].Alias,
                 "The value-type column selected by the chained Output overload must keep its member name as the alias.");
 
-            var rowIdColumn = update.Outputs[1].ColumnExpression as SqlColumnExpression;
-            Assert.IsNotNull(rowIdColumn, "An output column is read from the OUTPUT pseudo-table.");
+            var rowIdColumn = update.Outputs[1].ColumnExpression as SqlOutputColumnExpression;
+            Assert.IsNotNull(rowIdColumn, "An output column carries its row image, not a data-source alias.");
             Assert.AreEqual("RowId", rowIdColumn.ColumnName);
+            Assert.AreEqual(SqlOutputSource.Inserted, rowIdColumn.Source,
+                "An update reports the row as it now stands.");
+
+            string expectedResult = @"
+update a_1
+	set Description = 'Check'
+output inserted.SerialNumber as SerialNumber, inserted.RowId as RowId
+from	Asset as a_1
+where	(a_1.ItemId = '123')
+";
+            Test("Update Fluent API Multiple Outputs Test", provider.CapturedExpression, expectedResult);
         }
 
         /// <summary>
