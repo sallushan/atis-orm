@@ -46,7 +46,12 @@ namespace Atis.Orm
                 { typeof(IExpressionConverterDependencyProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IExpressionTreeConverter<Expression, SqlExpression>), new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(ILinqToSqlConverter),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
-                { typeof(ISqlExpressionTranslator),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                // Scoped, not singleton: translation accumulates state on the instance (the parameter
+                // list, the fragment writer, the alias cache, the nesting depth), so a shared instance
+                // is corrupted by concurrent translation. Scope matches its only consumer,
+                // IQueryTranslator, and the rest of that chain — IQueryCompiler, IQueryExecutor,
+                // IDbCommunication — so one translator per unit of work.
+                { typeof(ISqlExpressionTranslator),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IElementFactoryBuilder),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IExpressionPreprocessorProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ISqlExpressionPostprocessorProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },

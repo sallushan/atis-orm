@@ -327,6 +327,56 @@ where	(a_1.ItemId = '123')
         }
 
         /// <summary>
+        ///     <para>
+        ///         A calculated property is not a stored column, so it cannot be assigned. This one maps
+        ///         to a single column (<c>CalcFullName</c> is <c>e =&gt; e.Name</c>), which is the
+        ///         dangerous shape: the SET list used to be encoded as an equality and the column name
+        ///         read back off the converted expression, so it converted happily into
+        ///         <c>set Name = 'X'</c> — updating a column the caller never named, with no error at any
+        ///         point.
+        ///     </para>
+        ///     <para>
+        ///         Now rejected while the expression is being built, before conversion, and the message
+        ///         names the member.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_rejects_a_calculated_property_that_maps_to_one_column()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(() =>
+                provider.UpdateEntity<Employee>()
+                        .Set(x => x.CalcFullName, () => "X")
+                        .Key(x => x.EmployeeId, () => "1")
+                        .Execute());
+
+            StringAssert.Contains(thrown.Message, nameof(Employee.CalcFullName),
+                "The error must name the member the caller wrote, not an internal expression type.");
+        }
+
+        /// <summary>
+        ///     The same rule for a calculated property whose expression is not a column reference at all.
+        ///     Building the update used to succeed; the failure came later, at conversion, as
+        ///     <c>InvalidCastException: Unable to cast SqlExpression 'SqlConditionalExpression' to
+        ///     'SqlDataSourceColumnExpression'</c> — naming neither the property nor the reason.
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_rejects_a_calculated_property_with_a_compound_expression()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(() =>
+                provider.UpdateEntity<Marksheet>()
+                        .Set(x => x.CalcPercentage, () => 50m)
+                        .Key(x => x.RowId, () => Guid.Empty)
+                        .Execute());
+
+            StringAssert.Contains(thrown.Message, nameof(Marksheet.CalcPercentage),
+                "The error must name the member the caller wrote.");
+        }
+
+        /// <summary>
         ///     Stands in for a real provider so the expression the fluent builder produces can be
         ///     translated without a database. The unit-test <see cref="QueryProvider"/> throws from
         ///     <c>Execute</c>, which would hide the expression under test.
@@ -389,6 +439,49 @@ where	(a_1.ItemId = '123')
                 CollectionAssert.AreEqual(new[] { "John_Fluent" }, names,
                     "The SET clause must actually have been applied.");
             });
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The reason <c>Set</c> takes <c>Expression&lt;Func&lt;FT&gt;&gt;</c> rather than a
+        ///         plain value: the captured variable stays visible in the tree, so a second run of
+        ///         the same update hits the compiled-query cache and rebinds the parameter to the
+        ///         new value instead of recompiling.
+        ///     </para>
+        ///     <para>
+        ///         Only reachable since the cache started hitting for these updates at all — before
+        ///         that the key was an identity hash and every run was a miss, so this path never ran.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_rebinds_captured_variable_on_cache_hit()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var lastName = "Rebind_First";
+                db.UpdateEntity<TestEntities.Employee>()
+                  .Set(x => x.LastName, () => lastName)
+                  .Key(x => x.EmployeeId, () => 1)
+                  .Execute();
+                CollectionAssert.AreEqual(new[] { "Rebind_First" }, ReadLastName(),
+                    "First run compiles and binds the captured value.");
+
+                // Same shape, new value. The cache must hit and rebind, not replay the old parameter.
+                lastName = "Rebind_Second";
+                db.UpdateEntity<TestEntities.Employee>()
+                  .Set(x => x.LastName, () => lastName)
+                  .Key(x => x.EmployeeId, () => 1)
+                  .Execute();
+                CollectionAssert.AreEqual(new[] { "Rebind_Second" }, ReadLastName(),
+                    "A cache hit must rebind the captured variable to its current value.");
+            });
+
+            List<string> ReadLastName()
+                => db.CreateQuery<TestEntities.Employee>()
+                     .Where(x => x.EmployeeId == 1)
+                     .Select(x => x.LastName)
+                     .ToList();
         }
     }
 }

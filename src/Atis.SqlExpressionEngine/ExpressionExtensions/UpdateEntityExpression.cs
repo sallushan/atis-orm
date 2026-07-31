@@ -11,7 +11,7 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
     // so if T can be become Dictionary<string, object> then it's good (maybe)
     public class UpdateEntityExpression : Expression
     {
-        public UpdateEntityExpression(Type resultType, Expression queryExpression, AggregatedListExpression setters, AggregatedListExpression keys, AggregatedListExpression outputFields)
+        public UpdateEntityExpression(Type resultType, Expression queryExpression, LambdaExpression setters, AggregatedListExpression keys, AggregatedListExpression outputFields)
         {
             this.Query = queryExpression ?? throw new ArgumentNullException(nameof(queryExpression));
             // Every Expression consumer is entitled to read Type, so it can never be null: an update
@@ -29,7 +29,15 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
         /// <inheritdoc />
         public override ExpressionType NodeType => ExpressionType.Extension;
         public Expression Query { get; }
-        public AggregatedListExpression Setters { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         The SET list, as <c>x =&gt; new T { Member = value, ... }</c>. A member-init rather than
+        ///         a list of assignments so that the member <em>names</em> survive into the converter,
+        ///         which resolves them to columns through the entity's mapping metadata.
+        ///     </para>
+        /// </summary>
+        public LambdaExpression Setters { get; }
         public AggregatedListExpression Keys { get; }
         public AggregatedListExpression OutputFields { get; }
 

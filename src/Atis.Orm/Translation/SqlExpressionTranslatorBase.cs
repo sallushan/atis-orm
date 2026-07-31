@@ -22,6 +22,14 @@ namespace Atis.Orm.Translation
     ///         <see cref="SqlParameterFragment"/> markers via <see cref="EmitParameter"/>; this
     ///         marker bookkeeping is owned by the base and cannot be altered by derived translators.
     ///     </para>
+    ///     <para>
+    ///         <b>Not thread-safe, and not shareable.</b> <see cref="Translate"/> accumulates state on
+    ///         the instance — the parameter list, the fragment writer, the alias cache, the nesting
+    ///         depth — and resets it at the start of each call. Two translations running at once on one
+    ///         instance corrupt each other. It is therefore registered <c>Scoped</c>, matching its only
+    ///         consumer (<c>IQueryTranslator</c>) and the rest of that chain; registering it as a
+    ///         singleton reintroduces the hazard.
+    ///     </para>
     /// </summary>
     public class SqlExpressionTranslatorBase : ISqlExpressionTranslator
     {
@@ -59,7 +67,12 @@ namespace Atis.Orm.Translation
 
             // Reset() installs a fresh list, so the captured fragments are never touched by a later translation.
             var fragments = this.writer.GetFragments();
-            return new SqlTranslationResult(this.Parameters, fragments, this.hasExpandableParameters);
+            // Parameters gets no such treatment: it is one list, created with this translator and cleared at
+            // the top of this method. Handing out the live reference means a compiled query keeps pointing at
+            // it for the life of its cache entry, and the next translation of anything rewrites its parameter
+            // plan underneath it — so it is copied. This translator is registered as a singleton, which makes
+            // the aliasing process-wide.
+            return new SqlTranslationResult(this.Parameters.ToArray(), fragments, this.hasExpandableParameters);
         }
 
         #region Output helpers

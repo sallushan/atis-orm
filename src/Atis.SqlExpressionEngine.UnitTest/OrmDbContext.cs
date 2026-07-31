@@ -129,6 +129,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             });
         }
 
+        // Exposes this context's scope so tests can assert service lifetimes — which instances are
+        // shared between contexts and which are not.
+        public T GetService<T>() => (T)this.ServiceProvider.GetService(typeof(T));
+
         public UpdateSetters<T> UpdateEntity<T>()
         {
             _ = this.Model;

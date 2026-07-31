@@ -2,6 +2,7 @@
 using System.Linq.Expressions;
 using System.Linq;
 using System.Collections.Generic;
+using System.Reflection;
 using Atis.SqlExpressionEngine.ExpressionExtensions;
 
 namespace Atis.SqlExpressionEngine
@@ -630,13 +631,7 @@ namespace Atis.SqlExpressionEngine
         private static UpdateEntityExpression CreateUpdateEntityExpression(Type outputType, Type typeOfQuery, IReadOnlyList<FieldValuePair> setters, IReadOnlyList<FieldValuePair> keys, IReadOnlyList<Expression> outputs)
         {
             var query = new QueryRootExpression(typeOfQuery);
-            var setExpressions = new List<Expression>(setters.Count);
-            foreach (var setter in setters)
-            {
-                var equalExpression = Expression.Equal(setter.FieldSelector.Body, setter.Value.Body);
-                var lambda = Expression.Lambda(equalExpression, setter.FieldSelector.Parameters[0]);
-                setExpressions.Add(lambda);
-            }
+            var setterLambda = CreateSetterLambda(typeOfQuery, setters);
             var keyExpressions = new List<Expression>(keys.Count);
             foreach (var key in keys)
             {
@@ -647,10 +642,64 @@ namespace Atis.SqlExpressionEngine
             // An update without an output clause carries an empty list rather than null, so that all three
             // lists can be handled uniformly by the converter (see UpdateEntityExpressionConverter).
             var outputFields = new AggregatedListExpression(outputs ?? (IReadOnlyList<Expression>)new Expression[0]);
-            var setterAggregated = new AggregatedListExpression(setExpressions);
             var keyAggregated = new AggregatedListExpression(keyExpressions);
-            var updateEntityExpression = new UpdateEntityExpression(outputType, query, setterAggregated, keyAggregated, outputFields);
+            var updateEntityExpression = new UpdateEntityExpression(outputType, query, setterLambda, keyAggregated, outputFields);
             return updateEntityExpression;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Builds the SET list as <c>x =&gt; new T { Member = value, ... }</c> — the same shape the
+        ///         <see cref="Update{T}(IQueryable{T}, Expression{Func{T, T}}, Expression{Func{T, bool}})"/>
+        ///         API passes, so the converter resolves columns through the entity's mapping metadata
+        ///         rather than inferring them from an already-converted expression.
+        ///     </para>
+        ///     <para>
+        ///         The field selector is only mined for the member it names; its body is never re-hosted in
+        ///         the tree, so each <c>Set</c> call's own lambda parameter simply falls away. The value
+        ///         expression, by contrast, is placed in the tree verbatim, which is what keeps a captured
+        ///         variable visible for cache-hit rebinding.
+        ///     </para>
+        /// </summary>
+        private static LambdaExpression CreateSetterLambda(Type typeOfQuery, IReadOnlyList<FieldValuePair> setters)
+        {
+            if (setters.Count == 0)
+                throw new InvalidOperationException($"At least one {nameof(Set)} call is required to update an entity.");
+            if (typeOfQuery.GetConstructor(Type.EmptyTypes) is null)
+                throw new InvalidOperationException($"Entity '{typeOfQuery.Name}' needs a parameterless constructor to be updated through {nameof(UpdateEntity)}.");
+
+            var bindings = new List<MemberBinding>(setters.Count);
+            foreach (var setter in setters)
+            {
+                var member = GetSelectedMember(setter.FieldSelector);
+                try
+                {
+                    bindings.Add(Expression.Bind(member, setter.Value.Body));
+                }
+                catch (ArgumentException ex)
+                {
+                    // Most often a get-only member: a calculated property is not a column and cannot be set.
+                    throw new InvalidOperationException(
+                        $"'{typeOfQuery.Name}.{member.Name}' cannot be assigned by {nameof(Set)}. A calculated or read-only member is not a stored column.", ex);
+                }
+            }
+
+            return Expression.Lambda(
+                Expression.MemberInit(Expression.New(typeOfQuery), bindings),
+                Expression.Parameter(typeOfQuery, "x"));
+        }
+
+        private static MemberInfo GetSelectedMember(LambdaExpression selector)
+        {
+            var body = selector.Body;
+            while (body is UnaryExpression unary &&
+                   (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+            {
+                body = unary.Operand;
+            }
+
+            return (body as MemberExpression)?.Member
+                ?? throw new ArgumentException($"Expected a member selector such as 'x => x.LastName', but got '{selector.Body}'.", nameof(selector));
         }
 
     }

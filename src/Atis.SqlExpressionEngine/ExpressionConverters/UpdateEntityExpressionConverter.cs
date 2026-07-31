@@ -61,7 +61,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     }
     public class UpdateEntityExpressionConverter : LinqToSqlQueryConverterBase<UpdateEntityExpression>
     {
-        private SqlCollectionExpression convertedSetters;
+        private SqlMemberInitExpression convertedSetters;
         private SqlCollectionExpression convertedKeys;
         private SqlCollectionExpression outputFields;
 
@@ -86,17 +86,17 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
             var derivedTable = this.SqlFactory.ConvertSelectQueryToDataManipulationDerivedTable(sourceQuery);
             var dataSourceToUpdate = sourceQuery.DataSources.First().Alias;
-            var equalExpressions = this.convertedSetters.SqlExpressions;
-            var columnNames = new List<string>();
-            var values = new List<SqlExpression>();
-            foreach (var setter in equalExpressions)
-            {
-                var equalExpression = setter.CastTo<SqlBinaryExpression>();
-                var columnName = equalExpression.Left.CastTo<SqlDataSourceColumnExpression>().ColumnName;
-                var value = equalExpression.Right;
-                columnNames.Add(columnName);
-                values.Add(value);
-            }
+
+            // Columns come from the entity's mapping metadata, keyed by the member name the SET list
+            // carries — the same route UpdateQueryMethodExpressionConverter takes. Reading a column name
+            // off the already-converted expression instead would bypass the mapping and, for a member
+            // that is not a plain column, either fail obscurely or silently target the wrong column.
+            var tableToUpdate = derivedTable.AllDataSources.FirstOrDefault(x => x.Alias == dataSourceToUpdate)
+                                    ?.QuerySource.CastTo<SqlTableExpression>()
+                                    ??
+                                    throw new InvalidOperationException("The data source to update is not part of the query.");
+            var columnNames = this.convertedSetters.Bindings.Select(x => tableToUpdate.GetByPropertyName(x.MemberName)).ToList();
+            var values = this.convertedSetters.Bindings.Select(x => x.SqlExpression).ToList();
             List<SelectColumn> outputs = null;
             if (this.outputFields?.SqlExpressions?.Any() == true)
             {
@@ -154,13 +154,14 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             if (childNode == this.Expression.Query)       // source query
             {
                 var sourceQuery = convertedExpression.CastTo<SqlSelectExpression>();
-                this.AddMapping(sourceQuery, this.Expression.Setters);
-                this.AddMapping(sourceQuery, this.Expression.Keys);
-                this.AddMapping(sourceQuery, this.Expression.OutputFields);
+                this.MapLambdaParameters(sourceQuery, this.Expression.Setters);
+                this.MapLambdaParameters(sourceQuery, this.Expression.Keys);
+                this.MapLambdaParameters(sourceQuery, this.Expression.OutputFields);
             }
             else if (childNode == this.Expression.Setters)
             {
-                this.convertedSetters = convertedExpression.CastTo<SqlCollectionExpression>();
+                this.convertedSetters = convertedExpression.CastTo<SqlMemberInitExpression>(
+                    $"The {nameof(this.Expression.Setters)} lambda must convert to a member-init, i.e. 'x => new T {{ ... }}'.");
             }
             else if (childNode == this.Expression.Keys)
             {
@@ -173,16 +174,22 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             base.OnConversionCompletedByChild(childConverter, childNode, convertedExpression);
         }
 
-        private void AddMapping(SqlSelectExpression sourceQuery, AggregatedListExpression fieldValuePairs)
+        /// <summary>
+        ///     Points each lambda's parameter at the source query's shape, so that a member access inside
+        ///     it resolves against the table being updated.
+        /// </summary>
+        private void MapLambdaParameters(SqlSelectExpression sourceQuery, AggregatedListExpression expressions)
         {
-            for (var i = 0; i < fieldValuePairs.Expressions.Count; i++)
+            for (var i = 0; i < expressions.Expressions.Count; i++)
             {
-                if (fieldValuePairs.Expressions[i] is LambdaExpression lambda)
-                {
-                    var fieldSelectorArg = lambda.Parameters[0];
-                    this.MapParameter(fieldSelectorArg, () => sourceQuery.GetQueryShapeForFieldMapping());
-                }
+                if (expressions.Expressions[i] is LambdaExpression lambda)
+                    this.MapLambdaParameters(sourceQuery, lambda);
             }
+        }
+
+        private void MapLambdaParameters(SqlSelectExpression sourceQuery, LambdaExpression lambda)
+        {
+            this.MapParameter(lambda.Parameters[0], () => sourceQuery.GetQueryShapeForFieldMapping());
         }
     }
 }
