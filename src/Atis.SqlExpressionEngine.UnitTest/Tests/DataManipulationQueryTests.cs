@@ -201,6 +201,33 @@ where	(a_1.ItemId = '123')
 
         /// <summary>
         ///     <para>
+        ///         An <c>Execute()</c> update reports <see cref="int"/> — the affected-row count it
+        ///         returns. It used to report <c>null</c>, which breaks the
+        ///         <see cref="Expression"/> contract: every consumer is entitled to read
+        ///         <see cref="Expression.Type"/>, and the ones that build on top of it (here,
+        ///         <see cref="Expression.Lambda(Expression, ParameterExpression[])"/>) throw.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_without_output_reports_int_as_its_type()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.Description, () => "Check")
+                    .Key(x => x.ItemId, () => "123")
+                    .Execute();
+
+            Assert.AreEqual(typeof(int), provider.CapturedExpression.Type,
+                "An update without an output clause returns the affected-row count.");
+
+            var lambda = Expression.Lambda(provider.CapturedExpression);
+            Assert.AreEqual(typeof(int), lambda.ReturnType,
+                "The node must be usable anywhere the LINQ contract requires a Type.");
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Two chained <c>Output</c> calls, the second one naming a value-type column. The
         ///         second call binds to a different overload than the first, and that overload used
         ///         to take <c>Expression&lt;Func&lt;T, object&gt;&gt;</c> — which boxes a value type

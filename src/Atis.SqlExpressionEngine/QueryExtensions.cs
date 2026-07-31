@@ -608,7 +608,8 @@ namespace Atis.SqlExpressionEngine
         {
             if (updateKey == null)
                 throw new ArgumentNullException(nameof(updateKey));
-            var updateEntityExpression = CreateUpdateEntityExpression(outputType: null, typeof(T), updateKey.SetExpressions, updateKey.KeyExpressions, outputs: null);
+            // An update with no output clause yields the affected-row count.
+            var updateEntityExpression = CreateUpdateEntityExpression(typeof(int), typeof(T), updateKey.SetExpressions, updateKey.KeyExpressions, outputs: null);
             return updateKey.Provider.Execute<int>(updateEntityExpression);
         }
 

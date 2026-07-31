@@ -11,10 +11,12 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
     // so if T can be become Dictionary<string, object> then it's good (maybe)
     public class UpdateEntityExpression : Expression
     {
-        public UpdateEntityExpression(Type outputType, Expression queryExpression, AggregatedListExpression setters, AggregatedListExpression keys, AggregatedListExpression outputFields)
+        public UpdateEntityExpression(Type resultType, Expression queryExpression, AggregatedListExpression setters, AggregatedListExpression keys, AggregatedListExpression outputFields)
         {
-            this.Query = queryExpression;
-            this.OutputType = outputType;
+            this.Query = queryExpression ?? throw new ArgumentNullException(nameof(queryExpression));
+            // Every Expression consumer is entitled to read Type, so it can never be null: an update
+            // with no output clause is typed as the affected-row count.
+            this.Type = resultType ?? throw new ArgumentNullException(nameof(resultType));
             this.Setters = setters ?? throw new ArgumentNullException(nameof(setters));
             this.Keys = keys ?? throw new ArgumentNullException(nameof(keys));
             // Never null: an update with no output clause carries an empty list, so that consumers can
@@ -22,10 +24,11 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
             this.OutputFields = outputFields ?? throw new ArgumentNullException(nameof(outputFields));
         }
 
-        public override Type Type => this.OutputType;
+        /// <inheritdoc />
+        public override Type Type { get; }
+        /// <inheritdoc />
         public override ExpressionType NodeType => ExpressionType.Extension;
         public Expression Query { get; }
-        public Type OutputType { get; }
         public AggregatedListExpression Setters { get; }
         public AggregatedListExpression Keys { get; }
         public AggregatedListExpression OutputFields { get; }
@@ -39,7 +42,7 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
             var newOutputFields = visitor.VisitAndConvert(this.OutputFields, "UpdateEntityExpression.VisitChildren");
             if (newQueryExpression != this.Query || newSetters != this.Setters || newKeys != this.Keys || newOutputFields != this.OutputFields)
             {
-                return new UpdateEntityExpression(this.OutputType, newQueryExpression, newSetters, newKeys, newOutputFields);
+                return new UpdateEntityExpression(this.Type, newQueryExpression, newSetters, newKeys, newOutputFields);
             }
             return this;
         }
