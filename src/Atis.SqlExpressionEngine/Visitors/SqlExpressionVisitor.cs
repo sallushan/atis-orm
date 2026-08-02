@@ -330,17 +330,19 @@ namespace Atis.SqlExpressionEngine.Visitors
             var newValues = new List<SqlExpression>();
             foreach (var setClause in node.Values)
             {
-                var newSetClauseItem = Visit(setClause);
-                if (newSetClauseItem != setClause)
-                {
-                    newValues.Add(newSetClauseItem);
-                }
-                else
-                {
-                    newValues.Add(setClause);
-                }
+                newValues.Add(Visit(setClause));
             }
-            return node.Update(newTable, newValues);
+            // Output columns are part of the statement too: a visitor that rewrites column references
+            // has to reach them, or it silently leaves the OUTPUT clause pointing at the old ones.
+            var newOutputs = new List<SelectColumn>();
+            foreach (var output in node.Outputs)
+            {
+                var newColumnExpression = Visit(output.ColumnExpression);
+                newOutputs.Add(newColumnExpression == output.ColumnExpression
+                                    ? output
+                                    : new SelectColumn(newColumnExpression, output.Alias, output.ScalarColumn));
+            }
+            return node.Update(newTable, newValues, newOutputs);
         }
 
         protected virtual internal SqlExpression VisitSqlDelete(SqlDeleteExpression node)

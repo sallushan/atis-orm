@@ -1277,7 +1277,7 @@ namespace Atis.Orm.Translation
 
             this.writer.Append("\r\n");
 
-            if (node.Outputs?.Count > 0)
+            if (node.Outputs.Count > 0)
             {
                 this.writer.Append("OUTPUT ");
                 for (var i = 0; i < node.Outputs.Count; i++)

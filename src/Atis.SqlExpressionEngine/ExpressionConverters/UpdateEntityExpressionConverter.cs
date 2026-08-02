@@ -77,14 +77,26 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 throw new InvalidOperationException($"{nameof(this.convertedKeys)} is null. The {nameof(this.Expression.Keys)} child expression must be converted before calling Convert.");
 
             var sourceQuery = convertedChildren[0].CastTo<SqlSelectExpression>();
-            var keyExpressions = this.convertedKeys.SqlExpressions;
+
+            // Guarded, not assumed: without a key this emits an UPDATE with no WHERE clause and rewrites
+            // the whole table. The fluent API cannot reach that state, but the node can be built directly.
+            var keyExpressions = this.convertedKeys.SqlExpressions.ToArray();
+            if (keyExpressions.Length == 0)
+                throw new InvalidOperationException($"An {nameof(UpdateEntityExpression)} must carry at least one key; without one the update would not be filtered to any row.");
             foreach (var keyExpression in keyExpressions)
             {
-                var equalExpression = keyExpression.CastTo<SqlBinaryExpression>();
-                sourceQuery.ApplyWhere(equalExpression, useOrOperator: false);
+                // No cast: ApplyWhere takes any predicate, so an equality that converts to something
+                // other than SqlBinaryExpression — a null comparison becoming IS NULL, say — still works.
+                sourceQuery.ApplyWhere(keyExpression, useOrOperator: false);
             }
 
             var derivedTable = this.SqlFactory.ConvertSelectQueryToDataManipulationDerivedTable(sourceQuery);
+
+            // This API updates one table: it starts from a QueryRootExpression and offers no join.
+            // Anything else means the node was built by hand, and picking First() would silently update
+            // whichever data source happened to come first.
+            if (sourceQuery.DataSources.Count != 1)
+                throw new InvalidOperationException($"An {nameof(UpdateEntityExpression)} updates a single table, but its query has {sourceQuery.DataSources.Count} data sources.");
             var dataSourceToUpdate = sourceQuery.DataSources.First().Alias;
 
             // Columns come from the entity's mapping metadata, keyed by the member name the SET list

@@ -20,7 +20,7 @@ namespace Atis.Orm.Services
             }
             else if (sqlExpression is SqlUpdateExpression updateExpression)
             {
-                if (!(updateExpression.Outputs?.Count > 0))
+                if (updateExpression.Outputs.Count == 0)
                     throw new InvalidOperationException($"{nameof(sqlExpression)} of type {nameof(SqlUpdateExpression)} must have at least one output column to create an element factory.");
 
                 // The element type the caller asked for decides the shape, exactly as it does for a

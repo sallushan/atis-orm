@@ -13,7 +13,9 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             this.DataSource = updatingDataSource;
             this.Columns = columns ?? throw new ArgumentNullException(nameof(columns));
             this.Values = values ?? throw new ArgumentNullException(nameof(values));
-            this.Outputs = outputs;
+            // Normalized rather than rejected: "no OUTPUT clause" is a legitimate update, and null is how
+            // callers say it. Keeping it an empty list spares every consumer a null check.
+            this.Outputs = outputs ?? Array.Empty<SelectColumn>();
             if (columns.Count == 0)
                 throw new ArgumentException("At least one column must be specified.", nameof(columns));
             if (columns.Count != values.Count)
@@ -26,6 +28,11 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         public Guid DataSource { get; }
         public IReadOnlyList<string> Columns { get; }
         public IReadOnlyList<SqlExpression> Values { get; }
+        /// <summary>
+        ///     <para>
+        ///         The columns this statement returns, empty when there is no OUTPUT clause. Never null.
+        ///     </para>
+        /// </summary>
         public IReadOnlyList<SelectColumn> Outputs { get; }
 
         /// <inheritdoc />
@@ -37,22 +44,26 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return sqlExpressionVisitor.VisitSqlUpdate(this);
         }
 
-        public SqlExpression Update(SqlDerivedTableExpression sqlQuery, IReadOnlyList<SqlExpression> values)
+        public SqlExpression Update(SqlDerivedTableExpression sqlQuery, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs)
         {
             if (values is null)
                 throw new ArgumentNullException(nameof(values));
-            if (this.Source == sqlQuery && (this.Values == values || this.Values.SequenceEqual(values)))
+            if (outputs is null)
+                throw new ArgumentNullException(nameof(outputs));
+            if (this.Source == sqlQuery
+                && (this.Values == values || this.Values.SequenceEqual(values))
+                && (this.Outputs == outputs || this.Outputs.SequenceEqual(outputs)))
             {
                 return this;
             }
-            return new SqlUpdateExpression(sqlQuery, this.DataSource, this.Columns, values, this.Outputs);
+            return new SqlUpdateExpression(sqlQuery, this.DataSource, this.Columns, values, outputs);
         }
 
         /// <inheritdoc />
         public override string ToString()
         {
             string output = string.Empty;
-            if (this.Outputs != null && this.Outputs.Count > 0)
+            if (this.Outputs.Count > 0)
             {
                 output = $"output {string.Join(", ", this.Outputs)}";
             }

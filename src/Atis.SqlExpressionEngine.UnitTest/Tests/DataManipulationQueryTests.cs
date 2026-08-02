@@ -328,6 +328,66 @@ where	(a_1.ItemId = '123')
 
         /// <summary>
         ///     <para>
+        ///         An UPDATE's output columns are part of the statement, so a visitor has to reach them
+        ///         and its rewrites have to be carried into the new node. <c>VisitSqlUpdate</c> used to
+        ///         visit only the source and the SET values, leaving the OUTPUT clause pointing at
+        ///         whatever the visitor had just replaced everywhere else.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Visiting_an_update_reaches_and_rewrites_its_output_columns()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.Description, () => "Check")
+                    .Key(x => x.ItemId, () => "123")
+                    .Output(x => x.SerialNumber)
+                    .Output(x => x.RowId)
+                    .ExecuteDictionary();
+
+            var update = (SqlUpdateExpression)ConvertExpressionToSqlExpression(provider.CapturedExpression, out _);
+            Assert.AreEqual(2, update.Outputs.Count, "Guard: two output columns to visit.");
+
+            var rewritten = (SqlUpdateExpression)new OutputColumnSuffixingVisitor().Visit(update);
+
+            CollectionAssert.AreEqual(
+                new[] { "SerialNumber_visited", "RowId_visited" },
+                rewritten.Outputs.Select(x => ((SqlOutputColumnExpression)x.ColumnExpression).ColumnName).ToArray(),
+                "Every output column must be visited, and the replacement carried into the new statement.");
+            CollectionAssert.AreEqual(
+                new[] { "SerialNumber", "RowId" },
+                rewritten.Outputs.Select(x => x.Alias).ToArray(),
+                "Rewriting the column must not disturb its alias.");
+        }
+
+        private sealed class OutputColumnSuffixingVisitor : Atis.SqlExpressionEngine.Visitors.SqlExpressionVisitor
+        {
+            protected override SqlExpression VisitSqlOutputColumn(SqlOutputColumnExpression node)
+                => new SqlOutputColumnExpression(node.Source, node.ColumnName + "_visited");
+        }
+
+        /// <summary>
+        ///     "No OUTPUT clause" is spelled as null by callers, but must not reach consumers that way —
+        ///     <c>Columns</c> and <c>Values</c> reject null, and <c>Outputs</c> should not be the one
+        ///     member everybody has to null-check.
+        /// </summary>
+        [TestMethod]
+        public void An_update_without_outputs_exposes_an_empty_list_not_null()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.Description, () => "Check")
+                    .Key(x => x.ItemId, () => "123")
+                    .Execute();
+
+            var update = (SqlUpdateExpression)ConvertExpressionToSqlExpression(provider.CapturedExpression, out _);
+
+            Assert.IsNotNull(update.Outputs);
+            Assert.AreEqual(0, update.Outputs.Count);
+        }
+
+        /// <summary>
+        ///     <para>
         ///         <c>IQueryable&lt;T&gt;.Expression.Type</c> must be assignable to
         ///         <c>IQueryable&lt;T&gt;</c>. The output-returning update is handed to
         ///         <c>CreateQuery&lt;Dictionary&lt;string, object&gt;&gt;</c>, so its node must be typed
