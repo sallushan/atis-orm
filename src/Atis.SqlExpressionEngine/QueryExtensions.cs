@@ -622,8 +622,10 @@ namespace Atis.SqlExpressionEngine
             var keys = updateOutput.KeyExpressions;
             var outputs = updateOutput.OutputExpressions;
             var typeOfQuery = typeof(T);
-            // TODO: check if the type should be only Dictionary<string, object>
-            UpdateEntityExpression updateEntityExpression = CreateUpdateEntityExpression(typeof(List<Dictionary<string, object>>), typeOfQuery, setters, keys, outputs);
+            // Typed as the queryable it is handed to, not as the collection the caller gets back:
+            // IQueryable<T>.Expression.Type must be assignable to IQueryable<T>, and the materializer
+            // reads the element type from here to decide what to build.
+            UpdateEntityExpression updateEntityExpression = CreateUpdateEntityExpression(typeof(IQueryable<Dictionary<string, object>>), typeOfQuery, setters, keys, outputs);
             var q = updateOutput.Provider.CreateQuery<Dictionary<string, object>>(updateEntityExpression);
             return new List<Dictionary<string, object>>(q);
         }

@@ -328,6 +328,33 @@ where	(a_1.ItemId = '123')
 
         /// <summary>
         ///     <para>
+        ///         <c>IQueryable&lt;T&gt;.Expression.Type</c> must be assignable to
+        ///         <c>IQueryable&lt;T&gt;</c>. The output-returning update is handed to
+        ///         <c>CreateQuery&lt;Dictionary&lt;string, object&gt;&gt;</c>, so its node must be typed
+        ///         as that queryable — it used to be typed as the <c>List&lt;&gt;</c> the caller
+        ///         eventually receives, which happened to work only because nothing composed another
+        ///         LINQ operator on top.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_with_output_types_its_expression_as_the_queryable_it_creates()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.Description, () => "Check")
+                    .Key(x => x.ItemId, () => "123")
+                    .Output(x => x.SerialNumber)
+                    .ExecuteDictionary();
+
+            Assert.IsTrue(
+                typeof(IQueryable<Dictionary<string, object>>).IsAssignableFrom(provider.CapturedExpression.Type),
+                $"Expression.Type must be assignable to the queryable it is given to, but was " +
+                $"'{provider.CapturedExpression.Type}'.");
+        }
+
+        /// <summary>
+        ///     <para>
         ///         A calculated property is not a stored column, so it cannot be assigned. This one maps
         ///         to a single column (<c>CalcFullName</c> is <c>e =&gt; e.Name</c>), which is the
         ///         dangerous shape: the SET list used to be encoded as an equality and the column name

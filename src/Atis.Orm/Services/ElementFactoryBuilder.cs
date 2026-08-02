@@ -22,7 +22,13 @@ namespace Atis.Orm.Services
             {
                 if (!(updateExpression.Outputs?.Count > 0))
                     throw new InvalidOperationException($"{nameof(sqlExpression)} of type {nameof(SqlUpdateExpression)} must have at least one output column to create an element factory.");
-                if (expression.Type == typeof(List<Dictionary<string, object>>))
+
+                // The element type the caller asked for decides the shape, exactly as it does for a
+                // derived table below. Asking whether a dictionary row satisfies it, rather than
+                // matching one exact closed generic, keeps this from being a private handshake with
+                // whichever call site happened to pick that type.
+                var updateElementType = GetElementType(expression.Type);
+                if (updateElementType.IsAssignableFrom(typeof(Dictionary<string, object>)))
                 {
                     var outputs = updateExpression.Outputs;
                     return (dr) =>
@@ -38,10 +44,15 @@ namespace Atis.Orm.Services
                 }
                 else
                 {
-                    // TODO: we have outputs in the SqlUpdateExpression but to create a shape
-                    // the method currently requires derivedTable which can be different than
-                    // updateExpression.Source as we can select different columns in output.
-                    throw new NotImplementedException();
+                    // Materializing an update's output into a typed shape needs a QueryShape to map
+                    // members onto ordinals, and the shape-building path below takes it from a
+                    // SqlDerivedTableExpression. An update has Outputs (which give the ordinals) but no
+                    // shape, and its Source is the wrong one to borrow -- the OUTPUT list can select
+                    // different columns than the query does. The converter would have to build the
+                    // output projection's shape alongside Outputs and carry it on SqlUpdateExpression.
+                    throw new NotSupportedException(
+                        $"An update with an OUTPUT clause can currently only be materialized as " +
+                        $"{nameof(Dictionary<string, object>)}<string, object>, not as '{updateElementType.Name}'.");
                 }
             }
 
