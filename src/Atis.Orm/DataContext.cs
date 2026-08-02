@@ -239,10 +239,9 @@ namespace Atis.Orm
         /// </summary>
         public virtual UpdateSetStage<T> UpdateEntity<T>()
         {
-            // Same reason CreateQuery<T> does it: touching Model first guarantees OnModelCreating has
-            // run, so T's fluent configuration is in place before its metadata is needed.
-            _ = this.Model;
-            this.QueryableFactory.CreateQueryable<T>();
+            // important to call the CreateQuery<T>() first, so that the model is built and the metadata
+            // for T is available to the UpdateEntity<T>() call
+            this.CreateQuery<T>();
             return this.QueryProvider.UpdateEntity<T>();
         }
 
