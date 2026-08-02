@@ -61,9 +61,13 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
     }
     public class UpdateEntityExpressionConverter : LinqToSqlQueryConverterBase<UpdateEntityExpression>
     {
+        // Every child is captured the same way, in OnConversionCompletedByChild, keyed on which child
+        // node it is. Reading one of them positionally out of convertedChildren instead would make this
+        // converter depend on the order VisitChildren happens to use.
+        private SqlSelectExpression convertedQuery;
         private SqlMemberInitExpression convertedSetters;
         private SqlCollectionExpression convertedKeys;
-        private SqlCollectionExpression outputFields;
+        private SqlCollectionExpression convertedOutputFields;
 
         public UpdateEntityExpressionConverter(LinqToSqlExpressionConverterDependencies context, UpdateEntityExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
         {
@@ -71,12 +75,14 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
         public override SqlExpression Convert(SqlExpression[] convertedChildren)
         {
-            if(this.convertedSetters is null)
-                throw new InvalidOperationException($"{nameof(this.convertedSetters)} is null. The {nameof(this.Expression.Setters)} child expression must be converted before calling Convert.");
+            if (this.convertedQuery is null)
+                throw new InvalidOperationException($"The {nameof(this.Expression.Query)} child expression must be converted before calling {nameof(Convert)}.");
+            if (this.convertedSetters is null)
+                throw new InvalidOperationException($"The {nameof(this.Expression.Setters)} child expression must be converted before calling {nameof(Convert)}.");
             if (this.convertedKeys is null)
-                throw new InvalidOperationException($"{nameof(this.convertedKeys)} is null. The {nameof(this.Expression.Keys)} child expression must be converted before calling Convert.");
+                throw new InvalidOperationException($"The {nameof(this.Expression.Keys)} child expression must be converted before calling {nameof(Convert)}.");
 
-            var sourceQuery = convertedChildren[0].CastTo<SqlSelectExpression>();
+            var sourceQuery = this.convertedQuery;
 
             // Guarded, not assumed: without a key this emits an UPDATE with no WHERE clause and rewrites
             // the whole table. The fluent API cannot reach that state, but the node can be built directly.
@@ -110,9 +116,9 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             var columnNames = this.convertedSetters.Bindings.Select(x => tableToUpdate.GetByPropertyName(x.MemberName)).ToList();
             var values = this.convertedSetters.Bindings.Select(x => x.SqlExpression).ToList();
             List<SelectColumn> outputs = null;
-            if (this.outputFields?.SqlExpressions?.Any() == true)
+            if (this.convertedOutputFields?.SqlExpressions?.Any() == true)
             {
-                var convertedOutputDsColumns = this.outputFields.SqlExpressions.ToArray();
+                var convertedOutputDsColumns = this.convertedOutputFields.SqlExpressions.ToArray();
                 if(convertedOutputDsColumns.Length != this.Expression.OutputFields.Expressions.Count)
                     throw new InvalidOperationException($"Total number of output fields ({this.Expression.OutputFields.Expressions.Count}) does not match the number of converted output fields ({convertedOutputDsColumns.Length}).");
                 outputs = new List<SelectColumn>();
@@ -166,6 +172,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             if (childNode == this.Expression.Query)       // source query
             {
                 var sourceQuery = convertedExpression.CastTo<SqlSelectExpression>();
+                this.convertedQuery = sourceQuery;
                 this.MapLambdaParameters(sourceQuery, this.Expression.Setters);
                 this.MapLambdaParameters(sourceQuery, this.Expression.Keys);
                 this.MapLambdaParameters(sourceQuery, this.Expression.OutputFields);
@@ -181,7 +188,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             }
             else if (childNode == this.Expression.OutputFields)
             {
-                this.outputFields = convertedExpression.CastTo<SqlCollectionExpression>();
+                this.convertedOutputFields = convertedExpression.CastTo<SqlCollectionExpression>();
             }
             base.OnConversionCompletedByChild(childConverter, childNode, convertedExpression);
         }

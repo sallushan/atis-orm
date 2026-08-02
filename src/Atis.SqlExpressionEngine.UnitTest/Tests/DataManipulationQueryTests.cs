@@ -367,6 +367,34 @@ where	(a_1.ItemId = '123')
         }
 
         /// <summary>
+        ///     <para>
+        ///         Two outputs with the same name cannot both survive into a dictionary row. The element
+        ///         factory used to let the second silently overwrite the first, while
+        ///         <c>ExecuteDictionary</c> on the same shape of data threw — the two now share one rule,
+        ///         and this one catches it at plan time rather than on every row.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void An_update_with_duplicate_output_names_is_rejected()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.Description, () => "Check")
+                    .Key(x => x.ItemId, () => "123")
+                    .Output(x => x.SerialNumber)
+                    .Output(x => x.SerialNumber)
+                    .ExecuteDictionary();
+
+            var update = (SqlUpdateExpression)ConvertExpressionToSqlExpression(provider.CapturedExpression, out _);
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => new Atis.Orm.Services.ElementFactoryBuilder().CreateElementFactory(provider.CapturedExpression, update));
+
+            StringAssert.Contains(thrown.Message, nameof(Asset.SerialNumber),
+                "The error must name the duplicated column.");
+        }
+
+        /// <summary>
         ///     "No OUTPUT clause" is spelled as null by callers, but must not reach consumers that way —
         ///     <c>Columns</c> and <c>Values</c> reject null, and <c>Outputs</c> should not be the one
         ///     member everybody has to null-check.

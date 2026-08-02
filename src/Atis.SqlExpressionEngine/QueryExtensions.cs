@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq.Expressions;
 using System.Linq;
 using System.Collections.Generic;
@@ -557,104 +557,200 @@ namespace Atis.SqlExpressionEngine
         }
 
 
+        /// <summary>
+        ///     <para>
+        ///         Starts a key-based update of <typeparamref name="T"/>: pick the columns to write with
+        ///         <c>Set</c>, the rows to write them to with <c>Key</c>, and finish with <c>Execute</c>
+        ///         or, to read columns back from the updated rows, <c>Output</c> then
+        ///         <c>ExecuteDictionary</c>.
+        ///     </para>
+        ///     <para>
+        ///         For an update whose values are expressions over the row itself, or which spans joined
+        ///         tables, use <see cref="Update{T}(IQueryable{T}, Expression{Func{T, T}}, Expression{Func{T, bool}})"/>
+        ///         instead. This API sets an entity's columns to values.
+        ///     </para>
+        /// </summary>
         public static UpdateSetters<T> UpdateEntity<T>(this IQueryProvider provider)
         {
             return new UpdateSetters<T>(provider);
         }
+    }
 
-        public static UpdateSetters<T> Set<T, FT>(this UpdateSetters<T> updateSetters, Expression<Func<T, FT>> fieldSelector, Expression<Func<FT>> value)
+    /// <summary>A column selector paired with the value to write to it.</summary>
+    internal sealed class FieldValuePair
+    {
+        public FieldValuePair(LambdaExpression fieldSelector, LambdaExpression value)
         {
-            updateSetters.AddSetExpression(fieldSelector, value);
-            return updateSetters;
+            this.FieldSelector = fieldSelector ?? throw new ArgumentNullException(nameof(fieldSelector));
+            this.Value = value ?? throw new ArgumentNullException(nameof(value));
         }
 
-        public static UpdateKey<T> Key<T, KT>(this UpdateSetters<T> updateSetters, Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
+        public LambdaExpression FieldSelector { get; }
+
+        /// <summary>
+        ///     The value, still as a lambda rather than a plain value, so that a captured variable stays
+        ///     visible in the expression tree and can be rebound on a compiled-query cache hit.
+        /// </summary>
+        public LambdaExpression Value { get; }
+    }
+
+    /// <summary>
+    ///     The first stage of <c>UpdateEntity&lt;T&gt;</c>: collecting the columns to write.
+    /// </summary>
+    public class UpdateSetters<T>
+    {
+        private readonly IQueryProvider provider;
+        private readonly List<FieldValuePair> setters = new List<FieldValuePair>();
+
+        internal UpdateSetters(IQueryProvider provider)
         {
-            var updateKey = new UpdateKey<T>(updateSetters.Provider, updateSetters.SetExpressions);
-            updateKey.AddKeyExpression(keySelector, value);
-            return updateKey;
+            this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
         }
 
-        public static UpdateKey<T> Key<T, KT>(this UpdateKey<T> updateKey, Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
+        /// <summary>Assigns <paramref name="value"/> to the column <paramref name="fieldSelector"/> names.</summary>
+        public UpdateSetters<T> Set<FT>(Expression<Func<T, FT>> fieldSelector, Expression<Func<FT>> value)
         {
-            updateKey.AddKeyExpression(keySelector, value);
-            return updateKey;
+            if (fieldSelector is null)
+                throw new ArgumentNullException(nameof(fieldSelector));
+            if (value is null)
+                throw new ArgumentNullException(nameof(value));
+
+            this.setters.Add(new FieldValuePair(fieldSelector, value));
+            return this;
         }
 
-        public static UpdateOutput<T> Output<T, KT>(this UpdateKey<T> updateKey, Expression<Func<T, KT>> outputSelector)
+        /// <summary>Restricts the update to rows whose <paramref name="keySelector"/> column equals <paramref name="value"/>.</summary>
+        public UpdateKey<T> Key<KT>(Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
         {
-            if (updateKey == null)
-                throw new ArgumentNullException(nameof(updateKey));
-            if (outputSelector == null)
+            // The setters are snapshotted: the next stage must not change under a later Set on this one.
+            return new UpdateKey<T>(this.provider, this.setters.ToList()).Key(keySelector, value);
+        }
+    }
+
+    /// <summary>
+    ///     An update with at least one key, so it can be executed.
+    /// </summary>
+    public class UpdateKey<T>
+    {
+        private readonly IQueryProvider provider;
+        private readonly IReadOnlyList<FieldValuePair> setters;
+        private readonly List<FieldValuePair> keys = new List<FieldValuePair>();
+
+        internal UpdateKey(IQueryProvider provider, IReadOnlyList<FieldValuePair> setters)
+        {
+            this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            this.setters = setters ?? throw new ArgumentNullException(nameof(setters));
+        }
+
+        /// <summary>Adds a further key column; keys are combined with AND.</summary>
+        public UpdateKey<T> Key<KT>(Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
+        {
+            if (keySelector is null)
+                throw new ArgumentNullException(nameof(keySelector));
+            if (value is null)
+                throw new ArgumentNullException(nameof(value));
+
+            this.keys.Add(new FieldValuePair(keySelector, value));
+            return this;
+        }
+
+        /// <summary>Asks for <paramref name="outputSelector"/>'s column to be returned from the updated rows.</summary>
+        public UpdateOutput<T> Output<KT>(Expression<Func<T, KT>> outputSelector)
+        {
+            return new UpdateOutput<T>(this.provider, this.setters, this.keys.ToList()).Output(outputSelector);
+        }
+
+        /// <summary>Runs the update and returns the number of rows affected.</summary>
+        public int Execute()
+        {
+            // No output clause, so the statement yields the affected-row count.
+            var updateEntityExpression = UpdateEntityExpressionFactory.Create(
+                typeof(int), typeof(T), this.setters, this.keys, outputs: null);
+            return this.provider.Execute<int>(updateEntityExpression);
+        }
+    }
+
+    /// <summary>
+    ///     An update that returns columns from the rows it wrote.
+    /// </summary>
+    public class UpdateOutput<T>
+    {
+        private readonly IQueryProvider provider;
+        private readonly IReadOnlyList<FieldValuePair> setters;
+        private readonly IReadOnlyList<FieldValuePair> keys;
+        private readonly List<Expression> outputs = new List<Expression>();
+
+        internal UpdateOutput(IQueryProvider provider, IReadOnlyList<FieldValuePair> setters, IReadOnlyList<FieldValuePair> keys)
+        {
+            this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            this.setters = setters ?? throw new ArgumentNullException(nameof(setters));
+            this.keys = keys ?? throw new ArgumentNullException(nameof(keys));
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Adds a further column to return. Generic in the column type rather than taking
+        ///         <c>Expression&lt;Func&lt;T, object&gt;&gt;</c>: an <c>object</c> selector boxes a
+        ///         value-type column behind a <c>Convert</c> node, which hides the member access the
+        ///         output alias is taken from.
+        ///     </para>
+        /// </summary>
+        public UpdateOutput<T> Output<KT>(Expression<Func<T, KT>> outputSelector)
+        {
+            if (outputSelector is null)
                 throw new ArgumentNullException(nameof(outputSelector));
-            var updateOutput = new UpdateOutput<T>(updateKey.Provider, updateKey.SetExpressions, updateKey.KeyExpressions);
-            updateOutput.AddOutputExpression(outputSelector);
-            return updateOutput;
+
+            this.outputs.Add(outputSelector);
+            return this;
         }
 
-        // Generic in the column type rather than taking Expression<Func<T, object>>: an `object`
-        // selector boxes value-type columns behind a Convert node, which hides the member access the
-        // OUTPUT alias is derived from.
-        public static UpdateOutput<T> Output<T, KT>(this UpdateOutput<T> updateOutput, Expression<Func<T, KT>> outputSelector)
+        /// <summary>
+        ///     Runs the update and returns one dictionary per updated row, keyed by output column name
+        ///     (matched case-insensitively), with a <c>NULL</c> column coming back as <c>null</c>.
+        /// </summary>
+        public IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary()
         {
-            if (updateOutput == null)
-                throw new ArgumentNullException(nameof(updateOutput));
-            if (outputSelector == null)
-                throw new ArgumentNullException(nameof(outputSelector));
-            updateOutput.AddOutputExpression(outputSelector);
-            return updateOutput;
-        }
-
-        public static int Execute<T>(this UpdateKey<T> updateKey)
-        {
-            if (updateKey == null)
-                throw new ArgumentNullException(nameof(updateKey));
-            // An update with no output clause yields the affected-row count.
-            var updateEntityExpression = CreateUpdateEntityExpression(typeof(int), typeof(T), updateKey.SetExpressions, updateKey.KeyExpressions, outputs: null);
-            return updateKey.Provider.Execute<int>(updateEntityExpression);
-        }
-
-        public static IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary<T>(this UpdateOutput<T> updateOutput)
-        {
-            if (updateOutput == null)
-                throw new ArgumentNullException(nameof(updateOutput));
-            var setters = updateOutput.SetExpressions;
-            var keys = updateOutput.KeyExpressions;
-            var outputs = updateOutput.OutputExpressions;
-            var typeOfQuery = typeof(T);
             // Typed as the queryable it is handed to, not as the collection the caller gets back:
             // IQueryable<T>.Expression.Type must be assignable to IQueryable<T>, and the materializer
             // reads the element type from here to decide what to build.
-            UpdateEntityExpression updateEntityExpression = CreateUpdateEntityExpression(typeof(IQueryable<Dictionary<string, object>>), typeOfQuery, setters, keys, outputs);
-            var q = updateOutput.Provider.CreateQuery<Dictionary<string, object>>(updateEntityExpression);
-            return new List<Dictionary<string, object>>(q);
+            var updateEntityExpression = UpdateEntityExpressionFactory.Create(
+                typeof(IQueryable<Dictionary<string, object>>), typeof(T), this.setters, this.keys, this.outputs);
+            var query = this.provider.CreateQuery<Dictionary<string, object>>(updateEntityExpression);
+            return new List<Dictionary<string, object>>(query);
         }
+    }
 
-        private static UpdateEntityExpression CreateUpdateEntityExpression(Type outputType, Type typeOfQuery, IReadOnlyList<FieldValuePair> setters, IReadOnlyList<FieldValuePair> keys, IReadOnlyList<Expression> outputs)
+    /// <summary>
+    ///     Turns what the fluent stages collected into the <see cref="UpdateEntityExpression"/> the
+    ///     converter consumes.
+    /// </summary>
+    internal static class UpdateEntityExpressionFactory
+    {
+        public static UpdateEntityExpression Create(Type resultType, Type entityType, IReadOnlyList<FieldValuePair> setters, IReadOnlyList<FieldValuePair> keys, IReadOnlyList<Expression> outputs)
         {
-            var query = new QueryRootExpression(typeOfQuery);
-            var setterLambda = CreateSetterLambda(typeOfQuery, setters);
+            var query = new QueryRootExpression(entityType);
+            var setterLambda = CreateSetterLambda(entityType, setters);
+
             var keyExpressions = new List<Expression>(keys.Count);
             foreach (var key in keys)
             {
+                // Equality is the actual semantics here, unlike the SET list.
                 var equalExpression = Expression.Equal(key.FieldSelector.Body, key.Value.Body);
-                var lambda = Expression.Lambda(equalExpression, key.FieldSelector.Parameters[0]);
-                keyExpressions.Add(lambda);
+                keyExpressions.Add(Expression.Lambda(equalExpression, key.FieldSelector.Parameters[0]));
             }
-            // An update without an output clause carries an empty list rather than null, so that all three
-            // lists can be handled uniformly by the converter (see UpdateEntityExpressionConverter).
+
+            // An update without an output clause carries an empty list rather than null, so that the
+            // converter can treat all of them alike.
             var outputFields = new AggregatedListExpression(outputs ?? (IReadOnlyList<Expression>)new Expression[0]);
-            var keyAggregated = new AggregatedListExpression(keyExpressions);
-            var updateEntityExpression = new UpdateEntityExpression(outputType, query, setterLambda, keyAggregated, outputFields);
-            return updateEntityExpression;
+            return new UpdateEntityExpression(resultType, query, setterLambda, new AggregatedListExpression(keyExpressions), outputFields);
         }
 
         /// <summary>
         ///     <para>
         ///         Builds the SET list as <c>x =&gt; new T { Member = value, ... }</c> — the same shape the
-        ///         <see cref="Update{T}(IQueryable{T}, Expression{Func{T, T}}, Expression{Func{T, bool}})"/>
-        ///         API passes, so the converter resolves columns through the entity's mapping metadata
-        ///         rather than inferring them from an already-converted expression.
+        ///         query-based <c>Update</c> API passes, so the converter resolves columns through the
+        ///         entity's mapping metadata rather than inferring them from an already-converted
+        ///         expression.
         ///     </para>
         ///     <para>
         ///         The field selector is only mined for the member it names; its body is never re-hosted in
@@ -663,12 +759,12 @@ namespace Atis.SqlExpressionEngine
         ///         variable visible for cache-hit rebinding.
         ///     </para>
         /// </summary>
-        private static LambdaExpression CreateSetterLambda(Type typeOfQuery, IReadOnlyList<FieldValuePair> setters)
+        private static LambdaExpression CreateSetterLambda(Type entityType, IReadOnlyList<FieldValuePair> setters)
         {
             if (setters.Count == 0)
-                throw new InvalidOperationException($"At least one {nameof(Set)} call is required to update an entity.");
-            if (typeOfQuery.GetConstructor(Type.EmptyTypes) is null)
-                throw new InvalidOperationException($"Entity '{typeOfQuery.Name}' needs a parameterless constructor to be updated through {nameof(UpdateEntity)}.");
+                throw new InvalidOperationException("At least one Set call is required to update an entity.");
+            if (entityType.GetConstructor(Type.EmptyTypes) is null)
+                throw new InvalidOperationException($"Entity '{entityType.Name}' needs a parameterless constructor to be updated through UpdateEntity.");
 
             var bindings = new List<MemberBinding>(setters.Count);
             foreach (var setter in setters)
@@ -682,13 +778,13 @@ namespace Atis.SqlExpressionEngine
                 {
                     // Most often a get-only member: a calculated property is not a column and cannot be set.
                     throw new InvalidOperationException(
-                        $"'{typeOfQuery.Name}.{member.Name}' cannot be assigned by {nameof(Set)}. A calculated or read-only member is not a stored column.", ex);
+                        $"'{entityType.Name}.{member.Name}' cannot be assigned by Set. A calculated or read-only member is not a stored column.", ex);
                 }
             }
 
             return Expression.Lambda(
-                Expression.MemberInit(Expression.New(typeOfQuery), bindings),
-                Expression.Parameter(typeOfQuery, "x"));
+                Expression.MemberInit(Expression.New(entityType), bindings),
+                Expression.Parameter(entityType, "x"));
         }
 
         private static MemberInfo GetSelectedMember(LambdaExpression selector)
@@ -702,76 +798,6 @@ namespace Atis.SqlExpressionEngine
 
             return (body as MemberExpression)?.Member
                 ?? throw new ArgumentException($"Expected a member selector such as 'x => x.LastName', but got '{selector.Body}'.", nameof(selector));
-        }
-
-    }
-
-    public class FieldValuePair
-    {
-        public LambdaExpression FieldSelector { get; }
-        public LambdaExpression Value { get; }
-        public FieldValuePair(LambdaExpression fieldSelector, LambdaExpression value)
-        {
-            this.FieldSelector = fieldSelector ?? throw new ArgumentNullException(nameof(fieldSelector));
-            this.Value = value ?? throw new ArgumentNullException(nameof(value));
-        }
-    }
-
-    public class UpdateSetters<T>
-    {
-        public IQueryProvider Provider { get; }
-
-        public UpdateSetters(IQueryProvider provider)
-        {
-            this.Provider = provider ?? throw new ArgumentNullException(nameof(provider));
-        }
-
-        private readonly List<FieldValuePair> setExpressions = new List<FieldValuePair>();
-        public IReadOnlyList<FieldValuePair> SetExpressions => setExpressions.AsReadOnly();
-
-        internal void AddSetExpression<FT>(Expression<Func<T, FT>> fieldSelector, Expression<Func<FT>> value)
-        {
-            this.setExpressions.Add(new FieldValuePair(fieldSelector, value));
-        }
-    }
-
-    public class UpdateKey<T>
-    {
-        public UpdateKey(IQueryProvider provider, IReadOnlyList<FieldValuePair> setExpressions)
-        {
-            this.Provider = provider ?? throw new ArgumentNullException(nameof(provider));
-            this.SetExpressions = setExpressions ?? throw new ArgumentNullException(nameof(setExpressions));
-        }
-
-        public IQueryProvider Provider { get; }
-        public IReadOnlyList<FieldValuePair> SetExpressions { get; }
-
-        private readonly List<FieldValuePair> keyExpressions = new List<FieldValuePair>();
-        public IReadOnlyList<FieldValuePair> KeyExpressions => keyExpressions.AsReadOnly();
-
-        
-        internal void AddKeyExpression<KT>(Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
-        {
-            this.keyExpressions.Add(new FieldValuePair(keySelector, value));
-        }
-    }
-
-    public class UpdateOutput<T>
-    {
-        public UpdateOutput(IQueryProvider provider, IReadOnlyList<FieldValuePair> setExpressions, IReadOnlyList<FieldValuePair> keyExpressions)
-        {
-            this.Provider = provider ?? throw new ArgumentNullException(nameof(provider));
-            this.SetExpressions = setExpressions ?? throw new ArgumentNullException(nameof(setExpressions));
-            this.KeyExpressions = keyExpressions ?? throw new ArgumentNullException(nameof(keyExpressions));
-        }
-        public IQueryProvider Provider { get; }
-        public IReadOnlyList<FieldValuePair> SetExpressions { get; }
-        public IReadOnlyList<FieldValuePair> KeyExpressions { get; }
-        private readonly List<LambdaExpression> outputExpressions = new List<LambdaExpression>();
-        public IReadOnlyList<LambdaExpression> OutputExpressions => outputExpressions.AsReadOnly();
-        internal void AddOutputExpression<KT>(Expression<Func<T, KT>> outputSelector)
-        {
-            this.outputExpressions.Add(outputSelector);
         }
     }
 }

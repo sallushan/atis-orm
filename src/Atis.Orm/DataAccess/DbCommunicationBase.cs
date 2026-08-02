@@ -364,36 +364,13 @@ namespace Atis.Orm.DataAccess
         ///     once per row: the names cannot change between rows, and neither can the answer to whether
         ///     two of them collide.
         /// </summary>
+        // Shared with the element factory for an UPDATE ... OUTPUT, which builds the same shape from
+        // plan-time column names rather than from the reader. See DictionaryRow.
         private static string[] GetColumnNames(DbDataReader reader, StringComparer keyComparer)
-        {
-            var names = new string[reader.FieldCount];
-            var seen = new HashSet<string>(keyComparer);
-            for (var i = 0; i < names.Length; i++)
-            {
-                var name = reader.GetName(i);
-                if (!seen.Add(name))
-                {
-                    // Letting Dictionary.Add throw instead would say only that some key was duplicated,
-                    // once per row, without naming the column that caused it.
-                    throw new InvalidOperationException(
-                        $"The result set has more than one column named '{name}', so it cannot be turned " +
-                        "into a dictionary. Alias the duplicate columns in the query.");
-                }
-                names[i] = name;
-            }
-            return names;
-        }
+            => DictionaryRow.GetColumnNames(reader, keyComparer);
 
         private static IReadOnlyDictionary<string, object> ReadRow(DbDataReader reader, string[] columnNames, StringComparer keyComparer)
-        {
-            var row = new Dictionary<string, object>(columnNames.Length, keyComparer);
-            for (var i = 0; i < columnNames.Length; i++)
-            {
-                var value = reader.GetValue(i);
-                row[columnNames[i]] = value is DBNull ? null : value;
-            }
-            return row;
-        }
+            => DictionaryRow.Read(reader, columnNames, keyComparer);
 
         /// <summary>
         ///     <para>

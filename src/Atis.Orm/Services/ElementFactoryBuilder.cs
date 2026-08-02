@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
 namespace Atis.Orm.Services
 {
     public class ElementFactoryBuilder : IElementFactoryBuilder
@@ -30,17 +31,13 @@ namespace Atis.Orm.Services
                 var updateElementType = GetElementType(expression.Type);
                 if (updateElementType.IsAssignableFrom(typeof(Dictionary<string, object>)))
                 {
-                    var outputs = updateExpression.Outputs;
-                    return (dr) =>
-                    {
-                        var row = new Dictionary<string, object>(outputs.Count, StringComparer.OrdinalIgnoreCase);
-                        for (var i = 0; i < outputs.Count; i++)
-                        {
-                            var value = dr.GetValue(i);
-                            row[outputs[i].Alias] = value is DBNull ? null : value;
-                        }
-                        return row;
-                    };
+                    // The OUTPUT aliases are the column names, known here rather than discovered from the
+                    // reader — so a duplicate is caught once, now, instead of silently dropping a value on
+                    // every row. Everything past that is the same shape ExecuteDictionary produces.
+                    var columnNames = updateExpression.Outputs.Select(x => x.Alias).ToArray();
+                    var keyComparer = DictionaryRow.DefaultKeyComparer;
+                    DictionaryRow.EnsureNoDuplicateColumns(columnNames, keyComparer);
+                    return dr => DictionaryRow.Read(dr, columnNames, keyComparer);
                 }
                 else
                 {
