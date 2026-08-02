@@ -1,4 +1,4 @@
-﻿using Atis.Expressions;
+using Atis.Expressions;
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
@@ -91,7 +91,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new BulkInsertConverterFactory(),
                 new GuidNewConverterFactory(),
                 new UpdateEntityExpressionConverterFactory(),
-                new AggregateListExpressionConverterFactory(),
+                new CollectionExpressionConverterFactory(),
             };
             return defaultFactories;
         }

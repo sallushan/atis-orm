@@ -1,4 +1,4 @@
-﻿using Atis.Expressions;
+using Atis.Expressions;
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.ExpressionExtensions;
 using Atis.SqlExpressionEngine.SqlExpressions;
@@ -9,38 +9,7 @@ using System.Linq.Expressions;
 
 namespace Atis.SqlExpressionEngine.ExpressionConverters
 {
-    public class AggregateListExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<AggregatedListExpression>
-    {
-        public AggregateListExpressionConverterFactory() : base()
-        {
-        }
-        /// <inheritdoc />
-        public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
-        {
-            if (expression is AggregatedListExpression aggregatedListExpression)
-            {
-                var d = this.GetConverterDependencies(converterDependencies);
-                converter = new AggregateListExpressionConverter(d, aggregatedListExpression, converterStack);
-                return true;
-            }
-            converter = null;
-            return false;
-        }
-    }
-
-    public class AggregateListExpressionConverter : LinqToNonSqlQueryConverterBase<AggregatedListExpression>
-    {
-        public AggregateListExpressionConverter(LinqToSqlExpressionConverterDependencies context, AggregatedListExpression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack) : base(context, expression, converterStack)
-        {
-        }
-        public override SqlExpression Convert(SqlExpression[] convertedChildren)
-        {
-            return new SqlCollectionExpression(convertedChildren);
-        }
-    }
-
-
-    public class UpdateEntityExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<MethodCallExpression>
+    public class UpdateEntityExpressionConverterFactory : LinqToSqlExpressionConverterFactoryBase<UpdateEntityExpression>
     {
         public UpdateEntityExpressionConverterFactory() : base()
         {
@@ -197,7 +166,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         ///     Points each lambda's parameter at the source query's shape, so that a member access inside
         ///     it resolves against the table being updated.
         /// </summary>
-        private void MapLambdaParameters(SqlSelectExpression sourceQuery, AggregatedListExpression expressions)
+        private void MapLambdaParameters(SqlSelectExpression sourceQuery, CollectionExpression expressions)
         {
             for (var i = 0; i < expressions.Expressions.Count; i++)
             {

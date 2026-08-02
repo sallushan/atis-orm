@@ -133,11 +133,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         // shared between contexts and which are not.
         public T GetService<T>() => (T)this.ServiceProvider.GetService(typeof(T));
 
-        public UpdateSetters<T> UpdateEntity<T>()
-        {
-            _ = this.Model;
-            _ = this.CreateQuery<T>();
-            return this.QueryProvider.UpdateEntity<T>();
-        }
+        // UpdateEntity<T>() is on DataContext itself now; this wrapper existed only because
+        // QueryProvider is protected.
     }
 }

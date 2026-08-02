@@ -1,4 +1,4 @@
-﻿using Atis.Expressions;
+using Atis.Expressions;
 using Atis.SqlExpressionEngine;
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.ExpressionConverters;
@@ -228,6 +228,22 @@ namespace Atis.Orm
             // auto-builds metadata for T, so fluent configuration is not lost.
             _ = this.Model;
             return this.QueryableFactory.CreateQueryable<T>();
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Starts a key-based update of <typeparamref name="T"/>: pick the columns to write with
+        ///         <c>Set</c>, the rows with <c>Key</c>, then <c>Execute</c> — or <c>Output</c> and
+        ///         <c>ExecuteDictionary</c> to read columns back from the rows that were written.
+        ///     </para>
+        /// </summary>
+        public virtual UpdateSetStage<T> UpdateEntity<T>()
+        {
+            // Same reason CreateQuery<T> does it: touching Model first guarantees OnModelCreating has
+            // run, so T's fluent configuration is in place before its metadata is needed.
+            _ = this.Model;
+            this.QueryableFactory.CreateQueryable<T>();
+            return this.QueryProvider.UpdateEntity<T>();
         }
 
         private IDbCommunication _dbCommunication;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -6,12 +6,22 @@ using System.Text;
 
 namespace Atis.SqlExpressionEngine.ExpressionExtensions
 {
-    // TODO: see if below can be inherited from ChainedQueryExpression
-    // the problem with ChainedQueryExpression is that it will always have the Type IQueryable<T>
-    // so if T can be become Dictionary<string, object> then it's good (maybe)
+    /// <summary>
+    ///     <para>
+    ///         A key-based UPDATE built by the <c>UpdateEntity&lt;T&gt;</c> fluent API: a source query,
+    ///         the columns to write, the keys that select the rows, and optionally the columns to read
+    ///         back from them.
+    ///     </para>
+    ///     <para>
+    ///         Deliberately not a <see cref="ChainedQueryExpression"/>. That base fixes <c>Type</c> from
+    ///         its query (the property is <c>sealed</c>), so a node whose result is a row count or a set
+    ///         of returned rows cannot use it. Nothing in the codebase branches on
+    ///         <see cref="ChainedQueryExpression"/> either, so inheriting it would buy nothing.
+    ///     </para>
+    /// </summary>
     public class UpdateEntityExpression : Expression
     {
-        public UpdateEntityExpression(Type resultType, Expression queryExpression, LambdaExpression setters, AggregatedListExpression keys, AggregatedListExpression outputFields)
+        public UpdateEntityExpression(Type resultType, Expression queryExpression, LambdaExpression setters, CollectionExpression keys, CollectionExpression outputFields)
         {
             this.Query = queryExpression ?? throw new ArgumentNullException(nameof(queryExpression));
             // Every Expression consumer is entitled to read Type, so it can never be null: an update
@@ -38,8 +48,8 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
         ///     </para>
         /// </summary>
         public LambdaExpression Setters { get; }
-        public AggregatedListExpression Keys { get; }
-        public AggregatedListExpression OutputFields { get; }
+        public CollectionExpression Keys { get; }
+        public CollectionExpression OutputFields { get; }
 
         /// <inheritdoc />
         protected override Expression VisitChildren(ExpressionVisitor visitor)
