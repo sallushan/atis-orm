@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Atis.Orm;
 using Atis.Orm.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
 
@@ -24,6 +25,31 @@ where	(a_1.SerialNumber = '123')
         }
 
         [TestMethod]
+        public void Update_query_with_output_is_an_unexecuted_method_call_expression()
+        {
+            var assets = new Queryable<Asset>(this.queryProvider);
+            Expression<Func<IReadOnlyList<IReadOnlyDictionary<string, object>>>> expr = () =>
+                assets.Update(
+                    x => new Asset { Description = "Check" },
+                    x => x.ItemId == "123",
+                    x => new object[] { x.SerialNumber, x.RowId });
+
+            var updateCall = expr.Body as MethodCallExpression;
+            Assert.IsNotNull(updateCall, "The output update must use the standard LINQ method-call AST shape.");
+            Assert.AreEqual(nameof(QueryExtensions.Update), updateCall.Method.Name);
+            Assert.AreEqual(typeof(QueryExtensions), updateCall.Method.DeclaringType);
+
+            string expectedResult = @"
+update a_1
+	set Description = 'Check'
+output inserted.SerialNumber as SerialNumber, inserted.RowId as RowId
+from	Asset as a_1
+where	(a_1.ItemId = '123')
+";
+            Test("Update Query With Output Test", updateCall, expectedResult);
+        }
+
+        [TestMethod]
         public void Update_query_navigation_selected_to_update()
         {
             var assets = new Queryable<Asset>(this.queryProvider);
@@ -40,6 +66,27 @@ from Asset as a_1
 	where (a_1.SerialNumber = '123')
 ";
             Test($"Update Query Multiple Table Navigation Test", queryExpression, expectedResult);
+        }
+
+        [TestMethod]
+        public void Update_query_navigation_selected_to_update_with_output()
+        {
+            var assets = new Queryable<Asset>(this.queryProvider);
+            Expression<Func<IReadOnlyList<IReadOnlyDictionary<string, object>>>> expr = () => assets.Update(
+                asset => asset.NavItem(),
+                asset => new ItemBase { ItemDescription = asset.NavItem().ItemDescription + asset.SerialNumber },
+                asset => asset.SerialNumber == "123",
+                asset => new object[] { asset.NavItem().ItemId, asset.NavItem().ItemDescription });
+
+            string expectedResult = @"
+update NavItem_2
+	set ItemDescription = (NavItem_2.ItemDescription + a_1.SerialNumber)
+output inserted.ItemId as ItemId, inserted.ItemDescription as ItemDescription
+from Asset as a_1
+			inner join ItemBase as NavItem_2 on (NavItem_2.ItemId = a_1.ItemId)
+	where (a_1.SerialNumber = '123')
+";
+            Test("Update Query Multiple Table Navigation With Output Test", expr.Body, expectedResult);
         }
 
 
@@ -173,10 +220,8 @@ insert into SiteAuthorizationSetting(RowId, ModuleName, SiteId, AuthorizationUse
 
         /// <summary>
         ///     <para>
-        ///         The fluent update without an <c>Output</c> clause. This goes through
-        ///         <c>Execute()</c>, which builds the <c>UpdateEntityExpression</c> with no output
-        ///         fields — the case that used to die with a <see cref="NullReferenceException"/>
-        ///         inside the converter before it ever reached a database.
+        ///         The ORM fluent update without an <c>Output</c> clause. Its terminal method must
+        ///         submit the same <c>QueryExtensions.Update</c> method-call AST as the engine API.
         ///     </para>
         /// </summary>
         [TestMethod]
@@ -189,6 +234,11 @@ insert into SiteAuthorizationSetting(RowId, ModuleName, SiteId, AuthorizationUse
                     .Set(x => x.Description, () => "Check")
                     .Key(x => x.ItemId, () => "123")
                     .Execute();
+
+            var updateCall = provider.CapturedExpression as MethodCallExpression;
+            Assert.IsNotNull(updateCall, "The ORM facade must submit a standard method-call expression.");
+            Assert.AreEqual(nameof(QueryExtensions.Update), updateCall.Method.Name);
+            Assert.AreEqual(typeof(QueryExtensions), updateCall.Method.DeclaringType);
 
             string expectedResult = @"
 update a_1
@@ -416,16 +466,12 @@ where	(a_1.ItemId = '123')
 
         /// <summary>
         ///     <para>
-        ///         <c>IQueryable&lt;T&gt;.Expression.Type</c> must be assignable to
-        ///         <c>IQueryable&lt;T&gt;</c>. The output-returning update is handed to
-        ///         <c>CreateQuery&lt;Dictionary&lt;string, object&gt;&gt;</c>, so its node must be typed
-        ///         as that queryable — it used to be typed as the <c>List&lt;&gt;</c> the caller
-        ///         eventually receives, which happened to work only because nothing composed another
-        ///         LINQ operator on top.
+        ///         An update with output is terminal. Its expression exposes the read-only list
+        ///         returned to the caller, so it cannot be composed with another query operator.
         ///     </para>
         /// </summary>
         [TestMethod]
-        public void Update_fluent_api_with_output_types_its_expression_as_the_queryable_it_creates()
+        public void Update_fluent_api_with_output_reports_a_read_only_list_type()
         {
             var provider = new ExpressionCapturingQueryProvider();
 
@@ -435,10 +481,13 @@ where	(a_1.ItemId = '123')
                     .Output(x => x.SerialNumber)
                     .ExecuteDictionary();
 
-            Assert.IsTrue(
-                typeof(IQueryable<Dictionary<string, object>>).IsAssignableFrom(provider.CapturedExpression.Type),
-                $"Expression.Type must be assignable to the queryable it is given to, but was " +
-                $"'{provider.CapturedExpression.Type}'.");
+            Assert.AreEqual(
+                typeof(IReadOnlyList<IReadOnlyDictionary<string, object>>),
+                provider.CapturedExpression.Type);
+            Assert.IsFalse(typeof(IQueryable).IsAssignableFrom(provider.CapturedExpression.Type),
+                "A terminal update result must not allow further query composition.");
+            Assert.AreEqual(typeof(Dictionary<string, object>), provider.CreatedQueryElementType,
+                "Update output rows must be materialized through CreateQuery<Dictionary<string, object>>.");
         }
 
         /// <summary>
@@ -500,6 +549,8 @@ where	(a_1.ItemId = '123')
         {
             public Expression CapturedExpression { get; private set; }
 
+            public Type CreatedQueryElementType { get; private set; }
+
             public IQueryable CreateQuery(Expression expression)
             {
                 this.CapturedExpression = expression;
@@ -509,6 +560,7 @@ where	(a_1.ItemId = '123')
             public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
             {
                 this.CapturedExpression = expression;
+                this.CreatedQueryElementType = typeof(TElement);
                 return Enumerable.Empty<TElement>().AsQueryable();
             }
 

@@ -2,15 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
-using Atis.SqlExpressionEngine.ExpressionExtensions;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.Orm
 {
-
-    /// <summary>
-    ///     The stage after at least one <c>Key</c>, so the update is filtered to rows and can be run.
-    /// </summary>
+    /// <summary>The stage after at least one Key, so the update is filtered and can be executed.</summary>
     public class UpdateKeyStage<T>
     {
         private readonly IQueryProvider provider;
@@ -23,7 +18,7 @@ namespace Atis.SqlExpressionEngine
             this.setters = setters ?? throw new ArgumentNullException(nameof(setters));
         }
 
-        /// <summary>Adds a further key column; keys are combined with AND.</summary>
+        /// <summary>Adds another key equality; multiple keys are combined with AND.</summary>
         public UpdateKeyStage<T> Key<KT>(Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
         {
             if (keySelector is null)
@@ -35,19 +30,17 @@ namespace Atis.SqlExpressionEngine
             return this;
         }
 
-        /// <summary>Asks for <paramref name="outputSelector"/>'s column to be returned from the updated rows.</summary>
+        /// <summary>Adds a column to return from the updated row image.</summary>
         public UpdateOutputStage<T> Output<KT>(Expression<Func<T, KT>> outputSelector)
         {
             return new UpdateOutputStage<T>(this.provider, this.setters, this.keys.ToList()).Output(outputSelector);
         }
 
-        /// <summary>Runs the update and returns the number of rows affected.</summary>
+        /// <summary>Executes the update and returns its affected-row count.</summary>
         public int Execute()
         {
-            // No output clause, so the statement yields the affected-row count.
-            var updateEntityExpression = UpdateEntityExpressionFactory.Create(
-                typeof(int), typeof(T), this.setters, this.keys, outputs: null);
-            return this.provider.Execute<int>(updateEntityExpression);
+            var updateCall = UpdateEntityMethodCallFactory.CreateAffectedRowsCall<T>(this.setters, this.keys);
+            return this.provider.Execute<int>(updateCall);
         }
     }
 }

@@ -1,11 +1,7 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
-using Atis.SqlExpressionEngine.ExpressionExtensions;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.Orm
 {
     /// <summary>A column selector paired with the value to write to it.</summary>
     internal sealed class FieldValuePair
@@ -19,8 +15,8 @@ namespace Atis.SqlExpressionEngine
         public LambdaExpression FieldSelector { get; }
 
         /// <summary>
-        ///     The value, still as a lambda rather than a plain value, so that a captured variable stays
-        ///     visible in the expression tree and can be rebound on a compiled-query cache hit.
+        ///     The value remains a lambda so a captured variable stays visible in the expression tree
+        ///     and can be rebound when a compiled query is reused.
         /// </summary>
         public LambdaExpression ValueSelector { get; }
     }

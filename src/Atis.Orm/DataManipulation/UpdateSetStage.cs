@@ -2,15 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
-using Atis.SqlExpressionEngine.ExpressionExtensions;
 
-namespace Atis.SqlExpressionEngine
+namespace Atis.Orm
 {
-
-    /// <summary>
-    ///     The first stage of <c>UpdateEntity&lt;T&gt;</c>: collecting the columns to write.
-    /// </summary>
+    /// <summary>The first stage of UpdateEntity: collecting the columns to write.</summary>
     public class UpdateSetStage<T>
     {
         private readonly IQueryProvider provider;
@@ -21,7 +16,7 @@ namespace Atis.SqlExpressionEngine
             this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
         }
 
-        /// <summary>Assigns <paramref name="value"/> to the column <paramref name="fieldSelector"/> names.</summary>
+        /// <summary>Assigns <paramref name="value"/> to the column selected by <paramref name="fieldSelector"/>.</summary>
         public UpdateSetStage<T> Set<FT>(Expression<Func<T, FT>> fieldSelector, Expression<Func<FT>> value)
         {
             if (fieldSelector is null)
@@ -33,10 +28,9 @@ namespace Atis.SqlExpressionEngine
             return this;
         }
 
-        /// <summary>Restricts the update to rows whose <paramref name="keySelector"/> column equals <paramref name="value"/>.</summary>
+        /// <summary>Restricts the update to rows whose selected key column equals <paramref name="value"/>.</summary>
         public UpdateKeyStage<T> Key<KT>(Expression<Func<T, KT>> keySelector, Expression<Func<KT>> value)
         {
-            // The setters are snapshotted: the next stage must not change under a later Set on this one.
             return new UpdateKeyStage<T>(this.provider, this.setters.ToList()).Key(keySelector, value);
         }
     }

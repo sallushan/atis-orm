@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -10,6 +10,17 @@ namespace Atis.Orm
 {
     public static class OrmQueryExtensions
     {
+        /// <summary>
+        ///     Starts the ORM's key-based fluent update API. Its terminal stages encode the operation
+        ///     as a standard SqlExpressionEngine QueryExtensions.Update method call.
+        /// </summary>
+        public static UpdateSetStage<T> UpdateEntity<T>(this IQueryProvider provider)
+        {
+            if (provider is null)
+                throw new ArgumentNullException(nameof(provider));
+            return new UpdateSetStage<T>(provider);
+        }
+
         public static Task<int> DeleteAsync<T>(
             this IQueryable<T> query,
             Expression<Func<T, bool>> predicate,

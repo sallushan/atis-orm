@@ -1,0 +1,2 @@
+# Preserve the checked-in Visual Studio line endings for C# sources.
+*.cs -text

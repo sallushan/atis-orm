@@ -499,6 +499,71 @@ namespace Atis.SqlExpressionEngine
             return query.Provider.Execute<int>(q.Expression);
         }
 
+        /// <summary>
+        ///     Builds an UPDATE that returns columns from the post-update row image. The output
+        ///     selector is an object array so callers can select any number of differently typed
+        ///     columns while keeping every selection in the expression tree.
+        /// </summary>
+        public static IReadOnlyList<IReadOnlyDictionary<string, object>> Update<T>(
+            this IQueryable<T> query,
+            Expression<Func<T, T>> tableUpdateFields,
+            Expression<Func<T, bool>> predicate,
+            Expression<Func<T, object[]>> outputFields)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (tableUpdateFields is null)
+                throw new ArgumentNullException(nameof(tableUpdateFields));
+            if (predicate is null)
+                throw new ArgumentNullException(nameof(predicate));
+            if (outputFields is null)
+                throw new ArgumentNullException(nameof(outputFields));
+
+            var call = Expression.Call(
+                null,
+                new Func<IQueryable<T>, Expression<Func<T, T>>, Expression<Func<T, bool>>, Expression<Func<T, object[]>>, IReadOnlyList<IReadOnlyDictionary<string, object>>>(Update).Method,
+                query.Expression,
+                Expression.Quote(tableUpdateFields),
+                Expression.Quote(predicate),
+                Expression.Quote(outputFields));
+            var outputQuery = query.Provider.CreateQuery<Dictionary<string, object>>(call);
+            return new List<Dictionary<string, object>>(outputQuery);
+        }
+
+        /// <summary>
+        ///     Builds an UPDATE against a selected table in a multi-source query and returns columns
+        ///     from that table's post-update row image.
+        /// </summary>
+        public static IReadOnlyList<IReadOnlyDictionary<string, object>> Update<T, R>(
+            this IQueryable<T> query,
+            Expression<Func<T, R>> tableSelection,
+            Expression<Func<T, R>> tableUpdateFields,
+            Expression<Func<T, bool>> predicate,
+            Expression<Func<T, object[]>> outputFields)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (tableSelection is null)
+                throw new ArgumentNullException(nameof(tableSelection));
+            if (tableUpdateFields is null)
+                throw new ArgumentNullException(nameof(tableUpdateFields));
+            if (predicate is null)
+                throw new ArgumentNullException(nameof(predicate));
+            if (outputFields is null)
+                throw new ArgumentNullException(nameof(outputFields));
+
+            var call = Expression.Call(
+                null,
+                new Func<IQueryable<T>, Expression<Func<T, R>>, Expression<Func<T, R>>, Expression<Func<T, bool>>, Expression<Func<T, object[]>>, IReadOnlyList<IReadOnlyDictionary<string, object>>>(Update).Method,
+                query.Expression,
+                Expression.Quote(tableSelection),
+                Expression.Quote(tableUpdateFields),
+                Expression.Quote(predicate),
+                Expression.Quote(outputFields));
+            var outputQuery = query.Provider.CreateQuery<Dictionary<string, object>>(call);
+            return new List<Dictionary<string, object>>(outputQuery);
+        }
+
         public static int Delete<T>(this IQueryable<T> query, Expression<Func<T, bool>> predicate)
         {
             if (query is null)
@@ -554,25 +619,6 @@ namespace Atis.SqlExpressionEngine
                     null,
                     new Func<IQueryable<T>, int>(BulkInsert).Method,
                     query.Expression));
-        }
-
-
-        /// <summary>
-        ///     <para>
-        ///         Starts a key-based update of <typeparamref name="T"/>: pick the columns to write with
-        ///         <c>Set</c>, the rows to write them to with <c>Key</c>, and finish with <c>Execute</c>
-        ///         or, to read columns back from the updated rows, <c>Output</c> then
-        ///         <c>ExecuteDictionary</c>.
-        ///     </para>
-        ///     <para>
-        ///         For an update whose values are expressions over the row itself, or which spans joined
-        ///         tables, use <see cref="Update{T}(IQueryable{T}, Expression{Func{T, T}}, Expression{Func{T, bool}})"/>
-        ///         instead. This API sets an entity's columns to values.
-        ///     </para>
-        /// </summary>
-        public static UpdateSetStage<T> UpdateEntity<T>(this IQueryProvider provider)
-        {
-            return new UpdateSetStage<T>(provider);
         }
     }
 }
