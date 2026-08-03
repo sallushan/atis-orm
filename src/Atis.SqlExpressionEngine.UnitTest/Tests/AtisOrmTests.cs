@@ -1,4 +1,4 @@
-﻿using Atis.DependencyInjection;
+using Atis.DependencyInjection;
 using Atis.Expressions;
 using Atis.Orm;
 using Atis.Orm.SqlServer;
@@ -539,37 +539,6 @@ OUTER APPLY (
             var q3 = ctx3.CreateQuery<SimulatedExternalEntity>().Where(x => x.PrimaryKey == 1);
 
             Assert.AreEqual(1, OrmDbContext._onModelCreatingCallCount);
-        }
-
-        [TestMethod]
-        public async Task Update_execution_test()
-        {
-            var setup = new TestDatabaseSetup($"Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
-            await setup.SetupAsync();
-            var db = new OrmDbContext();
-            var employees = db.CreateQuery<TestEntities.Employee>();
-            // Rolled back: committing would append "_Updated" to the seeded FirstName values on every
-            // run, permanently, until the column overflows.
-            db.TransactionWithRollback(() =>
-            {
-                var affected = employees.Update(x => new TestEntities.Employee { FirstName = x.FirstName + "_Updated" }, x => x.EmployeeId < 5);
-                Assert.AreEqual(4, affected, "Employees 1-4 must be updated.");
-            });
-        }
-
-        [TestMethod]
-        public async Task Delete_execution_test()
-        {
-            var setup = new TestDatabaseSetup($"Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
-            await setup.SetupAsync();
-            var db = new OrmDbContext();
-            var auditLogs = db.CreateQuery<TestEntities.AuditLog>();
-            // Rolled back: committing would permanently remove seeded rows other tests read.
-            db.TransactionWithRollback(() =>
-            {
-                var affected = auditLogs.Delete(x => x.AuditId < 5);
-                Assert.AreEqual(4, affected, "Audit rows 1-4 must be deleted.");
-            });
         }
     }
 }

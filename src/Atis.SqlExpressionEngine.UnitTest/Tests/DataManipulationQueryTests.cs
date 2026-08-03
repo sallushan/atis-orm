@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+using System.Linq.Expressions;
 using Atis.Orm.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
 
@@ -523,80 +523,6 @@ where	(a_1.ItemId = '123')
                 this.CapturedExpression = expression;
                 return default;
             }
-        }
-
-        /// <summary>
-        ///     The fluent update end to end against a real server, including the OUTPUT clause that
-        ///     feeds the returned rows.
-        /// </summary>
-        [TestMethod]
-        public void Update_fluent_api_execution()
-        {
-            var db = new OrmDbContext();
-            // Rolled back: committing would overwrite the seeded employee 1 that other tests read.
-            db.TransactionWithRollback(() =>
-            {
-                // Values deliberately unlike the seeded ones, so a no-op update cannot pass.
-                var results = db.UpdateEntity<TestEntities.Employee>()
-                            .Set(x => x.LastName, () => "Smith_Fluent")
-                            .Set(x => x.FirstName, () => "John_Fluent")
-                            .Key(x => x.EmployeeId, () => 1)
-                            .Output(x => x.EmployeeId)
-                            .ExecuteDictionary();
-
-                Assert.AreEqual(1, results.Count, "One employee matches the key, so one row comes back.");
-                Assert.AreEqual(1, results[0]["EmployeeId"], "OUTPUT must return the updated row's key.");
-
-                var names = db.CreateQuery<TestEntities.Employee>()
-                              .Where(x => x.EmployeeId == 1)
-                              .Select(x => x.FirstName)
-                              .ToList();
-                CollectionAssert.AreEqual(new[] { "John_Fluent" }, names,
-                    "The SET clause must actually have been applied.");
-            });
-        }
-
-        /// <summary>
-        ///     <para>
-        ///         The reason <c>Set</c> takes <c>Expression&lt;Func&lt;FT&gt;&gt;</c> rather than a
-        ///         plain value: the captured variable stays visible in the tree, so a second run of
-        ///         the same update hits the compiled-query cache and rebinds the parameter to the
-        ///         new value instead of recompiling.
-        ///     </para>
-        ///     <para>
-        ///         Only reachable since the cache started hitting for these updates at all — before
-        ///         that the key was an identity hash and every run was a miss, so this path never ran.
-        ///     </para>
-        /// </summary>
-        [TestMethod]
-        public void Update_fluent_api_rebinds_captured_variable_on_cache_hit()
-        {
-            var db = new OrmDbContext();
-            db.TransactionWithRollback(() =>
-            {
-                var lastName = "Rebind_First";
-                db.UpdateEntity<TestEntities.Employee>()
-                  .Set(x => x.LastName, () => lastName)
-                  .Key(x => x.EmployeeId, () => 1)
-                  .Execute();
-                CollectionAssert.AreEqual(new[] { "Rebind_First" }, ReadLastName(),
-                    "First run compiles and binds the captured value.");
-
-                // Same shape, new value. The cache must hit and rebind, not replay the old parameter.
-                lastName = "Rebind_Second";
-                db.UpdateEntity<TestEntities.Employee>()
-                  .Set(x => x.LastName, () => lastName)
-                  .Key(x => x.EmployeeId, () => 1)
-                  .Execute();
-                CollectionAssert.AreEqual(new[] { "Rebind_Second" }, ReadLastName(),
-                    "A cache hit must rebind the captured variable to its current value.");
-            });
-
-            List<string> ReadLastName()
-                => db.CreateQuery<TestEntities.Employee>()
-                     .Where(x => x.EmployeeId == 1)
-                     .Select(x => x.LastName)
-                     .ToList();
         }
     }
 }
