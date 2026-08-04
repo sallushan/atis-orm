@@ -267,5 +267,47 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 Assert.AreEqual(4, affected, "Audit rows 1-4 must be deleted.");
             });
         }
+
+        /// <summary>The key-based fluent DELETE end to end.</summary>
+        [TestMethod]
+        public void Delete_fluent_api_execution()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var affected = db.DeleteEntity<TestEntities.AuditLog>()
+                                 .Key(x => x.AuditId, () => 1L)
+                                 .Execute();
+
+                Assert.AreEqual(1, affected, "Only the keyed audit row must be deleted.");
+
+                var remaining = db.CreateQuery<TestEntities.AuditLog>()
+                                  .Where(x => x.AuditId == 1L)
+                                  .Select(x => x.AuditId)
+                                  .ToList();
+                Assert.AreEqual(0, remaining.Count, "The deleted row must be gone.");
+            });
+        }
+
+        /// <summary>The asynchronous counterpart, which routes through <c>ExecuteNonQueryAsync</c>.</summary>
+        [TestMethod]
+        public async Task Delete_fluent_api_execute_async_reports_the_affected_row_count()
+        {
+            var db = new OrmDbContext();
+            await db.TransactionWithRollbackAsync(async () =>
+            {
+                var affected = await db.DeleteEntity<TestEntities.AuditLog>()
+                                       .Key(x => x.AuditId, () => 2L)
+                                       .ExecuteAsync();
+
+                Assert.AreEqual(1, affected, "Only the keyed audit row must be deleted.");
+
+                var remaining = await db.CreateQuery<TestEntities.AuditLog>()
+                                        .Where(x => x.AuditId == 2L)
+                                        .Select(x => x.AuditId)
+                                        .ToListAsync();
+                Assert.AreEqual(0, remaining.Count, "The deleted row must be gone.");
+            });
+        }
     }
 }

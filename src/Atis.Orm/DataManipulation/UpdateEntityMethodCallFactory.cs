@@ -25,7 +25,7 @@ namespace Atis.Orm
                 updateMethod,
                 new QueryRootExpression(typeof(T)),
                 Expression.Quote(CreateSetterLambda<T>(setters)),
-                Expression.Quote(CreatePredicateLambda<T>(keys)));
+                Expression.Quote(EntityLambdaFactory.CreateKeyPredicate<T>(keys, Names)));
         }
 
         public static MethodCallExpression CreateOutputCall<T>(IReadOnlyList<FieldValuePair> setters, IReadOnlyList<FieldValuePair> keys, IReadOnlyList<LambdaExpression> outputs)
@@ -38,7 +38,7 @@ namespace Atis.Orm
                 updateMethod,
                 new QueryRootExpression(typeof(T)),
                 Expression.Quote(CreateSetterLambda<T>(setters)),
-                Expression.Quote(CreatePredicateLambda<T>(keys)),
+                Expression.Quote(EntityLambdaFactory.CreateKeyPredicate<T>(keys, Names)),
                 Expression.Quote(EntityLambdaFactory.CreateOutputLambda<T>(outputs, Names)));
         }
 
@@ -49,24 +49,6 @@ namespace Atis.Orm
             return Expression.Lambda<Func<T, T>>(
                 EntityLambdaFactory.CreateMemberInit<T>(setters, Names),
                 parameter);
-        }
-
-        private static Expression<Func<T, bool>> CreatePredicateLambda<T>(IReadOnlyList<FieldValuePair> keys)
-        {
-            if (keys is null)
-                throw new ArgumentNullException(nameof(keys));
-            if (keys.Count == 0)
-                throw new InvalidOperationException("At least one Key call is required to update an entity.");
-
-            var parameter = Expression.Parameter(typeof(T), "x");
-            Expression predicate = null;
-            foreach (var key in keys)
-            {
-                var field = EntityLambdaFactory.ReplaceParameter(key.FieldSelector, parameter);
-                var equality = Expression.Equal(field, key.ValueSelector.Body);
-                predicate = predicate is null ? equality : Expression.AndAlso(predicate, equality);
-            }
-            return Expression.Lambda<Func<T, bool>>(predicate, parameter);
         }
     }
 }

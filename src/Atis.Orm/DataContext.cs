@@ -260,6 +260,21 @@ namespace Atis.Orm
             return this.QueryProvider.InsertEntity<T>();
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Starts a key-based delete of <typeparamref name="T"/>: pick the rows with
+        ///         <c>Key</c>, then <c>Execute</c>. There is no <c>Output</c> — a deleted row leaves
+        ///         no image to read columns back from.
+        ///     </para>
+        /// </summary>
+        public virtual DeleteKeyStage<T> DeleteEntity<T>()
+        {
+            // important to call the CreateQuery<T>() first, so that the model is built and the metadata
+            // for T is available to the DeleteEntity<T>() call
+            this.CreateQuery<T>();
+            return this.QueryProvider.DeleteEntity<T>();
+        }
+
         private IDbCommunication _dbCommunication;
         /// <summary>
         ///     Gets the <see cref="IDbCommunication"/> for this context — connection lifetime, command

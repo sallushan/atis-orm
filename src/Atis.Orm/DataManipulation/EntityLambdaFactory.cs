@@ -21,6 +21,11 @@ namespace Atis.Orm
         public static readonly EntityFluentApiNames Insert =
             new EntityFluentApiNames(nameof(DataContext.InsertEntity), "Value", "insert", "inserted");
 
+        // Delete assigns no column, so it never reaches the setter diagnostics; Key is the only
+        // method it can be told it is missing.
+        public static readonly EntityFluentApiNames Delete =
+            new EntityFluentApiNames(nameof(DataContext.DeleteEntity), "Key", "delete", "deleted");
+
         private EntityFluentApiNames(string apiMethod, string setterMethod, string operationVerb, string operationPastTense)
         {
             this.ApiMethod = apiMethod;
@@ -116,6 +121,31 @@ namespace Atis.Orm
             return Expression.Lambda<Func<T, object[]>>(
                 Expression.NewArrayInit(typeof(object), outputFields),
                 parameter);
+        }
+
+        /// <summary>
+        ///     The <c>x =&gt; x.Key1 == v1 &amp;&amp; x.Key2 == v2</c> predicate that restricts an operation to
+        ///     the keyed rows. Each key was written against its own parameter, so the field selectors
+        ///     are rebound onto the one parameter this lambda has.
+        /// </summary>
+        public static Expression<Func<T, bool>> CreateKeyPredicate<T>(
+            IReadOnlyList<FieldValuePair> keys,
+            EntityFluentApiNames names)
+        {
+            if (keys is null)
+                throw new ArgumentNullException(nameof(keys));
+            if (keys.Count == 0)
+                throw new InvalidOperationException($"At least one Key call is required to {names.OperationVerb} an entity.");
+
+            var parameter = Expression.Parameter(typeof(T), "x");
+            Expression predicate = null;
+            foreach (var key in keys)
+            {
+                var field = ReplaceParameter(key.FieldSelector, parameter);
+                var equality = Expression.Equal(field, key.ValueSelector.Body);
+                predicate = predicate is null ? equality : Expression.AndAlso(predicate, equality);
+            }
+            return Expression.Lambda<Func<T, bool>>(predicate, parameter);
         }
 
         /// <summary>Returns <paramref name="expression"/>'s body with its single parameter swapped for <paramref name="replacement"/>.</summary>

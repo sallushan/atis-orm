@@ -1000,6 +1000,161 @@ values (42, 'John')
         }
 
         /// <summary>
+        ///     <para>
+        ///         The ORM fluent delete. Its terminal must submit the same
+        ///         <c>QueryExtensions.Delete</c> method-call AST as the engine's query-based API, so the
+        ///         expected SQL here is the one <c>Delete_query_single_table</c> already asserts.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Delete_fluent_api_emits_the_standard_delete_call()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.DeleteEntity<Asset>()
+                    .Key(x => x.ItemId, () => "123")
+                    .Execute();
+
+            var deleteCall = provider.CapturedExpression as MethodCallExpression;
+            Assert.IsNotNull(deleteCall, "The ORM facade must submit a standard method-call expression.");
+            Assert.AreEqual(nameof(QueryExtensions.Delete), deleteCall.Method.Name);
+            Assert.AreEqual(typeof(QueryExtensions), deleteCall.Method.DeclaringType);
+
+            string expectedResult = @"
+delete a_1
+from	Asset as a_1
+where	(a_1.ItemId = '123')
+";
+            Test("Delete Fluent API Test", provider.CapturedExpression, expectedResult);
+        }
+
+        /// <summary>
+        ///     A delete reports <see cref="int"/> — the affected-row count it returns. Every consumer is
+        ///     entitled to read <see cref="Expression.Type"/>, and the ones that build on top of it
+        ///     (here, <see cref="Expression.Lambda(Expression, ParameterExpression[])"/>) throw when it
+        ///     is missing.
+        /// </summary>
+        [TestMethod]
+        public void Delete_fluent_api_reports_int_as_its_type()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.DeleteEntity<Asset>()
+                    .Key(x => x.ItemId, () => "123")
+                    .Execute();
+
+            Assert.AreEqual(typeof(int), provider.CapturedExpression.Type,
+                "A delete returns the affected-row count.");
+
+            var lambda = Expression.Lambda(provider.CapturedExpression);
+            Assert.AreEqual(typeof(int), lambda.ReturnType,
+                "The node must be usable anywhere the LINQ contract requires a Type.");
+        }
+
+        /// <summary>
+        ///     Each key selector is written against its own parameter, so building the predicate has to
+        ///     rebind them onto one — and chaining keys has to narrow the delete, not widen it.
+        /// </summary>
+        [TestMethod]
+        public void Delete_fluent_api_combines_multiple_keys_with_and()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.DeleteEntity<Asset>()
+                    .Key(x => x.ItemId, () => "123")
+                    .Key(x => x.SerialNumber, () => "SN-1")
+                    .Execute();
+
+            var deleteCall = (MethodCallExpression)provider.CapturedExpression;
+            var predicate = (Expression<Func<Asset, bool>>)((UnaryExpression)deleteCall.Arguments[1]).Operand;
+
+            Assert.AreEqual(1, predicate.Parameters.Count,
+                "The standard Delete predicate must have exactly its required entity parameter.");
+            Assert.AreEqual(ExpressionType.AndAlso, predicate.Body.NodeType,
+                "Multiple keys must narrow the delete.");
+            Assert.IsTrue(predicate.Compile()(new Asset { ItemId = "123", SerialNumber = "SN-1" }));
+            Assert.IsFalse(predicate.Compile()(new Asset { ItemId = "123", SerialNumber = "SN-2" }));
+
+            string expectedResult = @"
+delete a_1
+from	Asset as a_1
+where	((a_1.ItemId = '123') and (a_1.SerialNumber = 'SN-1'))
+";
+            Test("Delete Fluent API Multiple Keys Test", provider.CapturedExpression, expectedResult);
+        }
+
+        /// <summary>
+        ///     Running the same fluent delete twice must produce the same compiled-query cache key, or
+        ///     the query is recompiled on every execution and the cache grows an entry per call.
+        /// </summary>
+        [TestMethod]
+        public void Delete_fluent_api_produces_a_stable_cache_key()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(BuildDelete()),
+                keyProvider.GetCacheKey(BuildDelete()),
+                "Two identical fluent deletes must share a cache key.");
+
+            Expression BuildDelete()
+            {
+                var provider = new ExpressionCapturingQueryProvider();
+                provider.DeleteEntity<Asset>()
+                        .Key(x => x.ItemId, () => "123")
+                        .Execute();
+                return provider.CapturedExpression;
+            }
+        }
+
+        /// <summary>
+        ///     A delete is always a non-query, so its async terminal asks the provider for the
+        ///     affected-row count as a <c>Task&lt;int&gt;</c> — and submits the same expression the
+        ///     synchronous terminal does, or the two spellings compile to two cache entries.
+        /// </summary>
+        [TestMethod]
+        public async Task Delete_fluent_api_execute_async_asks_for_the_affected_row_count()
+        {
+            using var cts = new CancellationTokenSource();
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            var sync = new ExpressionCapturingQueryProvider();
+            sync.DeleteEntity<Asset>()
+                .Key(x => x.ItemId, () => "123")
+                .Execute();
+
+            var async = new AsyncExpressionCapturingQueryProvider { AffectedRows = 3 };
+            var affected = await async.DeleteEntity<Asset>()
+                                      .Key(x => x.ItemId, () => "123")
+                                      .ExecuteAsync(cts.Token);
+
+            Assert.AreEqual(3, affected);
+            Assert.AreEqual(typeof(Task<int>), async.RequestedResultType,
+                "A delete must be requested as a non-query.");
+            Assert.AreEqual(cts.Token, async.CapturedCancellationToken);
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(sync.CapturedExpression),
+                keyProvider.GetCacheKey(async.CapturedExpression),
+                "Awaiting a delete must not change the expression it submits.");
+        }
+
+        /// <summary>
+        ///     The async demand is made at the terminal and not when <c>DeleteEntity</c> is called, so a
+        ///     synchronous provider still supports <c>Execute</c> — which the tests above rely on.
+        /// </summary>
+        [TestMethod]
+        public async Task Delete_fluent_api_async_terminal_rejects_a_synchronous_provider()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            var exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => provider.DeleteEntity<Asset>()
+                              .Key(x => x.ItemId, () => "123")
+                              .ExecuteAsync());
+            StringAssert.Contains(exception.Message, "does not support asynchronous");
+        }
+
+        /// <summary>
         ///     Stands in for a real provider so the expression the fluent builder produces can be
         ///     translated without a database. The unit-test <see cref="QueryProvider"/> throws from
         ///     <c>Execute</c>, which would hide the expression under test.

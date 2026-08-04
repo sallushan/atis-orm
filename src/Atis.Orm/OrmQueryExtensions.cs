@@ -30,6 +30,17 @@ namespace Atis.Orm
             return new UpdateSetStage<T>(provider);
         }
 
+        /// <summary>
+        ///     Starts the ORM's key-based fluent delete API. Its terminal encodes the operation as a
+        ///     standard SqlExpressionEngine QueryExtensions.Delete method call.
+        /// </summary>
+        public static DeleteKeyStage<T> DeleteEntity<T>(this IQueryProvider provider)
+        {
+            if (provider is null)
+                throw new ArgumentNullException(nameof(provider));
+            return new DeleteKeyStage<T>(provider);
+        }
+
         public static Task<int> DeleteAsync<T>(
             this IQueryable<T> query,
             Expression<Func<T, bool>> predicate,
