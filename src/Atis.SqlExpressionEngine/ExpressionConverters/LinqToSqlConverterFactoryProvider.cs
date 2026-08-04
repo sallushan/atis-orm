@@ -90,7 +90,6 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new CastQueryMethodExpressionConverterFactory(),
                 new BulkInsertConverterFactory(),
                 new GuidNewConverterFactory(),
-                new CollectionExpressionConverterFactory(),
             };
             return defaultFactories;
         }

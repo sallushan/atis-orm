@@ -56,17 +56,20 @@ namespace Atis.Orm
             foreach (var setter in setters)
             {
                 var member = GetSelectedMember(setter.FieldSelector);
-                try
+                var memberType = GetSettableMemberType(entityType, member);
+
+                // Set accepts Expression<Func<FT>>, so the value body has no entity parameter.
+                // The parameter on FieldSelector only identifies the member being initialized.
+                var value = setter.ValueSelector.Body;
+                if (!memberType.IsAssignableFrom(value.Type))
                 {
-                    // Set accepts Expression<Func<FT>>, so the value body has no entity parameter.
-                    // The parameter on FieldSelector only identifies the member being initialized.
-                    bindings.Add(Expression.Bind(member, setter.ValueSelector.Body));
-                }
-                catch (ArgumentException ex)
-                {
+                    // Reachable because GetSelectedMember strips Convert nodes off the field
+                    // selector, so FT can be wider than the member it names.
                     throw new InvalidOperationException(
-                        $"'{entityType.Name}.{member.Name}' cannot be assigned by Set. A calculated or read-only member is not a stored column.", ex);
+                        $"Set gave '{entityType.Name}.{member.Name}' a value of type '{value.Type}', which cannot be assigned to a member of type '{memberType}'.");
                 }
+
+                bindings.Add(Expression.Bind(member, value));
             }
 
             var parameter = Expression.Parameter(entityType, "x");
@@ -119,6 +122,24 @@ namespace Atis.Orm
             if (expression.Parameters.Count != 1)
                 throw new ArgumentException("A field selector must have exactly one parameter.", nameof(expression));
             return new ParameterReplacingVisitor(expression.Parameters[0], replacement).Visit(expression.Body);
+        }
+
+        /// <summary>
+        ///     The type of a member Set can write to. A member with no setter is not a stored column —
+        ///     a calculated property is the usual way to arrive here.
+        /// </summary>
+        private static Type GetSettableMemberType(Type entityType, MemberInfo member)
+        {
+            switch (member)
+            {
+                case PropertyInfo property when property.CanWrite:
+                    return property.PropertyType;
+                case FieldInfo field:
+                    return field.FieldType;
+                default:
+                    throw new InvalidOperationException(
+                        $"'{entityType.Name}.{member.Name}' cannot be assigned by Set. A calculated or read-only member is not a stored column.");
+            }
         }
 
         private static MemberInfo GetSelectedMember(LambdaExpression selector)

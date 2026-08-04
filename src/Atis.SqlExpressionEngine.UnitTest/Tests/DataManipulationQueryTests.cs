@@ -568,6 +568,35 @@ where	(a_1.ItemId = '123')
         }
 
         /// <summary>
+        ///     <para>
+        ///         A boxed selector names a stored column that <c>Set</c> simply cannot be given an
+        ///         <c>object</c>. It is reachable because the field selector's <c>Convert</c> node is
+        ///         stripped to find the member, so <c>FT</c> can be wider than the member it names.
+        ///     </para>
+        ///     <para>
+        ///         The check used to be a <c>catch (ArgumentException)</c> around
+        ///         <c>Expression.Bind</c>, which reports a type mismatch and a missing setter the same
+        ///         way — so this case was diagnosed as a read-only column.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_rejects_a_value_that_does_not_fit_the_column()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(() =>
+                provider.UpdateEntity<Asset>()
+                        .Set(x => (object)x.RowId, () => (object)Guid.Empty)
+                        .Key(x => x.ItemId, () => "123")
+                        .Execute());
+
+            StringAssert.Contains(thrown.Message, nameof(Asset.RowId),
+                "The error must name the member the caller wrote.");
+            StringAssert.Contains(thrown.Message, "cannot be assigned to a member of type",
+                "A type mismatch must not be reported as a read-only column.");
+        }
+
+        /// <summary>
         ///     Stands in for a real provider so the expression the fluent builder produces can be
         ///     translated without a database. The unit-test <see cref="QueryProvider"/> throws from
         ///     <c>Execute</c>, which would hide the expression under test.
