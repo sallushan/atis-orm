@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Atis.SqlExpressionEngine.UnitTest
 {
@@ -51,6 +53,32 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 // Expected. Everything work() did has been rolled back; a genuine failure inside
                 // work() is a different type and propagates.
+            }
+        }
+
+        /// <summary>
+        ///     The asynchronous <see cref="TransactionWithRollback"/>, for tests awaiting real DML. The
+        ///     same rules apply.
+        /// </summary>
+        public static async Task TransactionWithRollbackAsync(
+            this Atis.Orm.DataContext db, Func<Task> work, CancellationToken cancellationToken = default)
+        {
+            if (db is null)
+                throw new ArgumentNullException(nameof(db));
+            if (work is null)
+                throw new ArgumentNullException(nameof(work));
+
+            try
+            {
+                await db.TransactionAsync(async () =>
+                {
+                    await work().ConfigureAwait(false);
+                    throw new RollbackSignal();
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (RollbackSignal)
+            {
+                // Expected, exactly as in the synchronous version.
             }
         }
 

@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
+using System.Threading.Tasks;
 
+using Atis.Orm.Querying;
 namespace Atis.Orm
 {
     /// <summary>The stage after at least one Key, so the update is filtered and can be executed.</summary>
@@ -41,6 +44,13 @@ namespace Atis.Orm
         {
             var updateCall = UpdateEntityMethodCallFactory.CreateAffectedRowsCall<T>(this.setters, this.keys);
             return this.provider.Execute<int>(updateCall);
+        }
+
+        /// <summary>The asynchronous <see cref="Execute"/>. Submits the same expression.</summary>
+        public Task<int> ExecuteAsync(CancellationToken cancellationToken = default)
+        {
+            var updateCall = UpdateEntityMethodCallFactory.CreateAffectedRowsCall<T>(this.setters, this.keys);
+            return this.provider.RequireAsync().ExecuteAsync<Task<int>>(updateCall, cancellationToken);
         }
     }
 }

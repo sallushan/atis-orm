@@ -1,3 +1,5 @@
+using Atis.Orm;
+
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
     /// <summary>
@@ -92,6 +94,65 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                      .Where(x => x.EmployeeId == 1)
                      .Select(x => x.LastName)
                      .ToList();
+        }
+
+        /// <summary>
+        ///     The async output terminal end to end. It bypasses <c>CreateQuery</c> and drains the
+        ///     provider's async sequence directly, so the OUTPUT rows have to survive a different
+        ///     materialization path than <see cref="Update_fluent_api_execution"/> exercises.
+        /// </summary>
+        [TestMethod]
+        public async Task Update_fluent_api_execution_async()
+        {
+            var db = new OrmDbContext();
+            await db.TransactionWithRollbackAsync(async () =>
+            {
+                var results = await db.UpdateEntity<TestEntities.Employee>()
+                            .Set(x => x.LastName, () => "Smith_Async")
+                            .Set(x => x.FirstName, () => "John_Async")
+                            .Key(x => x.EmployeeId, () => 1)
+                            .Output(x => x.EmployeeId)
+                            .Output(x => x.FirstName)
+                            .ExecuteDictionaryAsync();
+
+                Assert.AreEqual(1, results.Count, "One employee matches the key, so one row comes back.");
+                Assert.AreEqual(1, results[0]["EmployeeId"], "OUTPUT must return the updated row's key.");
+                Assert.AreEqual("John_Async", results[0]["FirstName"],
+                    "OUTPUT reports the row as it now stands, not as it was.");
+
+                var names = await db.CreateQuery<TestEntities.Employee>()
+                                    .Where(x => x.EmployeeId == 1)
+                                    .Select(x => x.FirstName)
+                                    .ToListAsync();
+                CollectionAssert.AreEqual(new[] { "John_Async" }, names,
+                    "The SET clause must actually have been applied.");
+            });
+        }
+
+        /// <summary>
+        ///     The async non-query terminal end to end. This is the branch <c>QueryExecutor</c> routes to
+        ///     <c>ExecuteNonQueryAsync</c>, which returns the count rather than materializing rows.
+        /// </summary>
+        [TestMethod]
+        public async Task Update_fluent_api_execute_async_reports_the_affected_row_count()
+        {
+            var db = new OrmDbContext();
+            await db.TransactionWithRollbackAsync(async () =>
+            {
+                var affected = await db.UpdateEntity<TestEntities.Employee>()
+                                       .Set(x => x.LastName, () => "Smith_AsyncCount")
+                                       .Key(x => x.EmployeeId, () => 1)
+                                       .ExecuteAsync();
+
+                Assert.AreEqual(1, affected, "Exactly the one employee named by the key is updated.");
+
+                var lastNames = await db.CreateQuery<TestEntities.Employee>()
+                                        .Where(x => x.EmployeeId == 1)
+                                        .Select(x => x.LastName)
+                                        .ToListAsync();
+                CollectionAssert.AreEqual(new[] { "Smith_AsyncCount" }, lastNames,
+                    "A reported count of 1 must mean the row really was written.");
+            });
         }
 
         /// <summary>The query-based UPDATE, whose values are expressions over the row itself.</summary>

@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
+using System.Threading.Tasks;
 
+using Atis.Orm.Querying;
 namespace Atis.Orm
 {
     /// <summary>The stage after at least one Output call.</summary>
@@ -36,6 +39,35 @@ namespace Atis.Orm
             var updateCall = UpdateEntityMethodCallFactory.CreateOutputCall<T>(this.setters, this.keys, this.outputs);
             var outputQuery = this.provider.CreateQuery<Dictionary<string, object>>(updateCall);
             return new List<Dictionary<string, object>>(outputQuery);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The asynchronous <see cref="ExecuteDictionary"/>. Submits the same expression, but
+        ///         asks the provider for the rows directly instead of going through
+        ///         <c>CreateQuery</c> — the queryable in the synchronous path exists only to be
+        ///         enumerated on the spot, and <c>GetEnumerator</c> hands this very expression straight
+        ///         back to the provider.
+        ///     </para>
+        /// </summary>
+        public async Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(CancellationToken cancellationToken = default)
+        {
+            var updateCall = UpdateEntityMethodCallFactory.CreateOutputCall<T>(this.setters, this.keys, this.outputs);
+            var outputRows = this.provider.RequireAsync()
+                                 .ExecuteAsync<IAsyncEnumerable<Dictionary<string, object>>>(updateCall, cancellationToken);
+
+            var rows = new List<Dictionary<string, object>>();
+            var enumerator = outputRows.GetAsyncEnumerator(cancellationToken);
+            try
+            {
+                while (await enumerator.MoveNextAsync().ConfigureAwait(false))
+                    rows.Add(enumerator.Current);
+            }
+            finally
+            {
+                await enumerator.DisposeAsync().ConfigureAwait(false);
+            }
+            return rows;
         }
     }
 }

@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using Atis.Orm;
+using Atis.Orm.Abstractions;
 using Atis.Orm.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
 
@@ -596,6 +597,168 @@ where	(a_1.ItemId = '123')
                 "A type mismatch must not be reported as a read-only column.");
         }
 
+        // ---------- async terminals ----------
+
+        /// <summary>
+        ///     <para>
+        ///         The point of the async terminals: the same update, awaited instead of blocked on,
+        ///         must reach the provider as the same expression — otherwise the two spellings compile
+        ///         to two cache entries and the second one recompiles the same SQL.
+        ///     </para>
+        ///     <para>
+        ///         Compared by cache key rather than by reference, because each call rebuilds the tree
+        ///         from scratch; equal keys is exactly the property the compiled-query cache relies on.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_execute_async_submits_the_same_expression_as_execute()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            var sync = new ExpressionCapturingQueryProvider();
+            sync.UpdateEntity<Asset>()
+                .Set(x => x.Description, () => "Check")
+                .Key(x => x.ItemId, () => "123")
+                .Execute();
+
+            var async = new AsyncExpressionCapturingQueryProvider();
+            async.UpdateEntity<Asset>()
+                 .Set(x => x.Description, () => "Check")
+                 .Key(x => x.ItemId, () => "123")
+                 .ExecuteAsync();
+
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(sync.CapturedExpression),
+                keyProvider.GetCacheKey(async.CapturedExpression),
+                "Awaiting an update must not change the expression it submits.");
+        }
+
+        /// <summary>The same, for the output-returning terminal.</summary>
+        [TestMethod]
+        public void Update_fluent_api_execute_dictionary_async_submits_the_same_expression_as_execute_dictionary()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            var sync = new ExpressionCapturingQueryProvider();
+            sync.UpdateEntity<Asset>()
+                .Set(x => x.Description, () => "Check")
+                .Key(x => x.ItemId, () => "123")
+                .Output(x => x.SerialNumber)
+                .ExecuteDictionary();
+
+            var async = new AsyncExpressionCapturingQueryProvider();
+            async.UpdateEntity<Asset>()
+                 .Set(x => x.Description, () => "Check")
+                 .Key(x => x.ItemId, () => "123")
+                 .Output(x => x.SerialNumber)
+                 .ExecuteDictionaryAsync();
+
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(sync.CapturedExpression),
+                keyProvider.GetCacheKey(async.CapturedExpression),
+                "Awaiting an update with output must not change the expression it submits.");
+        }
+
+        /// <summary>
+        ///     An update without output is a non-query, so its async terminal asks the provider for the
+        ///     affected-row count as a <c>Task&lt;int&gt;</c> — the shape <c>QueryExecutor</c> routes to
+        ///     <c>ExecuteNonQueryAsync</c>.
+        /// </summary>
+        [TestMethod]
+        public async Task Update_fluent_api_execute_async_asks_for_the_affected_row_count()
+        {
+            var provider = new AsyncExpressionCapturingQueryProvider { AffectedRows = 3 };
+
+            var affected = await provider.UpdateEntity<Asset>()
+                                         .Set(x => x.Description, () => "Check")
+                                         .Key(x => x.ItemId, () => "123")
+                                         .ExecuteAsync();
+
+            Assert.AreEqual(3, affected);
+            Assert.AreEqual(typeof(Task<int>), provider.RequestedResultType,
+                "An update with no output must be requested as a non-query.");
+        }
+
+        /// <summary>
+        ///     An update with output produces rows, so its async terminal asks for an async sequence and
+        ///     drains it — the counterpart of enumerating the queryable in the synchronous path.
+        /// </summary>
+        [TestMethod]
+        public async Task Update_fluent_api_execute_dictionary_async_drains_every_output_row()
+        {
+            var provider = new AsyncExpressionCapturingQueryProvider
+            {
+                OutputRows =
+                {
+                    new Dictionary<string, object> { ["SerialNumber"] = "A" },
+                    new Dictionary<string, object> { ["SerialNumber"] = "B" },
+                }
+            };
+
+            var rows = await provider.UpdateEntity<Asset>()
+                                     .Set(x => x.Description, () => "Check")
+                                     .Key(x => x.ItemId, () => "123")
+                                     .Output(x => x.SerialNumber)
+                                     .ExecuteDictionaryAsync();
+
+            CollectionAssert.AreEqual(
+                new[] { "A", "B" },
+                rows.Select(x => x["SerialNumber"]).ToArray(),
+                "Every row the provider yields must reach the caller, in order.");
+            Assert.AreEqual(typeof(IAsyncEnumerable<Dictionary<string, object>>), provider.RequestedResultType,
+                "Output rows must be requested as an async sequence.");
+            Assert.IsTrue(provider.EnumeratorWasDisposed,
+                "The sequence holds a reader and a connection, so it must be disposed even on the happy path.");
+        }
+
+        /// <summary>The token has to reach the provider, or nothing downstream can honour it.</summary>
+        [TestMethod]
+        public async Task Update_fluent_api_async_terminals_pass_the_cancellation_token()
+        {
+            using var cts = new CancellationTokenSource();
+
+            var affectedRowsProvider = new AsyncExpressionCapturingQueryProvider();
+            await affectedRowsProvider.UpdateEntity<Asset>()
+                                      .Set(x => x.Description, () => "Check")
+                                      .Key(x => x.ItemId, () => "123")
+                                      .ExecuteAsync(cts.Token);
+            Assert.AreEqual(cts.Token, affectedRowsProvider.CapturedCancellationToken);
+
+            var outputProvider = new AsyncExpressionCapturingQueryProvider();
+            await outputProvider.UpdateEntity<Asset>()
+                                .Set(x => x.Description, () => "Check")
+                                .Key(x => x.ItemId, () => "123")
+                                .Output(x => x.SerialNumber)
+                                .ExecuteDictionaryAsync(cts.Token);
+            Assert.AreEqual(cts.Token, outputProvider.CapturedCancellationToken);
+        }
+
+        /// <summary>
+        ///     A provider that cannot run anything asynchronously must say so. The demand is made at the
+        ///     terminal and not when <c>UpdateEntity</c> is called, so a synchronous provider still
+        ///     supports the synchronous terminals — which the tests above rely on.
+        /// </summary>
+        [TestMethod]
+        public async Task Update_fluent_api_async_terminals_reject_a_synchronous_provider()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            var fromExecute = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => provider.UpdateEntity<Asset>()
+                              .Set(x => x.Description, () => "Check")
+                              .Key(x => x.ItemId, () => "123")
+                              .ExecuteAsync());
+            StringAssert.Contains(fromExecute.Message, "does not support asynchronous");
+
+            var fromOutput = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => provider.UpdateEntity<Asset>()
+                              .Set(x => x.Description, () => "Check")
+                              .Key(x => x.ItemId, () => "123")
+                              .Output(x => x.SerialNumber)
+                              .ExecuteDictionaryAsync());
+            StringAssert.Contains(fromOutput.Message, "does not support asynchronous");
+        }
+
         /// <summary>
         ///     Stands in for a real provider so the expression the fluent builder produces can be
         ///     translated without a database. The unit-test <see cref="QueryProvider"/> throws from
@@ -631,6 +794,67 @@ where	(a_1.ItemId = '123')
                 this.CapturedExpression = expression;
                 return default;
             }
+        }
+
+        /// <summary>
+        ///     The asynchronous counterpart, standing in for <c>OrmQueryProvider</c>. Records what the
+        ///     terminal asked for and serves canned results, so the async path can be asserted without a
+        ///     database. Note <c>ExecuteAsync</c> returns <c>TResult</c> itself, not a task wrapping it
+        ///     — <c>TResult</c> <em>is</em> the <c>Task</c> or the <c>IAsyncEnumerable</c>.
+        /// </summary>
+        private sealed class AsyncExpressionCapturingQueryProvider : IAsyncQueryProvider
+        {
+            public Expression CapturedExpression { get; private set; }
+
+            public Type RequestedResultType { get; private set; }
+
+            public CancellationToken CapturedCancellationToken { get; private set; }
+
+            public bool EnumeratorWasDisposed { get; private set; }
+
+            public int AffectedRows { get; set; }
+
+            public List<Dictionary<string, object>> OutputRows { get; } = new List<Dictionary<string, object>>();
+
+            public TResult ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+            {
+                this.CapturedExpression = expression;
+                this.RequestedResultType = typeof(TResult);
+                this.CapturedCancellationToken = cancellationToken;
+
+                if (typeof(TResult) == typeof(Task<int>))
+                    return (TResult)(object)Task.FromResult(this.AffectedRows);
+
+                if (typeof(TResult) == typeof(IAsyncEnumerable<Dictionary<string, object>>))
+                    return (TResult)(object)this.YieldOutputRows();
+
+                throw new InvalidOperationException(
+                    $"The update terminal asked for '{typeof(TResult)}', which no execution path serves.");
+            }
+
+            private async IAsyncEnumerable<Dictionary<string, object>> YieldOutputRows()
+            {
+                try
+                {
+                    foreach (var row in this.OutputRows)
+                    {
+                        await Task.Yield();
+                        yield return row;
+                    }
+                }
+                finally
+                {
+                    this.EnumeratorWasDisposed = true;
+                }
+            }
+
+            public IQueryable CreateQuery(Expression expression) => throw new NotSupportedException();
+
+            public IQueryable<TElement> CreateQuery<TElement>(Expression expression) => throw new NotSupportedException();
+
+            public object Execute(Expression expression) => throw new NotSupportedException();
+
+            public TResult Execute<TResult>(Expression expression) => throw new NotSupportedException();
         }
     }
 }
