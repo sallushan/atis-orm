@@ -251,6 +251,33 @@ where	(a_1.ItemId = '123')
         }
 
         /// <summary>
+        ///     The field selector has an entity parameter, but the value selector passed to Set is a
+        ///     parameterless lambda. Building the standard Update setter must not leave the field
+        ///     selector's original parameter unbound in the generated member-init expression.
+        /// </summary>
+        [TestMethod]
+        public void Update_fluent_api_setter_lambda_has_no_unbound_parameters()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+            var description = "Captured value";
+
+            provider.UpdateEntity<Asset>()
+                    .Set(x => x.Description, () => description)
+                    .Key(x => x.ItemId, () => "123")
+                    .Execute();
+
+            var updateCall = (MethodCallExpression)provider.CapturedExpression;
+            var setter = (Expression<Func<Asset, Asset>>)((UnaryExpression)updateCall.Arguments[1]).Operand;
+
+            Assert.AreEqual(1, setter.Parameters.Count,
+                "The standard Update setter must have exactly its required entity parameter.");
+
+            var updated = setter.Compile()(new Asset());
+            Assert.AreEqual(description, updated.Description,
+                "A captured Set value must remain valid after the setter lambda is rebuilt.");
+        }
+
+        /// <summary>
         ///     <para>
         ///         An <c>Execute()</c> update reports <see cref="int"/> — the affected-row count it
         ///         returns. It used to report <c>null</c>, which breaks the

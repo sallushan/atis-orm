@@ -58,6 +58,8 @@ namespace Atis.Orm
                 var member = GetSelectedMember(setter.FieldSelector);
                 try
                 {
+                    // Set accepts Expression<Func<FT>>, so the value body has no entity parameter.
+                    // The parameter on FieldSelector only identifies the member being initialized.
                     bindings.Add(Expression.Bind(member, setter.ValueSelector.Body));
                 }
                 catch (ArgumentException ex)
@@ -68,6 +70,7 @@ namespace Atis.Orm
             }
 
             var parameter = Expression.Parameter(entityType, "x");
+            // Update requires Expression<Func<T, T>> even though entity-value setters do not read x.
             return Expression.Lambda<Func<T, T>>(
                 Expression.MemberInit(Expression.New(entityType), bindings),
                 parameter);
