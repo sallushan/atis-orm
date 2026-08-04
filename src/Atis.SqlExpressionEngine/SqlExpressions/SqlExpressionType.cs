@@ -60,6 +60,7 @@
         DataSourceQueryShape,
         MemberInit,
         QueryShapeMember,
+        Insert,
         InsertInto,
         NewGuid,
         OutputColumn,

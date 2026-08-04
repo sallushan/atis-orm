@@ -35,6 +35,7 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlNegateExpression CreateNegate(SqlExpression operand);
         SqlNotExpression CreateNot(SqlExpression sqlExpression);
         SqlUpdateExpression CreateUpdate(SqlDerivedTableExpression source, Guid dataSourceToUpdate, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs);
+        SqlInsertExpression CreateInsert(SqlTable table, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs);
         SqlDeleteExpression CreateDelete(SqlDerivedTableExpression source, Guid dataSourceAlias);
         SqlExpression CreateJoinCondition(SqlExpression predicateLeft, SqlExpression predicateRight);
         SqlInsertIntoExpression CreateInsertInto(SqlTable sqlTable, IReadOnlyList<TableColumn> tableColumns, SqlDerivedTableExpression derivedTable);

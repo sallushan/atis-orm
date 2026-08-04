@@ -23,37 +23,54 @@ namespace Atis.Orm.Services
             {
                 if (updateExpression.Outputs.Count == 0)
                     throw new InvalidOperationException($"{nameof(sqlExpression)} of type {nameof(SqlUpdateExpression)} must have at least one output column to create an element factory.");
-
-                // The element type the caller asked for decides the shape, exactly as it does for a
-                // derived table below. Asking whether a dictionary row satisfies it, rather than
-                // matching one exact closed generic, keeps this from being a private handshake with
-                // whichever call site happened to pick that type.
-                var updateElementType = GetElementType(expression.Type);
-                if (updateElementType.IsAssignableFrom(typeof(Dictionary<string, object>)))
-                {
-                    // The OUTPUT aliases are the column names, known here rather than discovered from the
-                    // reader — so a duplicate is caught once, now, instead of silently dropping a value on
-                    // every row. Everything past that is the same shape ExecuteDictionary produces.
-                    var columnNames = updateExpression.Outputs.Select(x => x.Alias).ToArray();
-                    var keyComparer = DictionaryRow.DefaultKeyComparer;
-                    DictionaryRow.EnsureNoDuplicateColumns(columnNames, keyComparer);
-                    return dr => DictionaryRow.Read(dr, columnNames, keyComparer);
-                }
-                else
-                {
-                    // Materializing an update's output into a typed shape needs a QueryShape to map
-                    // members onto ordinals, and the shape-building path below takes it from a
-                    // SqlDerivedTableExpression. An update has Outputs (which give the ordinals) but no
-                    // shape, and its Source is the wrong one to borrow -- the OUTPUT list can select
-                    // different columns than the query does. The converter would have to build the
-                    // output projection's shape alongside Outputs and carry it on SqlUpdateExpression.
-                    throw new NotSupportedException(
-                        $"An update with an OUTPUT clause can currently only be materialized as " +
-                        $"{nameof(Dictionary<string, object>)}<string, object>, not as '{updateElementType.Name}'.");
-                }
+                return this.CreateElementFactoryForDataManipulationOutput(expression, updateExpression.Outputs, "update");
+            }
+            else if (sqlExpression is SqlInsertExpression insertExpression)
+            {
+                if (insertExpression.Outputs.Count == 0)
+                    throw new InvalidOperationException($"{nameof(sqlExpression)} of type {nameof(SqlInsertExpression)} must have at least one output column to create an element factory.");
+                return this.CreateElementFactoryForDataManipulationOutput(expression, insertExpression.Outputs, "insert");
             }
 
             throw new NotSupportedException($"SQL expression of type {sqlExpression.GetType().Name} is not supported.");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Reads back the OUTPUT clause of an INSERT or an UPDATE. Both carry the same thing —
+        ///         a list of output columns and no query shape — so they materialize the same way.
+        ///     </para>
+        /// </summary>
+        private Func<IDataReader, object> CreateElementFactoryForDataManipulationOutput(
+            Expression expression,
+            IReadOnlyList<SelectColumn> outputs,
+            string operation)
+        {
+            // The element type the caller asked for decides the shape, exactly as it does for a
+            // derived table below. Asking whether a dictionary row satisfies it, rather than
+            // matching one exact closed generic, keeps this from being a private handshake with
+            // whichever call site happened to pick that type.
+            var elementType = GetElementType(expression.Type);
+            if (elementType.IsAssignableFrom(typeof(Dictionary<string, object>)))
+            {
+                // The OUTPUT aliases are the column names, known here rather than discovered from the
+                // reader — so a duplicate is caught once, now, instead of silently dropping a value on
+                // every row. Everything past that is the same shape ExecuteDictionary produces.
+                var columnNames = outputs.Select(x => x.Alias).ToArray();
+                var keyComparer = DictionaryRow.DefaultKeyComparer;
+                DictionaryRow.EnsureNoDuplicateColumns(columnNames, keyComparer);
+                return dr => DictionaryRow.Read(dr, columnNames, keyComparer);
+            }
+
+            // Materializing an OUTPUT clause into a typed shape needs a QueryShape to map members onto
+            // ordinals, and the shape-building path below takes it from a SqlDerivedTableExpression.
+            // These statements have Outputs (which give the ordinals) but no shape, and their source is
+            // the wrong one to borrow -- the OUTPUT list can select different columns than the query
+            // does. The converter would have to build the output projection's shape alongside Outputs
+            // and carry it on the statement.
+            throw new NotSupportedException(
+                $"An {operation} with an OUTPUT clause can currently only be materialized as " +
+                $"{nameof(Dictionary<string, object>)}<string, object>, not as '{elementType.Name}'.");
         }
 
         private Func<IDataReader, object> CreateElementFactoryForDerivedTable(Expression expression, SqlDerivedTableExpression derivedTable)
@@ -126,7 +143,7 @@ namespace Atis.Orm.Services
         private bool IsScalarShape(SqlExpression queryShape)
         {
             // Scalar shapes are leaf expressions that map directly to a single column
-            return (queryShape as SqlQueryShapeExpression)?.IsScalar == true || 
+            return (queryShape as SqlQueryShapeExpression)?.IsScalar == true ||
                     !(queryShape is SqlQueryShapeExpression);
         }
 

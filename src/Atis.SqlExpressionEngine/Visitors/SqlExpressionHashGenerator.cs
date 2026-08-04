@@ -175,6 +175,22 @@ namespace Atis.SqlExpressionEngine.Visitors
             return base.VisitSqlUpdate(node);
         }
 
+        protected internal override SqlExpression VisitSqlInsert(SqlInsertExpression node)
+        {
+            // Neither the table nor the column list is a child expression, so visiting alone would let
+            // two inserts that differ only in destination or column list hash the same.
+            this.hashCode.Add(node.Table);
+            foreach (var column in node.Columns)
+            {
+                this.hashCode.Add(column);
+            }
+            foreach (var output in node.Outputs)
+            {
+                this.hashCode.Add(output.Alias);
+            }
+            return base.VisitSqlInsert(node);
+        }
+
         protected internal override SqlExpression VisitSqlComment(SqlCommentExpression node)
         {
             this.hashCode.Add(node.Comment);

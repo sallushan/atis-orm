@@ -287,6 +287,8 @@ namespace Atis.Orm.Translation
                 this.TranslateStandaloneSelect(standaloneSelect);
             else if (node is SqlUpdateExpression update)
                 this.TranslateUpdate(update);
+            else if (node is SqlInsertExpression insert)
+                this.TranslateInsert(insert);
             else if (node is SqlDeleteExpression delete)
                 this.TranslateDelete(delete);
             else if (node is SqlInsertIntoExpression insertInto)
@@ -573,9 +575,19 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateTable(SqlTableExpression node)
         {
-            var t = node.SqlTable;
-            var tableParts = new[] { t.Server, t.Database, t.Schema, t.TableName };
-            this.writer.Append(string.Join(".", tableParts.Where(x => !string.IsNullOrEmpty(x))));
+            this.writer.Append(this.GetQualifiedTableName(node.SqlTable));
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The name a table is written by. Every site that names a table — this one, the INSERT
+        ///         destination, the INSERT ... SELECT destination — goes through here, so a dialect that
+        ///         quotes or brackets identifiers overrides once and all of them follow.
+        ///     </para>
+        /// </summary>
+        protected virtual string GetQualifiedTableName(SqlTable table)
+        {
+            return SqlTableNaming.GetQualifiedName(table);
         }
 
         /// <summary>
@@ -1296,6 +1308,39 @@ namespace Atis.Orm.Translation
             this.TranslateExpression(node.Source);
         }
 
+        /// <summary>Translates a single-row INSERT ... VALUES statement.</summary>
+        protected virtual void TranslateInsert(SqlInsertExpression node)
+        {
+            this.writer.Append("INSERT INTO ");
+            this.writer.Append(this.GetQualifiedTableName(node.Table));
+            this.writer.Append(" (");
+            this.writer.Append(string.Join(", ", node.Columns));
+            this.writer.Append(")\r\n");
+
+            if (node.Outputs.Count > 0)
+            {
+                this.writer.Append("OUTPUT ");
+                for (var i = 0; i < node.Outputs.Count; i++)
+                {
+                    if (i > 0)
+                        this.writer.Append(", ");
+                    this.TranslateExpression(node.Outputs[i].ColumnExpression);
+                    this.writer.Append(" AS ");
+                    this.writer.Append(node.Outputs[i].Alias);
+                }
+                this.writer.Append("\r\n");
+            }
+
+            this.writer.Append("VALUES (");
+            for (var i = 0; i < node.Values.Count; i++)
+            {
+                if (i > 0)
+                    this.writer.Append(", ");
+                this.TranslateExpression(node.Values[i]);
+            }
+            this.writer.Append(")");
+        }
+
         /// <summary>
         ///     <para>
         ///         Translates a DELETE expression.
@@ -1327,7 +1372,7 @@ namespace Atis.Orm.Translation
 
             var columns = string.Join(", ", selectColumns.Select(c => propertyWithDbColumnMap[c.Alias]));
             this.writer.Append("INSERT INTO ");
-            this.writer.Append(node.SqlTable.TableName);
+            this.writer.Append(this.GetQualifiedTableName(node.SqlTable));
             this.writer.Append("(");
             this.writer.Append(columns);
             this.writer.Append(")\r\n");

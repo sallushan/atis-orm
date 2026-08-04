@@ -10,6 +10,109 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     public class DataManipulationQueryTests : TestBase
     {
         [TestMethod]
+        public void Insert_query_single_row_uses_mapped_columns()
+        {
+            var people = new Queryable<Person>(this.queryProvider);
+            Expression<Func<int>> expr = () => people.Insert(
+                () => new Person { Age = 42, FirstName = "John", LastName = "Smith" });
+
+            string expectedResult = @"
+insert into dbo.Person (AGE, FRST_NM, LAST_NM)
+values (42, 'John', 'Smith')
+";
+            Test("Insert Query Single Row Test", expr.Body, expectedResult);
+        }
+
+        [TestMethod]
+        public void Insert_query_with_output_returns_inserted_columns()
+        {
+            var people = new Queryable<Person>(this.queryProvider);
+            Expression<Func<IReadOnlyList<IReadOnlyDictionary<string, object>>>> expr = () =>
+                people.Insert(
+                    () => new Person { Age = 42, FirstName = "John" },
+                    x => new object[] { x.Id, x.FirstName });
+
+            var insert = ConvertExpressionToSqlExpression(expr.Body, out _) as SqlInsertExpression;
+            Assert.IsNotNull(insert);
+            Assert.AreEqual(2, insert.Outputs.Count);
+            Assert.AreEqual(SqlOutputSource.Inserted,
+                ((SqlOutputColumnExpression)insert.Outputs[0].ColumnExpression).Source);
+
+            string expectedResult = @"
+insert into dbo.Person (AGE, FRST_NM)
+output inserted.ID as Id, inserted.FRST_NM as FirstName
+values (42, 'John')
+";
+            Test("Insert Query Output Test", expr.Body, expectedResult);
+        }
+
+        [TestMethod]
+        public void Insert_query_rejects_a_composed_destination()
+        {
+            var people = new Queryable<Person>(this.queryProvider).Where(x => x.Age > 18);
+            Expression<Func<int>> expr = () => people.Insert(() => new Person { FirstName = "John" });
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => ConvertExpressionToSqlExpression(expr.Body, out _));
+
+            StringAssert.Contains(thrown.Message, nameof(QueryExtensions.BulkInsert));
+        }
+
+        [TestMethod]
+        public void Visiting_an_insert_rewrites_values_and_outputs()
+        {
+            var insert = new SqlInsertExpression(
+                new SqlTable("Person", "dbo", null, null),
+                new[] { "FRST_NM" },
+                new SqlExpression[] { new SqlLiteralExpression("before") },
+                new[]
+                {
+                    new SelectColumn(
+                        new SqlOutputColumnExpression(SqlOutputSource.Inserted, "ID"),
+                        "Id",
+                        scalarColumn: false),
+                });
+
+            var rewritten = (SqlInsertExpression)new InsertRewritingVisitor().Visit(insert);
+
+            Assert.AreEqual("after", ((SqlLiteralExpression)rewritten.Values[0]).LiteralValue);
+            Assert.AreEqual("ID_visited",
+                ((SqlOutputColumnExpression)rewritten.Outputs[0].ColumnExpression).ColumnName);
+            Assert.AreEqual("Id", rewritten.Outputs[0].Alias);
+        }
+
+        [TestMethod]
+        public void Sql_insert_enforces_its_collection_invariants()
+        {
+            var table = new SqlTable("Person");
+            Assert.ThrowsException<ArgumentException>(() =>
+                new SqlInsertExpression(table, Array.Empty<string>(), Array.Empty<SqlExpression>(), null));
+            Assert.ThrowsException<ArgumentException>(() =>
+                new SqlInsertExpression(
+                    table,
+                    new[] { "FirstName" },
+                    Array.Empty<SqlExpression>(),
+                    null));
+
+            var insert = new SqlInsertExpression(
+                table,
+                new[] { "FirstName" },
+                new SqlExpression[] { new SqlLiteralExpression("John") },
+                null);
+            Assert.IsNotNull(insert.Outputs);
+            Assert.AreEqual(0, insert.Outputs.Count);
+        }
+
+        private sealed class InsertRewritingVisitor : Atis.SqlExpressionEngine.Visitors.SqlExpressionVisitor
+        {
+            protected override SqlExpression VisitSqlLiteral(SqlLiteralExpression node)
+                => Equals(node.LiteralValue, "before") ? new SqlLiteralExpression("after") : node;
+
+            protected override SqlExpression VisitSqlOutputColumn(SqlOutputColumnExpression node)
+                => new SqlOutputColumnExpression(node.Source, node.ColumnName + "_visited");
+        }
+
+        [TestMethod]
         public void Update_query_single_table()
         {
             var assets = new Queryable<Asset>(this.queryProvider);
@@ -217,6 +320,29 @@ insert into SiteAuthorizationSetting(RowId, ModuleName, SiteId, AuthorizationUse
 )
 ";
             Test("Bulk Insert Test", queryExpression, expectedResult);
+        }
+
+        /// <summary>
+        ///     The INSERT ... SELECT destination is written by the same rule as a FROM source, so an
+        ///     entity mapped to a schema keeps it here. It used to be emitted as the bare table name.
+        /// </summary>
+        [TestMethod]
+        public void Bulk_insert_qualifies_the_destination_table()
+        {
+            var people = new Queryable<Person>(this.queryProvider);
+            Expression<Func<int>> expr = () => people.Where(x => x.Age > 18)
+                                                     .Select(x => new Person { Age = x.Age, FirstName = x.FirstName })
+                                                     .BulkInsert();
+
+            string expectedResult = @"
+insert into dbo.Person(AGE, FRST_NM)
+(
+	select a_1.AGE as Age, a_1.FRST_NM as FirstName
+	from dbo.Person as a_1
+	where (a_1.AGE > 18)
+)
+";
+            Test("Bulk Insert Schema Qualification Test", expr.Body, expectedResult);
         }
 
         /// <summary>
@@ -757,6 +883,120 @@ where	(a_1.ItemId = '123')
                               .Output(x => x.SerialNumber)
                               .ExecuteDictionaryAsync());
             StringAssert.Contains(fromOutput.Message, "does not support asynchronous");
+        }
+
+        [TestMethod]
+        public void Insert_fluent_api_without_output_emits_the_standard_insert_call()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.InsertEntity<Person>()
+                    .Value(x => x.Age, () => 42)
+                    .Value(x => x.FirstName, () => "John")
+                    .Execute();
+
+            var insertCall = provider.CapturedExpression as MethodCallExpression;
+            Assert.IsNotNull(insertCall);
+            Assert.AreEqual(nameof(QueryExtensions.Insert), insertCall.Method.Name);
+            Assert.AreEqual(typeof(int), insertCall.Type);
+
+            string expectedResult = @"
+insert into dbo.Person (AGE, FRST_NM)
+values (42, 'John')
+";
+            Test("Insert Fluent API Without Output Test", provider.CapturedExpression, expectedResult);
+        }
+
+        [TestMethod]
+        public void Insert_fluent_api_with_multiple_outputs_preserves_aliases_and_row_image()
+        {
+            var provider = new ExpressionCapturingQueryProvider();
+
+            provider.InsertEntity<Person>()
+                    .Value(x => x.Age, () => 42)
+                    .Value(x => x.FirstName, () => "John")
+                    .Output(x => x.Id)
+                    .Output(x => x.FirstName)
+                    .ExecuteDictionary();
+
+            var insert = (SqlInsertExpression)ConvertExpressionToSqlExpression(provider.CapturedExpression, out _);
+            CollectionAssert.AreEqual(new[] { "Id", "FirstName" }, insert.Outputs.Select(x => x.Alias).ToArray());
+            Assert.IsTrue(insert.Outputs.All(x =>
+                ((SqlOutputColumnExpression)x.ColumnExpression).Source == SqlOutputSource.Inserted));
+            Assert.AreEqual(typeof(Dictionary<string, object>), provider.CreatedQueryElementType);
+
+            string expectedResult = @"
+insert into dbo.Person (AGE, FRST_NM)
+output inserted.ID as Id, inserted.FRST_NM as FirstName
+values (42, 'John')
+";
+            Test("Insert Fluent API Output Test", provider.CapturedExpression, expectedResult);
+        }
+
+        [TestMethod]
+        public void Insert_fluent_api_produces_a_stable_cache_key()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            Assert.AreEqual(keyProvider.GetCacheKey(BuildInsert()), keyProvider.GetCacheKey(BuildInsert()));
+
+            Expression BuildInsert()
+            {
+                var provider = new ExpressionCapturingQueryProvider();
+                provider.InsertEntity<Person>()
+                        .Value(x => x.Age, () => 42)
+                        .Value(x => x.FirstName, () => "John")
+                        .Execute();
+                return provider.CapturedExpression;
+            }
+        }
+
+        [TestMethod]
+        public async Task Insert_fluent_api_async_terminals_use_the_expected_execution_shapes()
+        {
+            using var cts = new CancellationTokenSource();
+            var affectedProvider = new AsyncExpressionCapturingQueryProvider { AffectedRows = 1 };
+
+            var affected = await affectedProvider.InsertEntity<Person>()
+                                                 .Value(x => x.FirstName, () => "John")
+                                                 .ExecuteAsync(cts.Token);
+
+            Assert.AreEqual(1, affected);
+            Assert.AreEqual(typeof(Task<int>), affectedProvider.RequestedResultType);
+            Assert.AreEqual(cts.Token, affectedProvider.CapturedCancellationToken);
+
+            var outputProvider = new AsyncExpressionCapturingQueryProvider();
+            outputProvider.OutputRows.Add(new Dictionary<string, object> { ["Id"] = 7 });
+            var rows = await outputProvider.InsertEntity<Person>()
+                                           .Value(x => x.FirstName, () => "John")
+                                           .Output(x => x.Id)
+                                           .ExecuteDictionaryAsync(cts.Token);
+
+            Assert.AreEqual(7, rows[0]["Id"]);
+            Assert.AreEqual(typeof(IAsyncEnumerable<Dictionary<string, object>>), outputProvider.RequestedResultType);
+            Assert.AreEqual(cts.Token, outputProvider.CapturedCancellationToken);
+            Assert.IsTrue(outputProvider.EnumeratorWasDisposed);
+        }
+
+        [TestMethod]
+        public async Task InsertAsync_query_api_submits_the_same_insert_expression_shapes()
+        {
+            var affectedProvider = new AsyncExpressionCapturingQueryProvider { AffectedRows = 1 };
+            var affectedQuery = new Queryable<Person>(affectedProvider);
+            var affected = await affectedQuery.InsertAsync(() => new Person { FirstName = "John" });
+
+            Assert.AreEqual(1, affected);
+            Assert.AreEqual(nameof(QueryExtensions.Insert), ((MethodCallExpression)affectedProvider.CapturedExpression).Method.Name);
+
+            var outputProvider = new AsyncExpressionCapturingQueryProvider();
+            outputProvider.OutputRows.Add(new Dictionary<string, object> { ["Id"] = 8 });
+            var outputQuery = new Queryable<Person>(outputProvider);
+            var rows = await outputQuery.InsertAsync(
+                () => new Person { FirstName = "John" },
+                x => new object[] { x.Id });
+
+            Assert.AreEqual(8, rows[0]["Id"]);
+            Assert.AreEqual(nameof(QueryExtensions.Insert), ((MethodCallExpression)outputProvider.CapturedExpression).Method.Name);
         }
 
         /// <summary>

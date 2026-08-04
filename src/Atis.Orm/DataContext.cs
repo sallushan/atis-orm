@@ -245,6 +245,21 @@ namespace Atis.Orm
             return this.QueryProvider.UpdateEntity<T>();
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Starts a single-row insert of <typeparamref name="T"/>: pick the columns to write with
+        ///         <c>Value</c>, then <c>Execute</c> — or <c>Output</c> and <c>ExecuteDictionary</c> to
+        ///         read columns back from the row that was written.
+        ///     </para>
+        /// </summary>
+        public virtual InsertValueStage<T> InsertEntity<T>()
+        {
+            // important to call the CreateQuery<T>() first, so that the model is built and the metadata
+            // for T is available to the InsertEntity<T>() call
+            this.CreateQuery<T>();
+            return this.QueryProvider.InsertEntity<T>();
+        }
+
         private IDbCommunication _dbCommunication;
         /// <summary>
         ///     Gets the <see cref="IDbCommunication"/> for this context — connection lifetime, command

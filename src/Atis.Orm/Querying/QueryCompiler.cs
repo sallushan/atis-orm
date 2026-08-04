@@ -35,6 +35,7 @@ namespace Atis.Orm.Querying
             var queryTranslationResult = this.queryTranslator.Translate(expression);
             var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, queryTranslationResult.PreprocessedExpression);
             var isNonQuery = (queryTranslationResult.SqlExpression is SqlUpdateExpression sqlUpdate && sqlUpdate.Outputs.Count == 0)
+                                || (queryTranslationResult.SqlExpression is SqlInsertExpression sqlInsert && sqlInsert.Outputs.Count == 0)
                                 || queryTranslationResult.SqlExpression is SqlInsertIntoExpression
                                 || queryTranslationResult.SqlExpression is SqlDeleteExpression;
             Func<IDataReader, object> elementFactory = null;

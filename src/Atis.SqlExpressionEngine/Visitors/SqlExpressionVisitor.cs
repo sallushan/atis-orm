@@ -193,7 +193,7 @@ namespace Atis.SqlExpressionEngine.Visitors
         protected virtual internal SqlExpression VisitFilterClause(SqlFilterClauseExpression node)
         {
             var newPredicateList = new List<FilterCondition>();
-            foreach(var filterCondition in node.FilterConditions)
+            foreach (var filterCondition in node.FilterConditions)
             {
                 var newPredicate = Visit(filterCondition.Predicate);
                 if (newPredicate != filterCondition.Predicate)
@@ -343,6 +343,26 @@ namespace Atis.SqlExpressionEngine.Visitors
                                     : new SelectColumn(newColumnExpression, output.Alias, output.ScalarColumn));
             }
             return node.Update(newTable, newValues, newOutputs);
+        }
+
+        protected virtual internal SqlExpression VisitSqlInsert(SqlInsertExpression node)
+        {
+            var newValues = new List<SqlExpression>();
+            foreach (var value in node.Values)
+            {
+                newValues.Add(Visit(value));
+            }
+
+            var newOutputs = new List<SelectColumn>();
+            foreach (var output in node.Outputs)
+            {
+                var newColumnExpression = Visit(output.ColumnExpression);
+                newOutputs.Add(newColumnExpression == output.ColumnExpression
+                    ? output
+                    : new SelectColumn(newColumnExpression, output.Alias, output.ScalarColumn));
+            }
+
+            return node.Update(newValues, newOutputs);
         }
 
         protected virtual internal SqlExpression VisitSqlDelete(SqlDeleteExpression node)

@@ -24,6 +24,91 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         [TestInitialize]
         public void EnsureDatabase() => new TestDatabaseSetup(ServerConnectionString).Setup();
 
+        [TestMethod]
+        public void Insert_fluent_api_execution_with_output()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var rows = db.InsertEntity<TestEntities.Employee>()
+                             .Value(x => x.FirstName, () => "Insert_Fluent")
+                             .Value(x => x.LastName, () => "Test")
+                             .Value(x => x.Email, () => "insert.fluent@example.test")
+                             .Value(x => x.Salary, () => 1234m)
+                             .Output(x => x.EmployeeId)
+                             .Output(x => x.FirstName)
+                             .ExecuteDictionary();
+
+                Assert.AreEqual(1, rows.Count);
+                Assert.IsTrue((int)rows[0]["EmployeeId"] > 0);
+                Assert.AreEqual("Insert_Fluent", rows[0]["FirstName"]);
+
+                var inserted = db.CreateQuery<TestEntities.Employee>()
+                                 .Where(x => x.Email == "insert.fluent@example.test")
+                                 .Select(x => x.FirstName)
+                                 .ToList();
+                CollectionAssert.AreEqual(new[] { "Insert_Fluent" }, inserted);
+            });
+        }
+
+        [TestMethod]
+        public async Task Insert_fluent_api_execute_async_reports_the_affected_row_count()
+        {
+            var db = new OrmDbContext();
+            await db.TransactionWithRollbackAsync(async () =>
+            {
+                var affected = await db.InsertEntity<TestEntities.Employee>()
+                                       .Value(x => x.FirstName, () => "Insert_Async")
+                                       .Value(x => x.LastName, () => "Test")
+                                       .Value(x => x.Email, () => "insert.async@example.test")
+                                       .Value(x => x.Salary, () => 2345m)
+                                       .ExecuteAsync();
+
+                Assert.AreEqual(1, affected);
+                var inserted = await db.CreateQuery<TestEntities.Employee>()
+                                       .Where(x => x.Email == "insert.async@example.test")
+                                       .Select(x => x.FirstName)
+                                       .ToListAsync();
+                CollectionAssert.AreEqual(new[] { "Insert_Async" }, inserted);
+            });
+        }
+
+        [TestMethod]
+        public void Insert_fluent_api_rebinds_captured_variables_on_cache_hit()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var firstName = "Insert_Rebind_First";
+                var email = "insert.rebind.first@example.test";
+
+                Insert();
+                firstName = "Insert_Rebind_Second";
+                email = "insert.rebind.second@example.test";
+                Insert();
+
+                var insertedNames = db.CreateQuery<TestEntities.Employee>()
+                                      .Where(x => x.Email == "insert.rebind.first@example.test"
+                                               || x.Email == "insert.rebind.second@example.test")
+                                      .OrderBy(x => x.Email)
+                                      .Select(x => x.FirstName)
+                                      .ToList();
+                CollectionAssert.AreEqual(
+                    new[] { "Insert_Rebind_First", "Insert_Rebind_Second" },
+                    insertedNames);
+
+                void Insert()
+                {
+                    db.InsertEntity<TestEntities.Employee>()
+                      .Value(x => x.FirstName, () => firstName)
+                      .Value(x => x.LastName, () => "Test")
+                      .Value(x => x.Email, () => email)
+                      .Value(x => x.Salary, () => 3456m)
+                      .Execute();
+                }
+            });
+        }
+
         /// <summary>
         ///     The fluent update end to end, including the OUTPUT clause that feeds the returned rows.
         /// </summary>

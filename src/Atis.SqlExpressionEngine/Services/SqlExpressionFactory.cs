@@ -302,7 +302,7 @@ namespace Atis.SqlExpressionEngine.Services
             return derivedTable.AutoProjection &&
                     //derivedTable.CteDataSources.Length == 0 &&
                     (derivedTable.Joins.Count == 0 ||     // either there are no joins
-                                                           // or all the joins are navigation joins
+                                                          // or all the joins are navigation joins
                     derivedTable.Joins.All(x => x.IsNavigationJoin)) &&
                     !(derivedTable.HavingClause?.FilterConditions.Count > 0) &&
                     derivedTable.GroupByClause.Count == 0 &&
@@ -391,6 +391,11 @@ namespace Atis.SqlExpressionEngine.Services
         public SqlUpdateExpression CreateUpdate(SqlDerivedTableExpression source, Guid dataSourceToUpdate, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs = null)
         {
             return new SqlUpdateExpression(source, dataSourceToUpdate, columns, values, outputs);
+        }
+
+        public SqlInsertExpression CreateInsert(SqlTable table, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs = null)
+        {
+            return new SqlInsertExpression(table, columns, values, outputs);
         }
 
         public SqlDerivedTableExpression ConvertSelectQueryToDataManipulationDerivedTable(SqlSelectExpression selectQuery)

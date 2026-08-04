@@ -56,18 +56,7 @@ namespace Atis.Orm
             var outputRows = this.provider.RequireAsync()
                                  .ExecuteAsync<IAsyncEnumerable<Dictionary<string, object>>>(updateCall, cancellationToken);
 
-            var rows = new List<Dictionary<string, object>>();
-            var enumerator = outputRows.GetAsyncEnumerator(cancellationToken);
-            try
-            {
-                while (await enumerator.MoveNextAsync().ConfigureAwait(false))
-                    rows.Add(enumerator.Current);
-            }
-            finally
-            {
-                await enumerator.DisposeAsync().ConfigureAwait(false);
-            }
-            return rows;
+            return await outputRows.DrainAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }

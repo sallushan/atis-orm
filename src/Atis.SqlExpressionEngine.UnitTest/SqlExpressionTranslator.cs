@@ -1,4 +1,5 @@
-﻿using Atis.SqlExpressionEngine.Internal;
+﻿using Atis.Orm.Translation;
+using Atis.SqlExpressionEngine.Internal;
 using Atis.SqlExpressionEngine.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using Newtonsoft.Json.Linq;
@@ -82,6 +83,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             else if (sqlExpression is SqlUpdateExpression sqlUpdateExpression)
             {
                 return this.TranslateSqlUpdateExpression(sqlUpdateExpression);
+            }
+            else if (sqlExpression is SqlInsertExpression sqlInsertExpression)
+            {
+                return this.TranslateSqlInsertExpression(sqlInsertExpression);
             }
             else if (sqlExpression is SqlOutputColumnExpression sqlOutputColumnExpression)
             {
@@ -183,11 +188,26 @@ namespace Atis.SqlExpressionEngine.UnitTest
             var selectColumnsNotFoundInMap = selectColumns.Where(x => !propertyWithDbColumnMap.ContainsKey(x.Alias)).ToList();
             if (selectColumnsNotFoundInMap.Count > 0)
                 throw new InvalidOperationException($"Some columns in Select List in {nameof(sqlInsertInto)} derived table are not found in the table '{sqlInsertInto.SqlTable.TableName}': {string.Join(", ", selectColumnsNotFoundInMap.Select(x => x.Alias))}");
-            query.Append($"insert into {sqlInsertInto.SqlTable.TableName}(");
+            query.Append($"insert into {SqlTableNaming.GetQualifiedName(sqlInsertInto.SqlTable)}(");
             query.Append(string.Join(", ", selectColumns.Select(x => propertyWithDbColumnMap[x.Alias])));
             query.Append(')');
             query.AppendLine();
             query.Append(this.Translate(sqlInsertInto.SelectQuery));
+            return query.ToString();
+        }
+
+        private string TranslateSqlInsertExpression(SqlInsertExpression sqlInsert)
+        {
+            var tableName = SqlTableNaming.GetQualifiedName(sqlInsert.Table);
+            var query = new StringBuilder();
+            query.Append($"insert into {tableName} ({string.Join(", ", sqlInsert.Columns)})\r\n");
+            if (sqlInsert.Outputs.Count > 0)
+            {
+                query.Append("output ");
+                query.Append(string.Join(", ", sqlInsert.Outputs.Select(x => $"{this.Translate(x.ColumnExpression)} as {x.Alias}")));
+                query.Append("\r\n");
+            }
+            query.Append($"values ({string.Join(", ", sqlInsert.Values.Select(this.Translate))})");
             return query.ToString();
         }
 
@@ -278,8 +298,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
 
                         var newFromSource = new SqlAliasedFromSourceExpression(updatedDerivedTable, Guid.NewGuid());
                         var whereClause = new SqlFilterClauseExpression(new[] { new FilterCondition(new SqlBinaryExpression(new SqlDataSourceColumnExpression(newFromSource.Alias, newRowNumCol.Alias), new SqlLiteralExpression(top), SqlExpressionType.LessThanOrEqual), false) }, SqlExpressionType.WhereClause);
-                        var newProjection = currentSelectListColumns.Where(x=>x != newRowNumCol)
-                                                                    .Select(x=> new SelectColumn(new SqlDataSourceColumnExpression(newFromSource.Alias, x.Alias), x.Alias, false)).ToArray();
+                        var newProjection = currentSelectListColumns.Where(x => x != newRowNumCol)
+                                                                    .Select(x => new SelectColumn(new SqlDataSourceColumnExpression(newFromSource.Alias, x.Alias), x.Alias, false)).ToArray();
                         var newSelectListClause = new SqlSelectListExpression(newProjection);
                         var outerTable = new SqlDerivedTableExpression(null, newFromSource, null, whereClause, null, null, null, newSelectListClause, false, null, null, null, false, null, updatedDerivedTable.QueryShape, SqlExpressionType.DerivedTable);
 
@@ -416,7 +436,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         private string TranslateSelectColumns(IReadOnlyList<SelectColumn> selectColumns)
         {
             var result = new StringBuilder();
-            for(var i = 0; i < selectColumns.Count; i++)
+            for (var i = 0; i < selectColumns.Count; i++)
             {
                 var selectColumn = selectColumns[i];
                 var comment = selectColumn.ColumnExpression as SqlCommentExpression;
@@ -602,9 +622,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
 
         private string TranslateSqlTableExpression(SqlTableExpression sqlTableExpression)
         {
-            var t = sqlTableExpression.SqlTable;
-            var tableParts = new[] { t.Server, t.Database, t.Schema, t.TableName };
-            return string.Join(".", tableParts.Where(x => !string.IsNullOrEmpty(x)));
+            return SqlTableNaming.GetQualifiedName(sqlTableExpression.SqlTable);
         }
 
         private string TranslateLogicalExpression(SqlExpression sqlExpression)

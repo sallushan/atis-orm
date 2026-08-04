@@ -610,6 +610,45 @@ namespace Atis.SqlExpressionEngine
                     selector));
         }
 
+        /// <summary>Inserts one row using the members initialized by <paramref name="insertFields"/>.</summary>
+        public static int Insert<T>(this IQueryable<T> query, Expression<Func<T>> insertFields)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (insertFields is null)
+                throw new ArgumentNullException(nameof(insertFields));
+
+            return query.Provider.Execute<int>(
+                Expression.Call(
+                    null,
+                    new Func<IQueryable<T>, Expression<Func<T>>, int>(Insert).Method,
+                    query.Expression,
+                    Expression.Quote(insertFields)));
+        }
+
+        /// <summary>Inserts one row and returns columns from its inserted row image.</summary>
+        public static IReadOnlyList<IReadOnlyDictionary<string, object>> Insert<T>(
+            this IQueryable<T> query,
+            Expression<Func<T>> insertFields,
+            Expression<Func<T, object[]>> outputFields)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (insertFields is null)
+                throw new ArgumentNullException(nameof(insertFields));
+            if (outputFields is null)
+                throw new ArgumentNullException(nameof(outputFields));
+
+            var call = Expression.Call(
+                null,
+                new Func<IQueryable<T>, Expression<Func<T>>, Expression<Func<T, object[]>>, IReadOnlyList<IReadOnlyDictionary<string, object>>>(Insert).Method,
+                query.Expression,
+                Expression.Quote(insertFields),
+                Expression.Quote(outputFields));
+            var outputQuery = query.Provider.CreateQuery<Dictionary<string, object>>(call);
+            return new List<Dictionary<string, object>>(outputQuery);
+        }
+
         public static int BulkInsert<T>(this IQueryable<T> query)
         {
             if (query is null)

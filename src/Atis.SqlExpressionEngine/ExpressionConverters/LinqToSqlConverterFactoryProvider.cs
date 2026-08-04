@@ -80,6 +80,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new ConditionalExpressionConverterFactory(),
                 new DistinctQueryMethodExpressionConverterFactory(),
                 new UpdateQueryMethodExpressionConverterFactory(),
+                new InsertQueryMethodExpressionConverterFactory(),
                 new DeleteQueryMethodExpressionConverterFactory(),
                 new InValuesExpressionConverterFactory(),
                 new NewArrayExpressionConverterFactory(),
