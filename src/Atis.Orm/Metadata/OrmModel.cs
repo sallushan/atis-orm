@@ -14,8 +14,28 @@ namespace Atis.Orm.Metadata
     {
         private readonly ConcurrentDictionary<Type, EntityMetadata> metadataMap = new ConcurrentDictionary<Type, EntityMetadata>();
         private readonly ConcurrentDictionary<Type, EntityCrudMetadata> crudMetadataMap = new ConcurrentDictionary<Type, EntityCrudMetadata>();
+        private readonly IEntityMetadataBuilder entityMetadataBuilder;
         private volatile bool _modelCreated = false;
         private readonly object _modelCreatedLock = new object();
+
+        /// <summary>
+        ///     Constructs the model.
+        /// </summary>
+        /// <param name="entityMetadataBuilder">
+        ///     Derives a mapping from annotations for an entity that <c>OnModelCreating</c> never
+        ///     configured, which is what <see cref="EnsureEntityMapped"/> falls back to.
+        /// </param>
+        public OrmModel(IEntityMetadataBuilder entityMetadataBuilder)
+        {
+            this.entityMetadataBuilder = entityMetadataBuilder ?? throw new ArgumentNullException(nameof(entityMetadataBuilder));
+        }
+
+        /// <inheritdoc />
+        public EntityMetadata EnsureEntityMapped(Type type)
+        {
+            if (type == null) throw new ArgumentNullException(nameof(type));
+            return this.metadataMap.GetOrAdd(type, this.entityMetadataBuilder.Build);
+        }
 
         /// <inheritdoc />
         public void Add(EntityMetadata metadata)

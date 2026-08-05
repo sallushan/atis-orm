@@ -27,7 +27,8 @@ _serviceProvider = _serviceScope.ServiceProvider;
 There are two distinct layers here:
 
 1. **The root `IServiceProvider`** — returned by `OrmServiceManager.Instance.GetOrAdd(_config)`
-   and **cached**. This is where **singletons** (including `IOrmModel`) live.
+   and **cached**. This is where **singletons** (including `IOrmModelSource`, and therefore the
+   model itself) live.
 2. **A scope** — created per `DataContext` instance via `CreateScope()`. This is where
    **scoped** services (e.g. `IQueryCompiler`, `IQueryTranslator`, `IDatabaseAdapter`) live.
 
@@ -39,7 +40,7 @@ singletons) while still getting their own *scope* (and therefore their own scope
 ## The cache key — what makes two `DataContext`s share a provider
 
 `OrmServiceManager` derives from `ServiceManagerBase` in the framework-agnostic
-`Atis.DependencyInjection` package. Its cache is a **process-wide `static` dictionary**, and
+`Atzonix.DependencyInjection` package. Its cache is a **process-wide `static` dictionary**, and
 the key is computed (roughly) as:
 
 ```csharp
@@ -61,7 +62,7 @@ via `IServiceProviderCacheKeyContributor` (see "The exception" below).
 
 The key deliberately does **not** include:
 
-- the **`DataContext` subclass type** — `Atis.DependencyInjection` is a generic library and
+- the **`DataContext` subclass type** — `Atzonix.DependencyInjection` is a generic library and
   knows nothing about `DataContext`;
 - the **configuration instance identity** — a fresh `new DataContextConfiguration()` with the
   same extensions hashes to the *same* key;
@@ -168,44 +169,56 @@ Lifetimes are declared in `OrmServiceBuilder`. The important ones:
 
 | Lifetime      | Examples                                                                 | Shared across…                          |
 |---------------|--------------------------------------------------------------------------|-----------------------------------------|
-| **Singleton** | `IOrmModel`, `IModel`, `IEntityMetadataBuilder`, `ISqlExpressionFactory`, `ILogger` | the **root provider** (all its scopes)  |
-| **Scoped**    | `IDataContextServices`, `IQueryCompiler`, `IQueryTranslator`, `ILinqToSqlConverter`, `IDatabaseAdapter`, `IDbCommunication`, `IAsyncQueryProvider` | a single **scope**                      |
+| **Singleton** | `IOrmModelSource`, `IEntityMetadataBuilder`, `ISqlExpressionFactory`, `ILogger` | the **root provider** (all its scopes)  |
+| **Scoped**    | `IDataContextServices`, `IOrmModel`, `IModel`, `IQueryCompiler`, `IQueryTranslator`, `IExpressionPreprocessorProvider`, `ILinqToSqlConverter`, `IDatabaseAdapter`, `IDbCommunication`, `IAsyncQueryProvider`, `IEntityPersister` | a single **scope**                      |
 | **Transient** | `ILambdaParameterToDataSourceMapper`                                     | nothing — new instance per resolution   |
 
-Because **`IOrmModel` is a Singleton**, there is exactly **one `IOrmModel` per root
-`IServiceProvider`**, shared by every scope of that provider.
+`IOrmModel` is **scoped**, but the model it hands back is not: the singleton `IOrmModelSource` owns
+one model and returns that same instance to every scope. So there is still exactly **one model per
+root `IServiceProvider`** — the scoped registration is about *how you get it*, not how many there
+are (see "Building the model" below).
 
 Putting it together:
 
-> **`IOrmModel` is a singleton per root `IServiceProvider`, and there is one root provider per
+> **There is one model per root `IServiceProvider`, and one root provider per
 > `(configuration type + extension types)` — shared process-wide. It is _not_ one per
 > `DataContext` subclass.**
 
 ---
 
-## Consequence: the model can be shared across different `DataContext`s
+## Building the model: resolving it is what builds it
 
-The model is built lazily and **exactly once per provider**. `DataContext.Model` calls
-`IOrmModel.EnsureModelInitialized(...)`, which uses a double-checked `_modelCreated` flag and
-runs the initializer (your `OnModelCreating`) only the first time:
+`OnModelCreating` runs when the model is **resolved**, not when some caller remembers to ask for it
+first. The registrations are:
 
 ```csharp
-public void EnsureModelInitialized(Action modelInitializer)
-{
-    if (!_modelCreated)
-        lock (_modelCreatedLock)
-            if (!_modelCreated)
-            {
-                modelInitializer();   // runs OnModelCreating
-                _modelCreated = true; // ...only once per OrmModel instance
-            }
-}
+this.TryAdd<IOrmModelSource, OrmModelSource>();                                  // Singleton
+this.TryAdd<IOrmModel>(p => p.GetRequiredService<IDataContextServices>().Model);  // Scoped
+this.TryAdd<IModel>(p => p.GetRequiredService<IOrmModel>());                      // Scoped
 ```
 
+`IDataContextServices.Model` is lazy and calls `IOrmModelSource.GetModel(context)`, which runs that
+context's `OnModelCreating` behind a double-checked flag and never again. This is the shape EF Core
+uses — `IModelSource` singleton, `IModel` scoped and registered as
+`p => p.GetService<IDbContextServices>().Model`.
+
+The point is that **there is no way to obtain a model that skipped `OnModelCreating`**, because
+obtaining one is what runs it. Before this, every entry point that could name an entity type had to
+touch `DataContext.Model` before doing anything else; forgetting to would derive that entity's
+mapping from annotations and cache it, losing the fluent configuration for the life of the process.
+
+Two consequences worth knowing:
+
+- **A scope no `DataContext` created cannot resolve the model.** It has no context to build it from,
+  so `IOrmModel` throws there, exactly as the options-reading services do.
+- **`OnModelCreating` must not ask for the model.** Creating a queryable or starting a write from
+  inside it is a loop; it is reported as such rather than left to overflow the stack. Configure
+  entities on the `ModelBuilder` you were handed.
+
 So if two **different** `DataContext` subclasses use the same configuration type and the same
-extension set, they resolve the **same** singleton `IOrmModel`. Whichever one touches `.Model`
-first runs **its** `OnModelCreating`; the other subclass reuses that already-built model and
-**its own `OnModelCreating` never runs**.
+extension set, they resolve the **same** `IOrmModelSource` and therefore the same model. Whichever
+one reaches for the model first runs **its** `OnModelCreating`; the other subclass reuses that
+already-built model and **its own `OnModelCreating` never runs**.
 
 If all your `DataContext`s are meant to share one model, this is exactly what you want. If they
 are meant to have different models, read on.
@@ -264,7 +277,9 @@ public class HrDataContext : DataContext
 
 ## TL;DR
 
-- `IOrmModel` is **Singleton per root `IServiceProvider`**.
+- The model is **one per root `IServiceProvider`**, owned by the singleton `IOrmModelSource`.
+  `IOrmModel` itself is **scoped** and comes from `IDataContextServices.Model`, so resolving it is
+  what runs `OnModelCreating`.
 - Root providers are cached **process-wide**, keyed by **configuration type + extension types**
   (not by `DataContext` type, config instance, or connection string).
 - `OnModelCreating` runs **once per provider**; contexts sharing a provider share one model.

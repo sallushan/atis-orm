@@ -23,6 +23,20 @@ namespace Atis.Orm.Abstractions
     public interface IOrmModel : IModel
     {
         EntityMetadata GetOrAdd(Type type, Func<Type, EntityMetadata> factory);
+
+        /// <summary>
+        ///     <para>
+        ///         Returns <paramref name="type"/>'s query side mapping, deriving it from annotations if
+        ///         the entity was never configured in <c>OnModelCreating</c>.
+        ///     </para>
+        ///     <para>
+        ///         Translation reads an entity's mapping out of the model and does not build one on
+        ///         demand, so every entry point that can name an entity type calls this first. It is the
+        ///         explicit form of what creating a queryable used to do as a side effect.
+        ///     </para>
+        /// </summary>
+        EntityMetadata EnsureEntityMapped(Type type);
+
         void Add(EntityMetadata metadata);
         bool Contains(Type type);
         bool TryGet(Type type, out EntityMetadata metadata);

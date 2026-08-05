@@ -1,4 +1,4 @@
-﻿using Atis.DependencyInjection;
+﻿using Atzonix.DependencyInjection;
 using Atis.Expressions;
 using Atis.Orm;
 using Atis.Orm.SqlServer;

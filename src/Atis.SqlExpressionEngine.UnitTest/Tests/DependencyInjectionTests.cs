@@ -34,39 +34,36 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         [TestMethod]
         public void ServiceLifetimes_AreCorrect()
         {
-            // Arrange
-            var config = new DataContextConfiguration();
-            config.UseSqlServer("Server=.;Database=Db1;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
-            config.UseUnitTestCustomization();
-
-            var rootSp = OrmServiceManager.Instance.GetOrAdd(config);
-
-            using var scope1 = rootSp.GetRequiredService<IServiceScopeFactory>().CreateScope();
-            using var scope2 = rootSp.GetRequiredService<IServiceScopeFactory>().CreateScope();
-
-            var sp1 = scope1.ServiceProvider;
-            var sp2 = scope2.ServiceProvider;
+            // Two contexts, so two scopes off one cached root provider. They have to be real contexts
+            // rather than bare scopes: anything that reaches the model now resolves it through
+            // IDataContextServices, which a scope no DataContext created cannot serve.
+            using var context1 = new OrmDbContext();
+            using var context2 = new OrmDbContext();
 
             // Singleton — same instance across scopes
-            var ormModel1 = sp1.GetRequiredService<IOrmModel>();
-            var ormModel2 = sp2.GetRequiredService<IOrmModel>();
-            Assert.IsTrue(ReferenceEquals(ormModel1, ormModel2),
-                "IOrmModel must be singleton — same instance across scopes.");
+            var modelSource1 = context1.GetService<IOrmModelSource>();
+            var modelSource2 = context2.GetService<IOrmModelSource>();
+            Assert.IsTrue(ReferenceEquals(modelSource1, modelSource2),
+                "IOrmModelSource must be singleton — same instance across scopes.");
+
+            // Scoped, but backed by that one source: the service is per scope while the model it hands
+            // back is the one the provider was built with, which is what lets contexts share mappings.
+            Assert.IsTrue(ReferenceEquals(context1.GetOrmModel(), context2.GetOrmModel()),
+                "Both contexts must see the same model instance.");
 
             // Scoped — different instance across scopes
-            var compiler1 = sp1.GetRequiredService<IQueryCompiler>();
-            var compiler2 = sp2.GetRequiredService<IQueryCompiler>();
+            var compiler1 = context1.GetService<IQueryCompiler>();
+            var compiler2 = context2.GetService<IQueryCompiler>();
             Assert.IsFalse(ReferenceEquals(compiler1, compiler2),
                 "IQueryCompiler must be scoped — different instance across scopes.");
 
             // Scoped — same instance within same scope
-            var compiler1Again = sp1.GetRequiredService<IQueryCompiler>();
-            Assert.IsTrue(ReferenceEquals(compiler1, compiler1Again),
+            Assert.IsTrue(ReferenceEquals(compiler1, context1.GetService<IQueryCompiler>()),
                 "IQueryCompiler must be scoped — same instance within same scope.");
 
             // Transient — new instance every resolution
-            var mapper1 = sp1.GetRequiredService<ILambdaParameterToDataSourceMapper>();
-            var mapper2 = sp1.GetRequiredService<ILambdaParameterToDataSourceMapper>();
+            var mapper1 = context1.GetService<ILambdaParameterToDataSourceMapper>();
+            var mapper2 = context1.GetService<ILambdaParameterToDataSourceMapper>();
             Assert.IsFalse(ReferenceEquals(mapper1, mapper2),
                 "ILambdaParameterToDataSourceMapper must be transient — new instance every resolution.");
         }

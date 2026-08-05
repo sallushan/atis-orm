@@ -1,4 +1,4 @@
-﻿using Atis.DependencyInjection;
+﻿using Atzonix.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.Text;

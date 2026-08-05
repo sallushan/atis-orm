@@ -1,10 +1,9 @@
-using Atis.Expressions;
-using Atis.SqlExpressionEngine;
+using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
+using Atis.Orm.DataManipulation;
+using Atis.Orm.Metadata;
+using Atis.Orm.Translation;
 using Atis.SqlExpressionEngine.Abstractions;
-using Atis.SqlExpressionEngine.ExpressionConverters;
-using Atis.SqlExpressionEngine.Preprocessors;
-using Atis.SqlExpressionEngine.Services;
-using Atis.SqlExpressionEngine.SqlExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
@@ -12,16 +11,9 @@ using System.Data;
 using System.Data.Common;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Runtime.CompilerServices;
-using System.Text;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-
-using Atis.Orm.Abstractions;
-using Atis.Orm.DataAccess;
-using Atis.Orm.Metadata;
-using Atis.Orm.Querying;
-using Atis.Orm.Translation;
 namespace Atis.Orm
 {
     /// <summary>
@@ -75,7 +67,23 @@ namespace Atis.Orm
         }
 
         protected virtual void OnConfiguring(DataContextConfiguration config) { }
-        protected virtual void OnModelCreating(ModelBuilder mb) { }
+
+        /// <summary>
+        ///     <para>
+        ///         Configures the entity mappings. Called once per model, by <see cref="IOrmModelSource"/>,
+        ///         the first time anything resolves an <see cref="IOrmModel"/> from this context's scope.
+        ///     </para>
+        ///     <para>
+        ///         Configure entities on <paramref name="mb"/>. Do not query the context from in here — the
+        ///         model it would need is the one being built, and that is reported as an error rather than
+        ///         left to recurse.
+        ///     </para>
+        /// </summary>
+        /// <remarks>
+        ///     <c>internal</c> as well as <c>protected</c> so the model source can invoke it, the same way
+        ///     EF Core's <c>ModelSource</c> invokes <c>DbContext.OnModelCreating</c>.
+        /// </remarks>
+        protected internal virtual void OnModelCreating(ModelBuilder mb) { }
 
 
         private IEntityMetadataBuilder _metadataBuilder;
@@ -115,15 +123,19 @@ namespace Atis.Orm
         private IOrmModel _ormModel;
         /// <summary>
         ///     <para>
-        ///         Gets the <see cref="IOrmModel"/> for this context, building it via
-        ///         <see cref="OnModelCreating(ModelBuilder)"/> on first access.
+        ///         Gets the <see cref="IOrmModel"/> for this context. Resolving it is what builds it:
+        ///         <see cref="IOrmModel"/> is a scoped service that comes from
+        ///         <see cref="IDataContextServices.Model"/>, which runs
+        ///         <see cref="OnModelCreating(ModelBuilder)"/> through <see cref="IOrmModelSource"/> on
+        ///         first access. There is no way to obtain a model that skipped that step, so no caller
+        ///         has to touch this property before doing anything else.
         ///     </para>
         ///     <para>
-        ///         <see cref="IOrmModel"/> is a singleton within its root <see cref="IServiceProvider"/>,
-        ///         and that provider is cached per configuration type + extension set (not per
-        ///         <see cref="DataContext"/> subclass). As a result, contexts that share the same
-        ///         configuration type and extensions share one model, and only the first context to
-        ///         access this property runs its <see cref="OnModelCreating(ModelBuilder)"/>. To isolate
+        ///         <see cref="IOrmModelSource"/> is a singleton within its root
+        ///         <see cref="IServiceProvider"/>, and that provider is cached per configuration type +
+        ///         extension set (not per <see cref="DataContext"/> subclass). As a result, contexts that
+        ///         share the same configuration type and extensions share one model, and only the first
+        ///         one to reach for it runs its <see cref="OnModelCreating(ModelBuilder)"/>. To isolate
         ///         the model per context, use a distinct <see cref="DataContextConfiguration"/> subclass.
         ///         See docs/ServiceProviderCachingAndModelLifetime.md.
         ///     </para>
@@ -135,14 +147,6 @@ namespace Atis.Orm
                 if (this._ormModel is null)
                 {
                     this._ormModel = this.ServiceProvider.GetRequiredService<IOrmModel>();
-                    this._ormModel.EnsureModelInitialized(() =>
-                    {
-                        var metadataBuilder = this.ServiceProvider.GetRequiredService<IEntityMetadataBuilder>();
-                        var crudMetadataFactory = this.ServiceProvider.GetRequiredService<IEntityCrudMetadataFactory>();
-                        var mb = new ModelBuilder(metadataBuilder, crudMetadataFactory, this._ormModel);
-                        this.OnModelCreating(mb);
-                        mb.Build();
-                    });
                 }
                 return this._ormModel;
             }
@@ -211,10 +215,7 @@ namespace Atis.Orm
         {
             if (entityType is null)
                 throw new ArgumentNullException(nameof(entityType));
-            // Touching the model first guarantees OnModelCreating has run, so fluent configuration is
-            // never lost to an on-demand build from annotations alone.
-            var model = this.Model;
-            return model.GetOrAddCrud(entityType, t => this.CrudMetadataFactory.Build(t));
+            return this.Model.GetOrAddCrud(entityType, t => this.CrudMetadataFactory.Build(t));
         }
 
         /// <summary>
@@ -224,9 +225,6 @@ namespace Atis.Orm
         /// <returns></returns>
         public virtual IQueryable<T> CreateQuery<T>()
         {
-            // Accessing Model first guarantees OnModelCreating has run before the factory
-            // auto-builds metadata for T, so fluent configuration is not lost.
-            _ = this.Model;
             return this.QueryableFactory.CreateQueryable<T>();
         }
 
@@ -239,9 +237,7 @@ namespace Atis.Orm
         /// </summary>
         public virtual UpdateSetStage<T> UpdateEntity<T>()
         {
-            // important to call the CreateQuery<T>() first, so that the model is built and the metadata
-            // for T is available to the UpdateEntity<T>() call
-            this.CreateQuery<T>();
+            this.Model.EnsureEntityMapped(typeof(T));
             return this.QueryProvider.UpdateEntity<T>();
         }
 
@@ -254,9 +250,7 @@ namespace Atis.Orm
         /// </summary>
         public virtual InsertValueStage<T> InsertEntity<T>()
         {
-            // important to call the CreateQuery<T>() first, so that the model is built and the metadata
-            // for T is available to the InsertEntity<T>() call
-            this.CreateQuery<T>();
+            this.Model.EnsureEntityMapped(typeof(T));
             return this.QueryProvider.InsertEntity<T>();
         }
 
@@ -269,10 +263,113 @@ namespace Atis.Orm
         /// </summary>
         public virtual DeleteKeyStage<T> DeleteEntity<T>()
         {
-            // important to call the CreateQuery<T>() first, so that the model is built and the metadata
-            // for T is available to the DeleteEntity<T>() call
-            this.CreateQuery<T>();
+            this.Model.EnsureEntityMapped(typeof(T));
             return this.QueryProvider.DeleteEntity<T>();
+        }
+
+        private IEntityPersister _entityPersister;
+        /// <summary>
+        ///     Gets the <see cref="IEntityPersister"/> for this context, which turns a single entity into
+        ///     an Insert, Update or Delete driven by its mapping metadata.
+        /// </summary>
+        protected IEntityPersister EntityPersister
+        {
+            get
+            {
+                if (this._entityPersister is null)
+                {
+                    this._entityPersister = this.ServiceProvider.GetRequiredService<IEntityPersister>();
+                }
+                return this._entityPersister;
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Writes <paramref name="entity"/> according to its <see cref="Record.RecordState"/>:
+        ///         <see cref="RecordState.Added"/> inserts it, <see cref="RecordState.Updated"/> updates
+        ///         it, <see cref="RecordState.Deleted"/> deletes it, and
+        ///         <see cref="RecordState.Unchanged"/> does nothing. Returns the number of rows affected.
+        ///     </para>
+        ///     <para>
+        ///         The state is the consumer's to set and the consumer's to clear — this method does not
+        ///         reset it after a successful save. Calling it twice on an entity still marked
+        ///         <see cref="RecordState.Added"/> therefore inserts two rows.
+        ///     </para>
+        ///     <para>
+        ///         Update and Delete use optimistic concurrency: an entity with a row version column will
+        ///         not overwrite a row that changed since it was read. An entity without one is
+        ///         last-writer-wins.
+        ///     </para>
+        /// </summary>
+        /// <exception cref="ConcurrencyViolationException">The write matched no row.</exception>
+        public virtual int SaveEntity<T>(T entity)
+        {
+            var state = GetRecordState(entity);
+            switch (state)
+            {
+                case RecordState.Unchanged:
+                    return 0;
+                case RecordState.Added:
+                    return Verify<T>(this.EntityPersister.Insert(entity), "inserted");
+                case RecordState.Updated:
+                    return Verify<T>(this.EntityPersister.Update(entity, optimisticConcurrency: true), "updated");
+                case RecordState.Deleted:
+                    return Verify<T>(this.EntityPersister.Delete(entity, optimisticConcurrency: true), "deleted");
+                default:
+                    throw new InvalidOperationException($"'{state}' is not a record state {nameof(SaveEntity)} knows how to act on.");
+            }
+        }
+
+        /// <summary>The asynchronous <see cref="SaveEntity{T}(T)"/>.</summary>
+        /// <exception cref="ConcurrencyViolationException">The write matched no row.</exception>
+        public virtual async Task<int> SaveEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
+        {
+            var state = GetRecordState(entity);
+            switch (state)
+            {
+                case RecordState.Unchanged:
+                    return 0;
+                case RecordState.Added:
+                    return Verify<T>(
+                        await this.EntityPersister.InsertAsync(entity, cancellationToken).ConfigureAwait(false),
+                        "inserted");
+                case RecordState.Updated:
+                    return Verify<T>(
+                        await this.EntityPersister.UpdateAsync(entity, optimisticConcurrency: true, cancellationToken).ConfigureAwait(false),
+                        "updated");
+                case RecordState.Deleted:
+                    return Verify<T>(
+                        await this.EntityPersister.DeleteAsync(entity, optimisticConcurrency: true, cancellationToken).ConfigureAwait(false),
+                        "deleted");
+                default:
+                    throw new InvalidOperationException($"'{state}' is not a record state {nameof(SaveEntityAsync)} knows how to act on.");
+            }
+        }
+
+        /// <summary>
+        ///     The state <see cref="SaveEntity{T}(T)"/> acts on. This ORM does not track changes, so the
+        ///     entity has to say what it wants — which is what <see cref="Record"/> is for.
+        /// </summary>
+        private static RecordState GetRecordState<T>(T entity)
+        {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+            if (entity is Record record)
+                return record.RecordState;
+
+            throw new InvalidOperationException(
+                $"'{typeof(T).Name}' does not derive from '{nameof(Record)}', so {nameof(SaveEntity)} has no way to tell " +
+                $"whether it should be inserted, updated or deleted. Derive from '{nameof(Record)}' and set its " +
+                $"{nameof(Record.RecordState)}, or use the {nameof(InsertEntity)} / {nameof(UpdateEntity)} / " +
+                $"{nameof(DeleteEntity)} fluent APIs, which say so explicitly.");
+        }
+
+        private static int Verify<T>(int rowsAffected, string operationPastTense)
+        {
+            if (rowsAffected != 1)
+                throw new ConcurrencyViolationException(typeof(T), operationPastTense, rowsAffected);
+            return rowsAffected;
         }
 
         private IDbCommunication _dbCommunication;

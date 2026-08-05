@@ -1,4 +1,4 @@
-﻿using Atis.DependencyInjection;
+﻿using Atzonix.DependencyInjection;
 using Atis.Orm;
 using Microsoft.Extensions.DependencyInjection;
 using System;

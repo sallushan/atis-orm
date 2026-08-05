@@ -1,4 +1,4 @@
-﻿using Atis.DependencyInjection;
+﻿using Atzonix.DependencyInjection;
 using Atis.Expressions;
 using Atis.SqlExpressionEngine;
 using Atis.SqlExpressionEngine.Abstractions;
@@ -14,6 +14,7 @@ using System.Text;
 
 using Atis.Orm.Abstractions;
 using Atis.Orm.DataAccess;
+using Atis.Orm.DataManipulation;
 using Atis.Orm.Metadata;
 using Atis.Orm.Preprocessing;
 using Atis.Orm.Querying;
@@ -40,8 +41,14 @@ namespace Atis.Orm
                 { typeof(IPreprocessingRequirementTester),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ISqlDataTypeFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ISqlExpressionFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
-                { typeof(IModel),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
-                { typeof(IOrmModel),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                // The store is the singleton; the model itself is scoped and comes out of
+                // IDataContextServices, so resolving one is what runs OnModelCreating. Nothing can hold a
+                // model that was never configured, because there is no way to get one that skips the
+                // source. This mirrors EF Core, where IModelSource is a singleton and IModel is scoped and
+                // registered as `p => p.GetService<IDbContextServices>().Model`.
+                { typeof(IOrmModelSource),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                { typeof(IModel),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
+                { typeof(IOrmModel),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(ILinqToSqlConverterFactoryProvider), new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IExpressionConverterDependencyProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IExpressionTreeConverter<Expression, SqlExpression>), new ServiceCharacteristic(ServiceLifetime.Scoped) },
@@ -53,7 +60,12 @@ namespace Atis.Orm
                 // IDbCommunication — so one translator per unit of work.
                 { typeof(ISqlExpressionTranslator),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IElementFactoryBuilder),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
-                { typeof(IExpressionPreprocessorProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                // Scoped for the same two reasons ISqlExpressionTranslator is. It takes IModel in its
+                // constructor and hands it to the preprocessors it builds, so a singleton would capture one
+                // scope's model forever; and those preprocessors accumulate state on themselves during a
+                // run (NavigateToOnePreprocessor's node maps), so one shared instance is corrupted by two
+                // contexts preprocessing at once.
+                { typeof(IExpressionPreprocessorProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(ISqlExpressionPostprocessorProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IQueryTranslator),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryCompiler),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
@@ -64,6 +76,7 @@ namespace Atis.Orm
                 { typeof(IDatabaseAdapter),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IDbCommunication),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryExecutor),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
+                { typeof(IEntityPersister),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(INavigationInitializer),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IAsyncQueryProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
@@ -97,7 +110,9 @@ namespace Atis.Orm
             this.TryAdd<IPreprocessingRequirementTester, PreprocessingRequirementTester>();
             this.TryAdd<ISqlDataTypeFactory, SqlDataTypeFactory>();
             this.TryAdd<ISqlExpressionFactory, SqlExpressionFactory>();
-            this.TryAdd<IOrmModel, OrmModel>();
+            this.TryAdd<IOrmModelSource, OrmModelSource>();
+            // Resolving the model is what builds it — see the lifetime note above.
+            this.TryAdd<IOrmModel>(p => p.GetRequiredService<IDataContextServices>().Model);
             this.TryAdd<IModel>(p => p.GetRequiredService<IOrmModel>());
             this.TryAdd<ILinqToSqlConverterFactoryProvider, LinqToSqlConverterFactoryProvider>();
             this.TryAdd<IExpressionConverterDependencyProvider, ExpressionConverterDependencyProvider>();
@@ -113,6 +128,7 @@ namespace Atis.Orm
             this.TryAdd<IExpressionVariableValuesExtractor, ExpressionVariableValuesExtractor>();
             this.TryAdd<IDatabaseAdapter, DatabaseAdapter>();
             this.TryAdd<IQueryExecutor, QueryExecutor>();
+            this.TryAdd<IEntityPersister, EntityPersister>();
             this.TryAdd<INavigationInitializer, NavigationInitializer>();
             this.TryAdd<IQueryableFactory, QueryableFactory>();
             this.TryAdd<IAsyncQueryProvider, OrmQueryProvider>();

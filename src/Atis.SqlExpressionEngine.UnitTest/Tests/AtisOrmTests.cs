@@ -1,4 +1,4 @@
-using Atis.DependencyInjection;
+using Atzonix.DependencyInjection;
 using Atis.Expressions;
 using Atis.Orm;
 using Atis.Orm.SqlServer;
@@ -506,7 +506,8 @@ OUTER APPLY (
 
         private static void ConfigureMismatchedCompositeKey()
         {
-            var builder = new ModelBuilder(new ComponentAnnotationMetadataBuilder(new OrmReflectionService()), new OrmModel());
+            var metadataBuilder = new ComponentAnnotationMetadataBuilder(new OrmReflectionService());
+            var builder = new ModelBuilder(metadataBuilder, new OrmModel(metadataBuilder));
             builder.Entity<FluentCompany>(e =>
                 e.HasMany(x => x.Employees,
                     parentKey: c => new { c.CompanyId, c.DivisionId },

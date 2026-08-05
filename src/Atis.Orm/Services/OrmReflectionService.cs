@@ -3,6 +3,7 @@ using Atis.SqlExpressionEngine.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 
 using Atis.Orm.Abstractions;
@@ -28,6 +29,45 @@ namespace Atis.Orm.Services
                                    x.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>))
                        .Select(x => x.GetGenericArguments()[0])
                        .FirstOrDefault();
+        }
+
+        /// <inheritdoc />
+        public void SetPropertyOrFieldValue(object instance, MemberInfo propertyOrField, object value)
+        {
+            if (instance is null)
+                throw new ArgumentNullException(nameof(instance));
+            if (propertyOrField is null)
+                throw new ArgumentNullException(nameof(propertyOrField));
+
+            switch (propertyOrField)
+            {
+                case PropertyInfo property:
+                    property.SetValue(instance, value);
+                    break;
+                case FieldInfo field:
+                    field.SetValue(instance, value);
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"'{propertyOrField.DeclaringType?.Name}.{propertyOrField.Name}' is neither a property nor a field, so it cannot be assigned.");
+            }
+        }
+
+        /// <inheritdoc />
+        public bool IsWriteableMember(MemberInfo propertyOrField)
+        {
+            if (propertyOrField is null)
+                throw new ArgumentNullException(nameof(propertyOrField));
+
+            switch (propertyOrField)
+            {
+                case PropertyInfo property:
+                    return property.CanWrite;
+                case FieldInfo field:
+                    return !field.IsInitOnly;
+                default:
+                    return false;
+            }
         }
     }
 }

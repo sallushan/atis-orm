@@ -30,6 +30,7 @@ namespace Atis.Orm
             return this;
         }
 
+        // TODO: check if we should be returning FirstOrDefault instead of List<>
         /// <summary>Executes the insert and returns one dictionary per inserted row.</summary>
         public IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary()
         {

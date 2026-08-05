@@ -26,11 +26,17 @@
 		<!-- Generates symbol packages in the .snupkg format -->
 	</PropertyGroup>
 	<ItemGroup>
-	  <PackageReference Include="Atis.DependencyInjection" Version="1.1.0" />
+	  <!-- 2.1.0 or later: it floors Microsoft.Extensions.DependencyInjection at 10.0.10. Earlier versions
+	       floor it at 3.1.0, whose IL emitting resolver mis-compiles a scoped service produced by a factory
+	       delegate and throws InvalidProgramException once a call site is hot enough to be compiled —
+	       IOrmModel is registered exactly that way. -->
+	  <PackageReference Include="Atzonix.DependencyInjection" Version="2.1.0" />
 	</ItemGroup>
 	<ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-	  <!-- IAsyncEnumerable/IAsyncDisposable are in the BCL from net8.0 onwards. -->
-	  <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="9.0.5" />
+	  <!-- IAsyncEnumerable/IAsyncDisposable are in the BCL from net8.0 onwards. Kept in step with the
+	       Microsoft.Extensions.DependencyInjection that Atzonix.DependencyInjection floors, which depends
+	       on this package on netstandard2.0 and would otherwise resolve as a downgrade. -->
+	  <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.10" />
 	</ItemGroup>
 	<ItemGroup>
 	  <ProjectReference Include="..\Atis.SqlExpressionEngine\Atis.SqlExpressionEngine.csproj" />

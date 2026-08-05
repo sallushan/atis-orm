@@ -1,3 +1,4 @@
+using Atis.Orm.Abstractions;
 using System;
 
 namespace Atis.Orm.DataAccess
@@ -36,6 +37,20 @@ namespace Atis.Orm.DataAccess
         DataContext Context { get; }
 
         /// <summary>
+        ///     <para>
+        ///         The finalized model for this scope's context, built on first access by running the
+        ///         context's <c>OnModelCreating</c> through <see cref="IOrmModelSource"/>.
+        ///     </para>
+        ///     <para>
+        ///         <see cref="Abstractions.IOrmModel"/> is registered as a scoped service that resolves to
+        ///         this property, so every consumer of the model reaches it through here and none of them
+        ///         has to remember to configure it first.
+        ///     </para>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The scope has not been initialized.</exception>
+        IOrmModel Model { get; }
+
+        /// <summary>
         ///     Whether <see cref="Initialize"/> has already run for this scope.
         /// </summary>
         bool IsInitialized { get; }
@@ -50,8 +65,49 @@ namespace Atis.Orm.DataAccess
     /// <inheritdoc />
     public class DataContextServices : IDataContextServices
     {
+        private readonly IOrmModelSource _modelSource;
         private DataContext _context;
         private DataContextConfiguration _configuration;
+        private IOrmModel _model;
+        private bool _buildingModel;
+
+        /// <summary>Constructs the scope's services.</summary>
+        public DataContextServices(IOrmModelSource modelSource)
+        {
+            this._modelSource = modelSource ?? throw new ArgumentNullException(nameof(modelSource));
+        }
+
+        /// <inheritdoc />
+        public IOrmModel Model
+        {
+            get
+            {
+                if (this._model is null)
+                {
+                    // OnModelCreating runs inside this call. A context whose OnModelCreating reaches back
+                    // for the model — by creating a queryable, say — would otherwise recurse until the
+                    // stack ran out, so it is reported as what it is instead.
+                    if (this._buildingModel)
+                    {
+                        throw new InvalidOperationException(
+                            $"'{this.Context.GetType().Name}.OnModelCreating' asked for the model it is in the middle " +
+                            "of building. Configure entities on the ModelBuilder it was handed rather than querying " +
+                            "the context from inside it.");
+                    }
+
+                    this._buildingModel = true;
+                    try
+                    {
+                        this._model = this._modelSource.GetModel(this.Context);
+                    }
+                    finally
+                    {
+                        this._buildingModel = false;
+                    }
+                }
+                return this._model;
+            }
+        }
 
         /// <inheritdoc />
         public DataContextConfiguration Configuration

@@ -33,6 +33,8 @@ namespace Atis.Orm
             return this;
         }
 
+        // TODO: see if this should be changed to FirstOrDefault instead of List, because update will
+        // is designed to update only 1 row.
         /// <summary>Executes the update and returns one dictionary per updated row.</summary>
         public IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary()
         {

@@ -1,4 +1,4 @@
-using Atis.DependencyInjection;
+using Atzonix.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
@@ -116,6 +116,9 @@ namespace Atis.Orm.SqlServer
             // Register the SQL Server dialect translator before AddCoreServices so it wins the
             // TryAdd<ISqlExpressionTranslator, SqlExpressionTranslatorBase>() default (first-wins).
             builder.TryAdd<ISqlExpressionTranslator, SqlServerSqlExpressionTranslator>();
+            // Same first-wins reason: this one reports that OUTPUT is available, so entity level writes
+            // read generated values back in the statement that wrote them.
+            builder.TryAdd<IEntityPersister, SqlServerEntityPersister>();
             builder.AddCoreServices();
         }
 
