@@ -22,8 +22,6 @@ namespace Atis.Orm.Abstractions
     /// </summary>
     public interface IOrmModel : IModel
     {
-        EntityMetadata GetOrAdd(Type type, Func<Type, EntityMetadata> factory);
-
         /// <summary>
         ///     <para>
         ///         Returns <paramref name="type"/>'s query side mapping, deriving it from annotations if
@@ -38,19 +36,12 @@ namespace Atis.Orm.Abstractions
         EntityMetadata EnsureEntityMapped(Type type);
 
         void Add(EntityMetadata metadata);
-        bool Contains(Type type);
         bool TryGet(Type type, out EntityMetadata metadata);
-        void EnsureModelInitialized(Action modelInitializer);
 
         /// <summary>
         ///     Stores the persistence side of an entity's mapping, replacing any existing entry.
         /// </summary>
         void AddCrud(EntityCrudMetadata crudMetadata);
-
-        /// <summary>
-        ///     Looks up the persistence side of an entity's mapping.
-        /// </summary>
-        bool TryGetCrud(Type type, out EntityCrudMetadata crudMetadata);
 
         /// <summary>
         ///     <para>

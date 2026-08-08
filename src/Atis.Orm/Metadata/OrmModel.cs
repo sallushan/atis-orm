@@ -44,13 +44,18 @@ namespace Atis.Orm.Metadata
             this.metadataMap[metadata.ClrType] = metadata;
         }
 
-        /// <inheritdoc />
-        public bool Contains(Type type)
-        {
-            if (type == null) throw new ArgumentNullException(nameof(type));
-            return this.metadataMap.ContainsKey(type);
-        }
-
+        /// <summary>
+        ///     <para>
+        ///         Runs <paramref name="modelInitializer"/> exactly once for the lifetime of this model,
+        ///         however many threads arrive together, and returns only once it has finished.
+        ///     </para>
+        ///     <para>
+        ///         Deliberately not on <see cref="IOrmModel"/>. Initialization is the concern of whoever
+        ///         owns the model's construction — today only <see cref="OrmModelSource"/>, which holds
+        ///         this concrete type. Everyone else receives a model that is already initialized and has
+        ///         no business re-initializing it.
+        ///     </para>
+        /// </summary>
         public void EnsureModelInitialized(Action modelInitializer)
         {
             // this is double-check locking pattern and intentional,
@@ -82,14 +87,6 @@ namespace Atis.Orm.Metadata
         }
 
         /// <inheritdoc />
-        public EntityMetadata GetOrAdd(Type type, Func<Type, EntityMetadata> factory)
-        {
-            if (type == null) throw new ArgumentNullException(nameof(type));
-            if (factory == null) throw new ArgumentNullException(nameof(factory));
-            return this.metadataMap.GetOrAdd(type, factory);
-        }
-
-        /// <inheritdoc />
         public bool TryGet(Type type, out EntityMetadata metadata)
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
@@ -101,13 +98,6 @@ namespace Atis.Orm.Metadata
         {
             if (crudMetadata == null) throw new ArgumentNullException(nameof(crudMetadata));
             this.crudMetadataMap[crudMetadata.ClrType] = crudMetadata;
-        }
-
-        /// <inheritdoc />
-        public bool TryGetCrud(Type type, out EntityCrudMetadata crudMetadata)
-        {
-            if (type == null) throw new ArgumentNullException(nameof(type));
-            return this.crudMetadataMap.TryGetValue(type, out crudMetadata);
         }
 
         /// <inheritdoc />
