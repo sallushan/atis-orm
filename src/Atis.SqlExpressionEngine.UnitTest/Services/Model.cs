@@ -24,7 +24,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
             this.entityMetadataBuilder = new EntityMetadataBuilder(reflectionService);
         }
 
-        public override EntityMetadata GetEntity(Type type)
+        public override EntityMetadata GetRequiredEntity(Type type)
         {
             if (type is null)
                 throw new ArgumentNullException(nameof(type));

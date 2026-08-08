@@ -24,8 +24,16 @@ namespace Atis.SqlExpressionEngine.Services
     /// </remarks>
     public class Model : IModel
     {
-        public virtual EntityMetadata GetEntity(Type type)
+        /// <inheritdoc />
+        /// <remarks>
+        ///     Derives the mapping every time rather than looking one up, which is consistent with
+        ///     <see cref="CanBeEntity(Type)"/> accepting everything: there is no type this model would
+        ///     call an entity and then fail to map.
+        /// </remarks>
+        public virtual EntityMetadata GetRequiredEntity(Type type)
         {
+            if (type is null)
+                throw new ArgumentNullException(nameof(type));
             var properties = type.GetProperties();
             return new EntityMetadata(
                 clrType: type,
@@ -40,5 +48,13 @@ namespace Atis.SqlExpressionEngine.Services
         {
             return entity.ClrType.GetProperty(column.ModelPropertyName);
         }
+
+        /// <inheritdoc />
+        /// <remarks>
+        ///     This model maps by convention alone, so every type qualifies. Override together with
+        ///     <see cref="GetRequiredEntity(Type)"/> — deciding what counts as an entity and deriving its
+        ///     mapping have to agree on the same rule.
+        /// </remarks>
+        public virtual bool CanBeEntity(Type type) => true;
     }
 }

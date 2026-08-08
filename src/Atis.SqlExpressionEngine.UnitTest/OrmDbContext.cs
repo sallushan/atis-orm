@@ -35,8 +35,9 @@ namespace Atis.SqlExpressionEngine.UnitTest
         // Exposes the built (immutable) metadata so tests can assert what the fluent API produced.
         public EntityMetadata GetEntityMetadata<T>()
         {
-            this.Model.TryGet(typeof(T), out var metadata);
-            return metadata;
+            if (!this.Model.CanBeEntity(typeof(T)))
+                return null;
+            return this.Model.GetRequiredEntity(typeof(T));
         }
 
         // Exposes the persistence side of the mapping, built on demand for entities that were never

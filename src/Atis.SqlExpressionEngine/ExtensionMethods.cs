@@ -191,10 +191,5 @@ namespace Atis.SqlExpressionEngine
                 throw new InvalidCastException($"Unable to cast SqlExpression '{sqlExpression.GetType().Name}' to '{typeof(T).Name}'.{exceptionMessage}");
         }
 
-        public static EntityMetadata GetEntityRequired(this IModel model, Type entityType)
-        {
-            return model.GetEntity(entityType)
-                ?? throw new InvalidOperationException($"Entity metadata for type '{entityType.Name}' not found.");
-        }
     }
 }

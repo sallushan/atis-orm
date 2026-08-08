@@ -38,9 +38,12 @@ namespace Atis.Orm.Metadata
             this.reflectionService = reflectionService;
         }
 
+
         /// <inheritdoc />
         public EntityMetadata Build(Type type)
         {
+            if (type is null)
+                throw new ArgumentNullException(nameof(type));
             var columnProperties = this.GetColumnProperties(type);
             var columns = columnProperties
                             .Select(x => new TableColumn(this.GetColumnName(x), x.Name, isPrimaryKey: this.IsPrimaryKey(x)))
@@ -78,6 +81,18 @@ namespace Atis.Orm.Metadata
             return entityMetadata;
         }
 
+        /// <inheritdoc />
+        public virtual bool CanBuild(Type type)
+        {
+            if (type is null)
+                throw new ArgumentNullException(nameof(type));
+            return type.GetCustomAttribute<DbTableAttribute>() != null;
+        }
+
+        // The fallback to type.Name stays even though CanBuild now requires DbTableAttribute, because
+        // Build also runs for entities configured through OnModelCreating: ModelBuilder.Entity<T>() seeds
+        // from Build before applying ToTable(...), and a fluently configured entity is not required to
+        // carry the annotation. Throwing here would break the fluent API.
         protected virtual SqlTable GetSqlTable(Type type)
         {
             var dbTableAttribute = type.GetCustomAttribute<DbTableAttribute>();

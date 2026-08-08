@@ -10,14 +10,17 @@ namespace Atis.Orm.Querying
     /// A factory class for creating instances of <see cref="IQueryable{T}"/> with a specified <see cref="IAsyncQueryProvider"/> and expression.
     /// </summary>
     /// <remarks>
-    /// The <see cref="IAsyncQueryProvider"/> is resolved lazily to avoid a service construction cycle
-    /// (<c>OrmQueryProvider -&gt; QueryExecutor -&gt; NavigationInitializer -&gt; QueryableFactory -&gt; provider</c>);
-    /// by the time a query is created or executed the provider is fully built.
+    /// <para>
+    /// Breaking the construction cycle is the whole reason this type exists. Resolving
+    /// <see cref="IAsyncQueryProvider"/> lazily is what cuts
+    /// <c>OrmQueryProvider -&gt; QueryExecutor -&gt; NavigationInitializer -&gt; QueryableFactory -&gt; provider</c>;
+    /// by the time a query is created or executed the provider is fully built. A consumer that takes the
+    /// provider directly instead of this factory reinstates the cycle.
+    /// </para>
     /// </remarks>
     public class QueryableFactory : IQueryableFactory
     {
         private readonly IServiceProvider serviceProvider;
-        private readonly IOrmModel Model;
 
         private IAsyncQueryProvider provider;
         private IAsyncQueryProvider Provider =>
@@ -28,14 +31,9 @@ namespace Atis.Orm.Querying
         /// Initializes a new instance of the <see cref="QueryableFactory"/> class.
         /// </summary>
         /// <param name="serviceProvider">The service provider used to lazily resolve the <see cref="IAsyncQueryProvider"/>.</param>
-        /// <param name="model">
-        ///     The model to be used by the factory. Resolving it has already run <c>OnModelCreating</c>,
-        ///     so a mapping this factory derives from annotations can never overwrite a configured one.
-        /// </param>
-        public QueryableFactory(IServiceProvider serviceProvider, IOrmModel model)
+        public QueryableFactory(IServiceProvider serviceProvider)
         {
             this.serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-            this.Model = model ?? throw new ArgumentNullException(nameof(model));
         }
 
         /// <inheritdoc />
@@ -52,7 +50,6 @@ namespace Atis.Orm.Querying
 
         private IQueryable<T> CreateQueryableInternal<T>(Expression expression)
         {
-            this.Model.EnsureEntityMapped(typeof(T));
             if(expression == null)
                 return new OrmQueryable<T>(this.Provider);
             else

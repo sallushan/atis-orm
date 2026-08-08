@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Text;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.Annotations;
 namespace Atis.Orm.Metadata
 {
     /// <inheritdoc />
@@ -23,7 +24,7 @@ namespace Atis.Orm.Metadata
         /// </summary>
         /// <param name="entityMetadataBuilder">
         ///     Derives a mapping from annotations for an entity that <c>OnModelCreating</c> never
-        ///     configured, which is what <see cref="EnsureEntityMapped"/> falls back to.
+        ///     configured, and decides which types are entities at all — see <see cref="CanBeEntity"/>.
         /// </param>
         public OrmModel(IEntityMetadataBuilder entityMetadataBuilder)
         {
@@ -31,9 +32,26 @@ namespace Atis.Orm.Metadata
         }
 
         /// <inheritdoc />
-        public EntityMetadata EnsureEntityMapped(Type type)
+        /// <remarks>
+        ///     <para>
+        ///         The caller has established that <paramref name="type"/> is an entity, so this derives
+        ///         the mapping from annotations rather than failing. That is what lets a navigation reach
+        ///         a target no entry point ever named: the metadata builder emits a bare
+        ///         <c>QueryRootExpression</c> for the target, and this is where the converter turns it
+        ///         into a table.
+        ///     </para>
+        ///     <para>
+        ///         Never overwrites a mapping <c>OnModelCreating</c> configured — the model is fully
+        ///         built before it can be resolved, so a configured entry is always already present.
+        ///     </para>
+        /// </remarks>
+        public EntityMetadata GetRequiredEntity(Type type)
         {
             if (type == null) throw new ArgumentNullException(nameof(type));
+            if (!this.CanBeEntity(type))
+                throw new InvalidOperationException(
+                    $"'{type.Name}' is not an entity. Mark it with [{nameof(DbTableAttribute)}] or configure " +
+                    $"it in OnModelCreating.");
             return this.metadataMap.GetOrAdd(type, this.entityMetadataBuilder.Build);
         }
 
@@ -74,25 +92,6 @@ namespace Atis.Orm.Metadata
             }
         }
 
-        /// <inheritdoc/>
-        public EntityMetadata GetEntity(Type type)
-        {
-            if (type == null) throw new ArgumentNullException(nameof(type));
-
-            if (this.TryGet(type, out var metadata))
-            {
-                return metadata;
-            }
-            return null;
-        }
-
-        /// <inheritdoc />
-        public bool TryGet(Type type, out EntityMetadata metadata)
-        {
-            if (type == null) throw new ArgumentNullException(nameof(type));
-            return this.metadataMap.TryGetValue(type, out metadata);
-        }
-
         /// <inheritdoc />
         public void AddCrud(EntityCrudMetadata crudMetadata)
         {
@@ -106,6 +105,24 @@ namespace Atis.Orm.Metadata
             if (type == null) throw new ArgumentNullException(nameof(type));
             if (factory == null) throw new ArgumentNullException(nameof(factory));
             return this.crudMetadataMap.GetOrAdd(type, factory);
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        ///     <para>
+        ///         Two ways to be an entity, one per clause. Already in the map covers everything
+        ///         <c>OnModelCreating</c> configured and everything already derived. Otherwise the builder
+        ///         decides, because recognising an entity is a question about annotations and the builder
+        ///         is what reads them — keeping that half here would put the annotation vocabulary inside
+        ///         the store, and force a consumer with their own annotations to replace the model as well
+        ///         as the builder.
+        ///     </para>
+        /// </remarks>
+        public bool CanBeEntity(Type type)
+        {
+            if (type is null)
+                throw new ArgumentNullException(nameof(type));
+            return this.metadataMap.ContainsKey(type) || this.entityMetadataBuilder.CanBuild(type);
         }
     }
 }

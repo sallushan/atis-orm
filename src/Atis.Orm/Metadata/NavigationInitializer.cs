@@ -72,7 +72,7 @@ namespace Atis.Orm.Metadata
             = new ConcurrentDictionary<NavigationInfo, Func<object, object, bool>>();
 
         private readonly IQueryableFactory queryableFactory;
-        private readonly IOrmModel model;
+        private readonly IModel model;
         private readonly IReflectionService reflectionService;
 
         /// <summary>
@@ -106,7 +106,12 @@ namespace Atis.Orm.Metadata
         ///     type, and <paramref name="reflectionService"/> resolves the navigation properties while
         ///     the per-type initialization action is being compiled.
         /// </summary>
-        public NavigationInitializer(IQueryableFactory queryableFactory, IOrmModel model, IReflectionService reflectionService)
+        /// <remarks>
+        ///     Takes <see cref="IModel"/> rather than <see cref="IOrmModel"/> because it only ever asks
+        ///     the two questions on the narrower interface — is this an entity, and what is its mapping.
+        ///     The persistence side is none of its business.
+        /// </remarks>
+        public NavigationInitializer(IQueryableFactory queryableFactory, IModel model, IReflectionService reflectionService)
         {
             this.queryableFactory = queryableFactory ?? throw new ArgumentNullException(nameof(queryableFactory));
             this.model = model ?? throw new ArgumentNullException(nameof(model));
@@ -130,11 +135,12 @@ namespace Atis.Orm.Metadata
             var entityType = entity.GetType();
             if (!iteratorCache.TryGetValue(entityType, out var iterator))
             {
-                // Only cache a verdict once the model has metadata for the type, so a type that is
-                // registered later (or a DTO/anonymous projection) is not permanently marked as
-                // having no navigations.
-                if (!this.model.TryGet(entityType, out var metadata))
+                // Materialized rows can be anything - a DTO, an anonymous projection - so ask before
+                // assuming. Nothing pre-maps the type for us: CanBeEntity is what distinguishes a real
+                // entity from a projection, and only then is deriving the mapping correct.
+                if (!this.model.CanBeEntity(entityType))
                     return;
+                var metadata = this.model.GetRequiredEntity(entityType);
                 iterator = iteratorCache.GetOrAdd(entityType, t => this.CreateNavigationPropertiesIterator(t, metadata));
             }
             iterator?.Invoke(this, entity);

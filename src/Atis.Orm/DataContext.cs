@@ -237,7 +237,6 @@ namespace Atis.Orm
         /// </summary>
         public virtual UpdateSetStage<T> UpdateEntity<T>()
         {
-            this.Model.EnsureEntityMapped(typeof(T));
             return this.QueryProvider.UpdateEntity<T>();
         }
 
@@ -250,7 +249,6 @@ namespace Atis.Orm
         /// </summary>
         public virtual InsertValueStage<T> InsertEntity<T>()
         {
-            this.Model.EnsureEntityMapped(typeof(T));
             return this.QueryProvider.InsertEntity<T>();
         }
 
@@ -263,7 +261,6 @@ namespace Atis.Orm
         /// </summary>
         public virtual DeleteKeyStage<T> DeleteEntity<T>()
         {
-            this.Model.EnsureEntityMapped(typeof(T));
             return this.QueryProvider.DeleteEntity<T>();
         }
 

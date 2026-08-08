@@ -80,7 +80,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             var genericArg0 = this.Expression.Method.GetGenericArguments().FirstOrDefault()
                                 ??
                                 throw new System.InvalidOperationException("Table method must have at least one generic argument.");
-            var entity = this.model.GetEntityRequired(genericArg0);
+            var entity = this.model.GetRequiredEntity(genericArg0);
             return this.SqlFactory.CreateTable(entity.Table, entity.SqlColumns);
         }
     }

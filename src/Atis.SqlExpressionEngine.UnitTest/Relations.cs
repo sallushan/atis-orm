@@ -178,6 +178,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         }
     }
 
+    [DbTable]
     public class EmployeeWithTopManagerDto
     {
         public string EmployeeId { get; set; }

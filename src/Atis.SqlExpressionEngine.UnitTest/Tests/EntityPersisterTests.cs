@@ -29,6 +29,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         ///     One property of every <see cref="ColumnKind"/>, so a single entity exercises the whole
         ///     column-participation table.
         /// </summary>
+        [DbTable]
         public class Product : Record
         {
             [PrimaryKey]
@@ -54,6 +55,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         /// <summary>A composite key, which is where losing all but the last key predicate does real damage.</summary>
+        [DbTable]
         public class OrderLine : Record
         {
             [PrimaryKey]
@@ -66,6 +68,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         /// <summary>No generated column, so the write never needs to read anything back.</summary>
+        [DbTable]
         public class Tag : Record
         {
             [PrimaryKey]
@@ -75,6 +78,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         /// <summary>A generated column with no setter — the value could never be assigned back.</summary>
+        [DbTable]
         public class UnsettableGenerated : Record
         {
             [PrimaryKey]
@@ -85,6 +89,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         /// <summary>Two column kinds on one property, which the kinds being exclusive makes meaningless.</summary>
+        [DbTable]
         public class Contradictory : Record
         {
             [PrimaryKey]

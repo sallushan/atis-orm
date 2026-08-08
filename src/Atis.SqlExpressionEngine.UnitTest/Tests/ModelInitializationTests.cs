@@ -61,8 +61,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             public EntityMetadata Mapping<T>()
             {
-                this.Model.TryGet(typeof(T), out var metadata);
-                return metadata;
+                if (!this.Model.CanBeEntity(typeof(T)))
+                    return null;
+                return this.Model.GetRequiredEntity(typeof(T));
             }
 
             public IServiceProvider Services => this.ServiceProvider;
@@ -99,8 +100,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             var model = context.Services.GetRequiredService<IOrmModel>();
 
-            Assert.IsTrue(model.TryGet(typeof(CrudFluentEmployee), out var mapping),
+            // CrudFluentEmployee carries no [DbTable], so the only way the model can know it is through
+            // fluent configuration — which makes this the same assertion as "OnModelCreating ran".
+            Assert.IsTrue(model.CanBeEntity(typeof(CrudFluentEmployee)),
                 "Resolving IOrmModel must have run OnModelCreating.");
+
+            var mapping = model.GetRequiredEntity(typeof(CrudFluentEmployee));
             Assert.AreEqual("CRUD_FLUENT_EMPLOYEE", mapping.Table.TableName);
         }
 
@@ -158,6 +163,47 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 () => context.CreateQuery<CrudFluentEmployee>());
 
             StringAssert.Contains(thrown.Message, "OnModelCreating");
+        }
+
+        /// <summary>No <c>[DbTable]</c> and never configured — neither of the two ways to be an entity.</summary>
+        private sealed class NotAnEntity
+        {
+            public int Id { get; set; }
+            public string Name { get; set; }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The rule the rest of the mapping rests on: a class is an entity because it is annotated
+        ///         or because <c>OnModelCreating</c> configured it, and otherwise it is not one. Since
+        ///         mappings are now derived on demand, nothing else stops a plain class from being handed
+        ///         to the metadata builder and turned into a table named after itself.
+        ///     </para>
+        ///     <para>
+        ///         Every other test drives the accepting side of that rule, so without this one the check
+        ///         could be deleted and the suite would stay green — the mistake would surface as a
+        ///         database error about a table that does not exist.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void A_class_that_is_neither_annotated_nor_configured_is_refused()
+        {
+            using var context = new OrmDbContext();
+
+            // Building the queryable is not the point of failure — nothing about T is inspected until the
+            // expression is translated, which is where a root type has to resolve to a mapping.
+            var query = context.CreateQuery<NotAnEntity>();
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => context.GetService<IQueryTranslator>().Translate(query.Expression));
+
+            StringAssert.Contains(thrown.Message, nameof(NotAnEntity),
+                "The message must name the offending type — that is the only thing telling the caller " +
+                "which of their classes is wrong.");
+            StringAssert.Contains(thrown.Message, nameof(Atis.Orm.Annotations.DbTableAttribute),
+                "and must name the annotation, which is one of the two ways out.");
+            StringAssert.Contains(thrown.Message, "OnModelCreating",
+                "and the other.");
         }
     }
 }

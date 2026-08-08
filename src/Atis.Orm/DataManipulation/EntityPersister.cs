@@ -400,7 +400,7 @@ namespace Atis.Orm.DataManipulation
         private EntityWriteMap BuildWriteMap(Type entityType)
         {
             var crudMetadata = this.model.GetOrAddCrud(entityType, t => this.crudMetadataFactory.Build(t));
-            var entityMetadata = this.model.EnsureEntityMapped(entityType);
+            var entityMetadata = this.model.GetRequiredEntity(entityType);
 
             // EntityCrudMetadataFactory deliberately does not diagnose this — it runs for every entity,
             // including ones that are only ever queried, and collapses the annotations to a single kind.

@@ -1,4 +1,6 @@
-using System;
+﻿using System;
+
+using Atis.Orm.Annotations;
 
 namespace Atis.SqlExpressionEngine.UnitTest.TestEntities
 {
@@ -18,6 +20,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.TestEntities
     /// <summary>
     /// Represents an employee in the organization
     /// </summary>
+    [DbTable]
     public class Employee
     {
         public int EmployeeId { get; set; }
@@ -79,6 +82,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.TestEntities
     /// <summary>
     /// Represents an audit log entry for tracking changes
     /// </summary>
+    [DbTable]
     public class AuditLog
     {
         public long AuditId { get; set; }

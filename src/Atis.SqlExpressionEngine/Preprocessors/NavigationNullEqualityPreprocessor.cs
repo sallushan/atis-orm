@@ -94,7 +94,7 @@ namespace Atis.SqlExpressionEngine.Preprocessors
         /// <returns>First primary key member or null if no primary key is found.</returns>
         protected virtual MemberInfo GetFirstPrimaryKey(Type navigationTableSourceType)
         {
-            var entity = this.model.GetEntityRequired(navigationTableSourceType);
+            var entity = this.model.GetRequiredEntity(navigationTableSourceType);
             var primaryKeyOrNormalColumn = entity.SqlColumns.OrderBy(x => x.IsPrimaryKey ? 0 : 1).FirstOrDefault()
                                             ??
                                             throw new InvalidOperationException($"No columns are defined for type '{navigationTableSourceType.FullName}' in the model.");

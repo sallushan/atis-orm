@@ -33,9 +33,12 @@ namespace Atis.Orm.Preprocessing
             var modelType = memberExpression.Expression?.Type;
             if (modelType != null)
             {
-                var metadata = this.model.GetEntity(modelType);
-                if (metadata != null)
+                if (this.model.CanBeEntity(modelType))
                 {
+                    var metadata = this.model.GetRequiredEntity(modelType)
+                        ??
+                        // This should not happen if CanBeEntity returned true, but we throw an exception to be safe
+                        throw new InvalidOperationException($"GetRequiredEntity returned null for type {modelType.FullName}. This should not happen if CanBeEntity returned true.");
                     if (metadata.CalculatedProperties.TryGetValue(memberExpression.Member.Name, out var lambdaExpression))
                     {
                         calculatedPropertyExpression = lambdaExpression;

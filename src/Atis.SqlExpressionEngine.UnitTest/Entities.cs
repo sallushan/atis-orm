@@ -68,6 +68,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public Func<ItemExtension> NavItemExt { get; set; }
     }
 
+    [DbTable]
     public class ItemExtension
     {
         public string ItemId { get; set; }
@@ -121,6 +122,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         string CalcFullName { get; }
     }
 
+    [DbTable]
     public class Employee : IFullName
     {
         public Guid RowId { get; set; }
@@ -150,6 +152,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         public string Designation { get; set; } = null!;
     }
 
+    [DbTable]
     public class EmployeeDegree
     {
         public Guid RowId { get; set; }
@@ -477,6 +480,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
     }
 
     [Table("SLS_ORD")]
+    [DbTable]
     public class SalesOrderWithSystemAnnotation
     {
         [Key]

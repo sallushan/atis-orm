@@ -242,16 +242,6 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             return ienum?.GetGenericArguments()[0];
         }
 
-        //protected virtual bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation)
-        //{
-        //    var entity = this.model.GetEntity(navNode.Expression.Type);
-        //    if (entity != null)
-        //    {
-        //        return entity.Navigations.TryGetValue(navNode.Member.Name, out navigation);
-        //    }
-        //    navigation = null;
-        //    return false;
-        //}
 
         protected virtual bool IsSupportedNavigationType(NavigationType navigationType)
             => navigationType == NavigationType.ToParent
@@ -354,11 +344,15 @@ namespace Atis.SqlExpressionEngine.Preprocessors
             var memberExpression = this.GetMemberExpression(node, stackArray);
             if (memberExpression != null && memberExpression.Expression != null)
             {
-                var entity = this.model.GetEntity(memberExpression.Expression.Type);
-                if (entity != null)
+                var modelType = memberExpression.Expression.Type;
+                if (this.model.CanBeEntity(modelType))
                 {
+                    var entity = this.model.GetRequiredEntity(modelType)
+                                    ??
+                                    // This should not happen if CanBeEntity returned true, but we throw an exception to be safe
+                                    throw new InvalidOperationException($"GetRequiredEntity returned null for type {modelType.FullName}. This should not happen if CanBeEntity returned true.");
                     if (entity.Navigations.TryGetValue(memberExpression.Member.Name, out var nav)
-                        && IsSupportedNavigationType(nav.NavigationType))
+                            && IsSupportedNavigationType(nav.NavigationType))
                     {
                         parentExpression = GetParentExpression(node, stackArray); // important
                         navigationInfo = nav;

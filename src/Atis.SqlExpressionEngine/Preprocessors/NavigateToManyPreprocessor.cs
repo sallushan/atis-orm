@@ -76,9 +76,14 @@ namespace Atis.SqlExpressionEngine.Preprocessors
 
         private bool TryResolveNavigation(MemberExpression navNode, out NavigationInfo navigation) 
         {
-            var entity = this.model.GetEntity(navNode.Expression.Type);
-            if (entity != null)
+            var modelType = navNode.Expression.Type;
+            if (this.model.CanBeEntity(modelType))
             {
+                var entity = this.model.GetRequiredEntity(modelType)
+                                ??
+                                // This should not happen if CanBeEntity returned true, but we throw an exception to be safe
+                                throw new InvalidOperationException($"GetRequiredEntity returned null for type {modelType.FullName}. This should not happen if CanBeEntity returned true.");
+
                 return entity.Navigations.TryGetValue(navNode.Member.Name, out navigation);
             }
             navigation = null;
