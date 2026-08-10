@@ -1,7 +1,8 @@
 # Atis.Orm.Benchmarks
 
 End-to-end query benchmarks comparing **Atis ORM** against **Dapper**, **EF Core 8**,
-**linq2db**, and hand-written ADO.NET, using [BenchmarkDotNet](https://benchmarkdotnet.org/).
+**linq2db**, **its own previous generation (Atis.ORM 9.16.4)**, and hand-written ADO.NET, using
+[BenchmarkDotNet](https://benchmarkdotnet.org/).
 
 This project is a deliberate **mirror of Dapper's own benchmark suite**
 ([`benchmarks/Dapper.Tests.Performance`](https://github.com/DapperLib/Dapper/tree/main/benchmarks/Dapper.Tests.Performance)):
@@ -56,10 +57,42 @@ Matching Dapper's suite exactly:
 |---|---|
 | Hand Coded, Dapper, Atis `First` | share the one connection opened in setup |
 | EF Core, linq2db, Atis `First (Own Connection)` | own long-lived context built once in setup, acquiring a pooled connection per query |
+| Atis (legacy 9.16.4) | same two modes, but over its **own** connection — see below |
 
 Atis appears twice on purpose. `First` is comparable to Dapper and the hand-coded baseline;
 `First (Own Connection)` is comparable to EF Core. Reporting both keeps the connection cost visible
 instead of hiding it inside a single number.
+
+The legacy contender is the one place the shared-connection rule cannot be honoured literally. Its
+`SqlDataLibrary` constructs **System.Data.SqlClient** commands and assigns the connection to them, so
+handing it the Microsoft.Data.SqlClient connection everyone else shares throws on the first query. It
+instead gets its own System.Data.SqlClient connection to the same database, opened once in setup and
+reused — the same *arrangement*, over a different ADO.NET provider. Treat provider-level differences as
+part of the legacy number.
+
+## The legacy Atis.ORM contender
+
+`Atis (legacy 9.16.4)` runs the previous-generation engine on both scenarios so the rewrite can be read
+against what it replaced, in the same table, under the same harness. Three things to know:
+
+- **It is a repacked package.** `Atis.ORM` and this repo's `Atis.Orm` are the same assembly identity to
+  the CLR (comparison is case-insensitive), so the two cannot load in one process. The benchmark
+  references `Atis.ORM.Legacy`, which is the shipped package with only the assembly name changed — no
+  IL is modified. See [`local-packages/README.md`](../../local-packages/README.md).
+- **It needs its own entity types.** The legacy engine requires entities to derive from
+  `Atis.ORM.Record`, and only skips the inherited `RecordState` property for `Record` subclasses.
+  Putting that base class on the shared `Post`/`Employee` would leak `RecordState` into EF Core's and
+  linq2db's mappings, so `LegacyPost` and `LegacyEmployee` mirror them column-for-column instead. Same
+  table, same CLR types, same materialization work.
+- **The query shape is equivalent, not identical in spelling.** The legacy API has no `First`, so the
+  `ByPk` row is `Where(…).FirstOrDefault()` — which appends `Top(1)` and takes the first row, the same
+  SQL the current engine's `First(predicate)` emits. `TopN` uses `OrderByDesc`/`Top` where the LINQ
+  providers use `OrderByDescending`/`Take`. Both engines were verified to return identical rows and
+  identical `TopN` ordering before these numbers were taken.
+
+The headline structural difference the `ByPk` row prices: the legacy engine has **no compiled-query
+cache**, so `QueryTranslator.Translate` runs on every single execution, where the current engine's
+steady state is a cache hit plus parameter rebinding.
 
 ## Prerequisites
 
@@ -69,6 +102,11 @@ instead of hiding it inside a single number.
   ```powershell
   $env:ATIS_BENCH_SQL = "Server=(localdb)\MSSQLLocalDB;Integrated Security=true;TrustServerCertificate=True"
   ```
+
+No NuGet setup is needed for the legacy contender: `Atis.ORM.Legacy` is vendored in
+[`local-packages/`](../../local-packages/) and restored from the folder source registered in the repo's
+`Nuget.config`. Restoring from *outside* the repo root will not see that source — build through the
+solution or the project path so the repo's `Nuget.config` applies.
 
 The harness creates and seeds a dedicated `AtisOrmBenchDb` database on first run: 5,001 `Posts`
 rows (Dapper's own bootstrap script) plus 5,000 employees across 5 departments. It is separate from

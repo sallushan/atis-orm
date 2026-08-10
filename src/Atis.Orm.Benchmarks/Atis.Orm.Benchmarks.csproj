@@ -26,6 +26,23 @@
 		<PackageReference Include="Dapper" Version="2.1.44" />
 		<PackageReference Include="linq2db" Version="5.4.1" />
 
+		<!-- The previous-generation Atis engine (Atis.ORM 9.16.4), kept as a contender so gains and
+		     regressions against it are visible. Two things about this reference are deliberate:
+
+		     1. It is not on nuget.org, so the package is vendored in local-packages/ and restored from
+		        the folder source registered in the repo's Nuget.config.
+		     2. It is the *repacked* Atis.ORM.Legacy, not the shipped Atis.ORM. Assembly identity is
+		        compared case-insensitively, so the original "Atis.ORM" collides head-on with this
+		        repo's "Atis.Orm": referencing both produces MSB3243, drops one of them from bin\, and
+		        the loser dies at run time. See tools/repack-legacy-atis-orm/. -->
+		<PackageReference Include="Atis.ORM.Legacy" Version="9.16.4" />
+
+		<!-- The legacy engine's ADO.NET stack. It creates System.Data.SqlClient commands and
+		     connections directly (SqlDataLibrary.CreateNewCommand/CreateNewConnection), so it cannot
+		     be handed the Microsoft.Data.SqlClient connection the other contenders share — see
+		     LegacyAtisDataContext. Version matches the package's own dependency. -->
+		<PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
+
 		<!-- Raw ADO.NET provider (also used by the DB bootstrap). Pinned to the version
 		     Atis.Orm.SqlServer binds on net8.0, so every contender is measured on one ADO.NET stack. -->
 		<PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />

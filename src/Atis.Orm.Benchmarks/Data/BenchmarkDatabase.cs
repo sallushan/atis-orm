@@ -30,6 +30,46 @@ namespace Atis.Orm.Benchmarks.Data
         /// <summary>Obsolete alias kept so existing benchmark wiring keeps compiling.</summary>
         public static string AtisConnectionString => ConnectionString;
 
+        /// <summary>
+        /// The same database, spelled for System.Data.SqlClient — the stack the legacy Atis.ORM
+        /// engine hard-codes (see its <c>SqlDataLibrary.CreateNewConnection</c>).
+        ///
+        /// <para>The settings are copied across property by property rather than by handing
+        /// <see cref="ConnectionString"/> to the older builder. The two providers canonicalize keywords
+        /// differently — Microsoft.Data.SqlClient writes "Trust Server Certificate", which
+        /// System.Data.SqlClient rejects outright with "Keyword not supported" — so the only reliable
+        /// bridge is the typed properties. Server, database and credentials are identical, so the
+        /// legacy contender reads the same rows as everyone else.</para>
+        /// </summary>
+        public static string LegacyConnectionString
+        {
+            get
+            {
+                var source = new SqlConnectionStringBuilder(ConnectionString);
+                var legacy = new System.Data.SqlClient.SqlConnectionStringBuilder
+                {
+                    DataSource = source.DataSource,
+                    InitialCatalog = source.InitialCatalog,
+                    IntegratedSecurity = source.IntegratedSecurity,
+                    TrustServerCertificate = source.TrustServerCertificate,
+                    // The newer provider models this as a tri-state (Optional/Mandatory/Strict) where
+                    // the older one has only a bool; Strict has no pre-TDS-8 equivalent, so anything
+                    // stricter than Optional maps to plain encryption.
+                    Encrypt = source.Encrypt != SqlConnectionEncryptOption.Optional,
+                };
+
+                // Only present when the ATIS_BENCH_SQL override uses SQL authentication rather than
+                // the default integrated security.
+                if (!source.IntegratedSecurity)
+                {
+                    legacy.UserID = source.UserID;
+                    legacy.Password = source.Password;
+                }
+
+                return legacy.ConnectionString;
+            }
+        }
+
         private static string Build(string database)
         {
             var b = new SqlConnectionStringBuilder(ServerConnectionString) { InitialCatalog = database };

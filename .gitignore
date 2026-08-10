@@ -194,6 +194,9 @@ PublishScripts/
 
 # NuGet Packages
 *.nupkg
+# ...except the vendored local feed: Atis.ORM 9.16.4 is not on nuget.org and the benchmark
+# project restores it from local-packages/ (registered as a source in Nuget.config).
+!local-packages/*.nupkg
 # NuGet Symbol Packages
 *.snupkg
 # The packages folder can be ignored because of Package Restore

@@ -8,6 +8,11 @@ using Dapper;
 using LinqToDB;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+// The legacy engine's IQuery<T> extension methods, so its row below reads fluently like the others.
+// They never collide with System.Linq's or linq2db's: IQuery<T> is neither IEnumerable nor IQueryable.
+// global:: is required — this file's namespace nests under Atis, and Atis.ORM differs from Atis.Orm
+// only by casing.
+using global::Atis.ORM;
 
 namespace Atis.Orm.Benchmarks.Benchmarks
 {
@@ -51,6 +56,7 @@ namespace Atis.Orm.Benchmarks.Benchmarks
         private EfCoreContext _efCore;
         private Linq2DbContext _linq2Db;
         private AtisDataContext _atis;
+        private LegacyAtisDataContext _atisLegacy;
 
         [GlobalSetup]
         public void Setup()
@@ -59,6 +65,7 @@ namespace Atis.Orm.Benchmarks.Benchmarks
             _efCore = new EfCoreContext(ConnectionString);
             _linq2Db = new Linq2DbContext(ConnectionString);
             _atis = new AtisDataContext(_connection);
+            _atisLegacy = LegacyAtisDataContext.WithSharedConnection();
         }
 
         [GlobalCleanup]
@@ -67,6 +74,7 @@ namespace Atis.Orm.Benchmarks.Benchmarks
             _efCore?.Dispose();
             _linq2Db?.Dispose();
             _atis?.Dispose();
+            _atisLegacy?.Dispose();
             BaseCleanup();
         }
 
@@ -125,6 +133,22 @@ namespace Atis.Orm.Benchmarks.Benchmarks
                 // The projection must be member-init; a constructor call fails with
                 // "Members of the new expression are not set". All contenders use the same shape,
                 // so the comparison stays fair.
+                .Select(e => new EmployeeDto { EmployeeId = e.EmployeeId, FirstName = e.FirstName, LastName = e.LastName, Salary = e.Salary })
+                .ToList();
+
+        /// <summary>
+        /// The same query on the previous-generation engine. Written with Atis.ORM's own
+        /// <c>IQuery&lt;T&gt;</c> extension methods — hence <c>OrderByDesc</c> and <c>Top</c> where the
+        /// LINQ providers use <c>OrderByDescending</c> and <c>Take</c>, and the call-order convention
+        /// that <c>Top</c> precedes <c>Select</c>. The emitted SQL is the same TOP-100 ordered
+        /// projection, and the DTO is the shared one, so the row is directly comparable.
+        /// </summary>
+        [Benchmark(Description = "Atis (legacy 9.16.4)")]
+        public List<EmployeeDto> AtisLegacy()
+            => _atisLegacy.Employees
+                .Where(e => e.DepartmentId == Dept && e.IsActive && e.Salary > MinSalary)
+                .OrderByDesc(e => e.Salary)
+                .Top(TopN)
                 .Select(e => new EmployeeDto { EmployeeId = e.EmployeeId, FirstName = e.FirstName, LastName = e.LastName, Salary = e.Salary })
                 .ToList();
     }
