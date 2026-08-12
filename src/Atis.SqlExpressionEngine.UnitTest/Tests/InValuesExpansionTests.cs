@@ -185,7 +185,6 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 var reflectionService = new OrmReflectionService();
                 var identityProvider = new VariableIdentityProvider();
                 this.extractor = new ExpressionVariableValuesExtractor(expressionEvaluator, identityProvider);
-                var preprocessingRequirementTester = new PreprocessingRequirementTester(this.extractor);
                 var sqlDataTypeFactory = new SqlDataTypeFactory();
                 var parameterMapper = new LambdaParameterToDataSourceMapper();
                 var sqlFactory = new SqlExpressionFactory();
@@ -203,7 +202,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 var commandRenderer = new SqlCommandRenderer(dbParameterFactory);
                 var elementFactoryBuilder = new ElementFactoryBuilder();
                 var queryTranslator = new QueryTranslator(this.preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
-                this.Compiler = new QueryCompiler(queryTranslator, preprocessingRequirementTester, commandRenderer, dbParameterFactory, elementFactoryBuilder);
+                this.Compiler = new QueryCompiler(queryTranslator, commandRenderer, dbParameterFactory, elementFactoryBuilder);
             }
 
             // A fresh query capturing `ids`; identical shape (and captured-variable identity) across calls,
@@ -221,11 +220,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 return employees.Where(x => x.EmployeeId == id).Expression;
             }
 
-            // Re-extracts the variable values keyed by identity, as the executor does on a cache hit.
+            // Re-extracts the variable values keyed by identity, as the executor does on a cache hit:
+            // straight off the original tree, with no preprocessing in between.
             public IReadOnlyDictionary<string, object> ValuesByIdentity(int[] ids)
             {
-                var preprocessed = this.preprocessor.Preprocess(this.BuildContainsQuery(ids));
-                return this.extractor.ExtractVariableValuesByIdentity(preprocessed);
+                return this.extractor.ExtractVariableValuesByIdentity(this.BuildContainsQuery(ids));
             }
         }
     }

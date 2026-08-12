@@ -23,14 +23,11 @@ namespace Atis.Orm.Querying
         private readonly bool isNonQuery;
         private readonly Func<IDataReader, object> elementFactory;
 
-        protected CompiledQueryBase(bool isNonQuery, Func<IDataReader, object> elementFactory, bool isPreprocessingRequired)
+        protected CompiledQueryBase(bool isNonQuery, Func<IDataReader, object> elementFactory)
         {
             this.isNonQuery = isNonQuery;
             this.elementFactory = elementFactory;
-            this.IsPreprocessingRequired = isPreprocessingRequired;
         }
-
-        public bool IsPreprocessingRequired { get; }
 
         public abstract IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues);
 
@@ -46,6 +43,17 @@ namespace Atis.Orm.Querying
         ///         on a cache hit, non-literal parameters are rebound by identity lookup (order-independent,
         ///         because the SqlExpression tree may be reshaped after emission).
         ///     </para>
+        ///     <para>
+        ///         A cache hit re-extracts values from the <em>original</em> expression, never a re-preprocessed
+        ///         one, so an identity the original tree does not carry has nothing to rebind against — that is
+        ///         a parameter a preprocessor introduced (an inlined static, a calculated-property constant).
+        ///         Such a parameter falls back to its <see cref="IQueryParameter.InitialValue"/>, i.e. it
+        ///         behaves as a literal frozen when the query first compiled. Per the shape-determinism
+        ///         contract on <see cref="Atis.Expressions.IExpressionPreprocessor"/> an injected value is
+        ///         stable configuration, so the frozen value is the right one; a preprocessor that injects
+        ///         something genuinely per-execution is violating that contract, and no single execution can
+        ///         detect it.
+        ///     </para>
         /// </summary>
         protected static object ResolveValue(IQueryParameter queryParameter, IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues)
         {
@@ -55,9 +63,7 @@ namespace Atis.Orm.Querying
                 && queryParameter.ParameterIdentity != null
                 && parameterValuesByIdentity.TryGetValue(queryParameter.ParameterIdentity, out var reboundValue))
                 return reboundValue;
-            throw new InvalidOperationException(
-                $"Could not rebind parameter (identity '{queryParameter.ParameterIdentity}') on a cache hit: " +
-                $"no re-extracted value matched its identity.");
+            return queryParameter.InitialValue;
         }
     }
 
@@ -76,8 +82,8 @@ namespace Atis.Orm.Querying
         private readonly IReadOnlyList<IQueryParameter> orderedParameters;
         private readonly IDbParameterFactory parameterFactory;
 
-        public SimpleCompiledQuery(SqlTranslationResult translation, ISqlCommandRenderer renderer, IDbParameterFactory parameterFactory, bool isNonQuery, Func<IDataReader, object> elementFactory, bool isPreprocessingRequired)
-            : base(isNonQuery, elementFactory, isPreprocessingRequired)
+        public SimpleCompiledQuery(SqlTranslationResult translation, ISqlCommandRenderer renderer, IDbParameterFactory parameterFactory, bool isNonQuery, Func<IDataReader, object> elementFactory)
+            : base(isNonQuery, elementFactory)
         {
             if (translation is null)
                 throw new ArgumentNullException(nameof(translation));
@@ -114,8 +120,8 @@ namespace Atis.Orm.Querying
         private readonly IReadOnlyList<SqlFragment> fragments;
         private readonly ISqlCommandRenderer renderer;
 
-        public ExpandableCompiledQuery(SqlTranslationResult translation, ISqlCommandRenderer renderer, bool isNonQuery, Func<IDataReader, object> elementFactory, bool isPreprocessingRequired)
-            : base(isNonQuery, elementFactory, isPreprocessingRequired)
+        public ExpandableCompiledQuery(SqlTranslationResult translation, ISqlCommandRenderer renderer, bool isNonQuery, Func<IDataReader, object> elementFactory)
+            : base(isNonQuery, elementFactory)
         {
             if (translation is null)
                 throw new ArgumentNullException(nameof(translation));

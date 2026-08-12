@@ -24,9 +24,7 @@ namespace Atis.Orm.Abstractions
         IReadOnlyDictionary<string, object> ExtractVariableValuesByIdentity(Expression sqlExpression);
 
         /// <summary>
-        ///     Returns the variable (parameter) nodes themselves, in visit order. Used to compare the
-        ///     variable sequence of the original vs. preprocessed expression (see
-        ///     <see cref="IPreprocessingRequirementTester"/>).
+        ///     Returns the variable (parameter) nodes themselves, in visit order.
         /// </summary>
         IReadOnlyList<Expression> ExtractParameterNodes(Expression sqlExpression);
     }

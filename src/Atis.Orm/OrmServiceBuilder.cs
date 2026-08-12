@@ -38,7 +38,6 @@ namespace Atis.Orm
                 { typeof(IEntityCrudMetadataFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IExpressionCacheKeyProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ICompiledQueryCacheProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
-                { typeof(IPreprocessingRequirementTester),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ISqlDataTypeFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ISqlExpressionFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 // The store is the singleton; the model itself is scoped and comes out of
@@ -107,7 +106,6 @@ namespace Atis.Orm
             this.TryAdd<IEntityCrudMetadataFactory, EntityCrudMetadataFactory>();
             this.TryAdd<IExpressionCacheKeyProvider, ExpressionCacheKeyProvider>();
             this.TryAdd<ICompiledQueryCacheProvider, CompiledQueryCacheProvider>();
-            this.TryAdd<IPreprocessingRequirementTester, PreprocessingRequirementTester>();
             this.TryAdd<ISqlDataTypeFactory, SqlDataTypeFactory>();
             this.TryAdd<ISqlExpressionFactory, SqlExpressionFactory>();
             this.TryAdd<IOrmModelSource, OrmModelSource>();

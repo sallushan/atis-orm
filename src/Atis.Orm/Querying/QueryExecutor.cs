@@ -20,16 +20,14 @@ namespace Atis.Orm.Querying
         private readonly ICompiledQueryCacheProvider queryCacheProvider;
         private readonly IQueryCompiler queryCompiler;
         private readonly IExpressionVariableValuesExtractor expressionVariableValuesExtractor;
-        private readonly IExpressionPreprocessorProvider preprocessor;
         private readonly INavigationInitializer navigationInitializer;
 
-        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, IExpressionPreprocessorProvider preprocessor, INavigationInitializer navigationInitializer)
+        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, INavigationInitializer navigationInitializer)
         {
             this.dbAdapter = dbAdapter ?? throw new ArgumentNullException(nameof(dbAdapter));
             this.queryCacheProvider = queryCacheProvider ?? throw new ArgumentNullException(nameof(queryCacheProvider));
             this.queryCompiler = queryCompiler ?? throw new ArgumentNullException(nameof(queryCompiler));
             this.expressionVariableValuesExtractor = expressionVariableValuesExtractor ?? throw new ArgumentNullException(nameof(expressionVariableValuesExtractor));
-            this.preprocessor = preprocessor;
             this.navigationInitializer = navigationInitializer ?? throw new ArgumentNullException(nameof(navigationInitializer));
         }
 
@@ -84,18 +82,14 @@ namespace Atis.Orm.Querying
             IReadOnlyDictionary<string, object> parameterValuesByIdentity = null;
             if (cacheHit)
             {
-                Expression expressionToUseToExtractVariableValues = expression;
-                if (compiledQuery.IsPreprocessingRequired)
-                    expressionToUseToExtractVariableValues = this.PreprocessExpression(expression);
-                parameterValuesByIdentity = this.expressionVariableValuesExtractor.ExtractVariableValuesByIdentity(expressionToUseToExtractVariableValues);
+                // Always the original tree, never a re-preprocessed one. Values are rebound by identity, so
+                // the variable nodes preprocessing would add, drop or reorder are irrelevant here; and any
+                // parameter the original tree cannot satisfy was already frozen into a literal at compile
+                // time by IParameterRebindabilityPolicy.
+                parameterValuesByIdentity = this.expressionVariableValuesExtractor.ExtractVariableValuesByIdentity(expression);
             }
             IExecutionContext queryExecutionParameter = compiledQuery.GetExecutionContext(parameterValuesByIdentity, useInitialValues: !cacheHit);
             return queryExecutionParameter;
-        }
-
-        protected virtual Expression PreprocessExpression(Expression expression)
-        {
-            return this.preprocessor?.Preprocess(expression) ?? expression;
         }
 
         protected virtual ICompiledQuery GetOrAddCompiledQuery(Expression expression, out bool cacheHit)

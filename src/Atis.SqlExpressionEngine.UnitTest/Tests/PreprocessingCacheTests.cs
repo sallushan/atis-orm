@@ -1,6 +1,15 @@
+using Atis.Expressions;
 using Atis.Orm.Abstractions;
+using Atis.Orm.Preprocessing;
 using Atis.Orm.Services;
+using Atis.Orm.Translation;
+using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.ExpressionConverters;
 using Atis.SqlExpressionEngine.Services;
+using Atis.SqlExpressionEngine.UnitTest.Converters;
+using Atis.SqlExpressionEngine.UnitTest.Metadata;
+using Atis.SqlExpressionEngine.UnitTest.Preprocessors;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -13,17 +22,15 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
     /// <summary>
     ///     Covers the finalized query-execution cache: the variable-only
-    ///     <see cref="ExpressionVariableValuesExtractor"/> and the
-    ///     <see cref="PreprocessingRequirementTester"/> that lets cache hits skip preprocessing.
+    ///     <see cref="ExpressionVariableValuesExtractor"/>, and the
+    ///     <see cref="FreezeInjectedParametersPolicy"/> that lets every cache hit re-extract straight off the
+    ///     original expression without ever replaying the preprocessors.
     /// </summary>
     [TestClass]
     public class PreprocessingCacheTests : TestBase
     {
         private static ExpressionVariableValuesExtractor NewExtractor()
             => new ExpressionVariableValuesExtractor(new ExpressionEvaluator(), new VariableIdentityProvider());
-
-        private static PreprocessingRequirementTester NewTester()
-            => new PreprocessingRequirementTester(NewExtractor());
 
         [TestMethod]
         public void Extractor_collects_only_variables_not_constants()
@@ -72,41 +79,28 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
-        public void Tester_returns_false_for_simple_parameterized_query()
+        public void Extractor_omits_the_identity_a_preprocessor_would_inject()
         {
-            var invId = "INV-1";
-            var original = queryProvider.DataSet<Invoice>().Where(x => x.InvoiceId == invId).Expression;
-            var preprocessed = PreprocessExpression(original, new Model(new ReflectionService()));
+            var employees = new Queryable<EmployeeExtension>(queryProvider);
+            // The pseudo-method call carries no variable of its own; `PilotFirstNames` only appears once
+            // preprocessing inlines the lambda body. That asymmetry is what makes the injected parameter
+            // unreboundable on a cache hit, so it falls back to its translation-time value.
+            var original = employees.Where(x => IsPilotName(x.Designation)).Expression;
 
-            // Root replacement rewrites the source but leaves the captured-variable node untouched, so
-            // preprocessing can be skipped on a cache hit.
-            Assert.IsFalse(NewTester().IsPreprocessingRequired(original, preprocessed));
+            var beforeIdentities = Identities(NewExtractor().ExtractParameterNodes(original));
+            var afterIdentities = Identities(NewExtractor().ExtractParameterNodes(PreprocessExpression(original, new Model(new ReflectionService()))));
+
+            CollectionAssert.DoesNotContain(beforeIdentities, PilotNamesIdentity);
+            CollectionAssert.Contains(afterIdentities, PilotNamesIdentity);
         }
 
-        [TestMethod]
-        public void Tester_returns_true_when_variable_nodes_differ()
+        private static string PilotNamesIdentity
+            => typeof(PreprocessingCacheTests).FullName + "." + nameof(PilotFirstNames);
+
+        private static List<string> Identities(IReadOnlyList<Expression> nodes)
         {
-            var a = "INV-1";
-            var b = "INV-2";
-            // Two independently built trees -> different captured-variable member node instances.
-            var left = queryProvider.DataSet<Invoice>().Where(x => x.InvoiceId == a).Expression;
-            var right = queryProvider.DataSet<Invoice>().Where(x => x.InvoiceId == b).Expression;
-
-            Assert.IsTrue(NewTester().IsPreprocessingRequired(left, right));
-        }
-
-        [TestMethod]
-        public void Tester_calculated_property_injected_constant_does_not_force_true()
-        {
-            decimal? total = 100m;
-            // CalcInvoiceTotal expands (via preprocessing) into a NavLines.Sum(...) subquery, potentially
-            // injecting constants, but no new *variable*. The captured 'total' node survives, so the tester
-            // must still allow skipping preprocessing.
-            var original = queryProvider.DataSet<Invoice>().Where(x => x.CalcInvoiceTotal > total).Expression;
-            var preprocessed = PreprocessExpression(original, new Model(new ReflectionService()));
-
-            Assert.IsFalse(NewTester().IsPreprocessingRequired(original, preprocessed),
-                "An injected constant is a literal and must not force re-preprocessing.");
+            var identityProvider = new VariableIdentityProvider();
+            return nodes.Select(identityProvider.GetIdentity).ToList();
         }
 
         // --- End-to-end cache-hit tests (require the test SQL Server) -------------------------------------
@@ -187,5 +181,48 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var secondRun = employees.Where(x => x.EmployeeId >= id).Take(3).ToList();
             Assert.AreEqual(2, secondRun.Count, "Only EmployeeId 24 and 25 match on the cached re-run.");
         }
+
+        [TestMethod]
+        public async Task Cache_hit_with_a_preprocessor_injected_parameter_binds_without_replaying_preprocessing()
+        {
+            var setup = new TestDatabaseSetup("Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            await setup.SetupAsync();
+
+            using var dbc = new OrmDbContext();
+            var employees = dbc.CreateQuery<TestEntities.Employee>();
+
+            // IsPilotName is a pseudo-method: preprocessing replaces the call with `PilotFirstNames.Contains(x)`,
+            // introducing a variable node that exists only in the preprocessed tree. Since the executor no
+            // longer re-preprocesses on a cache hit, that parameter finds no re-extracted value and falls back
+            // to its translation-time one — while the genuinely captured 'minId' beside it still has to rebind.
+            int minId = 1;
+            var firstRun = employees
+                .Where(x => IsPilotName(x.FirstName) && x.EmployeeId >= minId)
+                .Select(x => x.FirstName)
+                .ToList();
+            Assert.IsTrue(firstRun.Count > 0, "The frozen IN list must still match rows on the first run.");
+            Assert.IsTrue(firstRun.All(n => PilotFirstNames.Contains(n)), "Every matched row must come from the injected list.");
+
+            // Cache hit. The frozen list keeps its compile-time value; minId rebinds to a value no employee
+            // satisfies, so a failure to rebind would show up as the first run's rows coming back.
+            minId = 1000;
+            var secondRun = employees
+                .Where(x => IsPilotName(x.FirstName) && x.EmployeeId >= minId)
+                .Select(x => x.FirstName)
+                .ToList();
+            Assert.AreEqual(0, secondRun.Count, "The captured minId must rebind on the cache hit.");
+        }
+
+        // --- A pseudo-method whose inlined body references a static collection ----------------------------
+        // Preprocessing pulls `PilotFirstNames` into the tree, so the parameter it produces has no
+        // counterpart in the original expression — the exact case ResolveValue falls back on.
+
+        private static string[] PilotFirstNames => new[] { "John", "Sarah" };
+
+        public static readonly Expression<Func<string, bool>> IsPilotNameExpression = name => PilotFirstNames.Contains(name);
+        private static readonly Func<string, bool> IsPilotNameDelegate = IsPilotNameExpression.Compile();
+
+        [PseudoMethod(nameof(IsPilotNameExpression))]
+        public static bool IsPilotName(string name) => IsPilotNameDelegate(name);
     }
 }

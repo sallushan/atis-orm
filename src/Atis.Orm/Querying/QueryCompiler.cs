@@ -15,13 +15,11 @@ namespace Atis.Orm.Querying
         private readonly IQueryTranslator queryTranslator;
         private readonly ISqlCommandRenderer commandRenderer;
         private readonly IDbParameterFactory dbParameterFactory;
-        private readonly IPreprocessingRequirementTester preprocessingRequirementTester;
         private readonly IElementFactoryBuilder elementFactoryBuilder;
 
-        public QueryCompiler(IQueryTranslator queryTranslator, IPreprocessingRequirementTester preprocessingRequirementTester, ISqlCommandRenderer commandRenderer, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
+        public QueryCompiler(IQueryTranslator queryTranslator, ISqlCommandRenderer commandRenderer, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
         {
             this.queryTranslator = queryTranslator;
-            this.preprocessingRequirementTester = preprocessingRequirementTester;
             this.commandRenderer = commandRenderer;
             this.dbParameterFactory = dbParameterFactory;
             this.elementFactoryBuilder = elementFactoryBuilder;
@@ -33,7 +31,6 @@ namespace Atis.Orm.Querying
                 throw new ArgumentNullException(nameof(expression));
 
             var queryTranslationResult = this.queryTranslator.Translate(expression);
-            var isPreprocessingRequired = this.DeterminePreprocessingRequirement(expression, queryTranslationResult.PreprocessedExpression);
             var isNonQuery = (queryTranslationResult.SqlExpression is SqlUpdateExpression sqlUpdate && sqlUpdate.Outputs.Count == 0)
                                 || (queryTranslationResult.SqlExpression is SqlInsertExpression sqlInsert && sqlInsert.Outputs.Count == 0)
                                 || queryTranslationResult.SqlExpression is SqlInsertIntoExpression
@@ -45,21 +42,14 @@ namespace Atis.Orm.Querying
             // The shape is decided once, here: an expandable query must re-render per execution; everything
             // else renders its SQL a single time and only rebinds parameters.
             ICompiledQuery compiledQuery = translation.HasExpandableParameters
-                ? new ExpandableCompiledQuery(translation, this.commandRenderer, isNonQuery, elementFactory, isPreprocessingRequired)
-                : (ICompiledQuery)new SimpleCompiledQuery(translation, this.commandRenderer, this.dbParameterFactory, isNonQuery, elementFactory, isPreprocessingRequired);
+                ? new ExpandableCompiledQuery(translation, this.commandRenderer, isNonQuery, elementFactory)
+                : (ICompiledQuery)new SimpleCompiledQuery(translation, this.commandRenderer, this.dbParameterFactory, isNonQuery, elementFactory);
             return compiledQuery;
         }
 
         private Func<IDataReader, object> CreateElementFactory(Expression expression, SqlExpression sqlExpression)
         {
             return this.elementFactoryBuilder.CreateElementFactory(expression, sqlExpression);
-        }
-
-        private bool DeterminePreprocessingRequirement(Expression originalExpression, Expression preprocessedExpression)
-        {
-            if (originalExpression == preprocessedExpression)
-                return false;
-            return this.preprocessingRequirementTester.IsPreprocessingRequired(originalExpression, preprocessedExpression);
         }
     }
 }
