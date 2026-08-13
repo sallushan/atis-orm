@@ -42,12 +42,6 @@ namespace Atis.Orm.DataManipulation
     /// </summary>
     public class EntityPersister : IEntityPersister
     {
-        // TODO: values are emitted as Expression.Constant, which this engine renders as a SQL literal —
-        // only a closure member access becomes a parameter, see VariableMemberExpressionConverter. Every
-        // row therefore produces distinct SQL text: a new compiled-query cache entry per call, and string
-        // values that are not parameterized. The fix is to box the value behind a member access so it
-        // converts to a SqlParameterExpression instead.
-
         private readonly IOrmReflectionService reflectionService;
         private readonly IOrmModel model;
         private readonly IEntityCrudMetadataFactory crudMetadataFactory;
@@ -221,7 +215,7 @@ namespace Atis.Orm.DataManipulation
             this.ValidateRequired(entity, map.InsertColumns);
 
             generatedMembers = map.InsertGeneratedMembers;
-            return this.Assignments<T>(entity, map.InsertColumns.Select(x => (MemberInfo)x.Property));
+            return Assignments<T>(entity, map.InsertColumns.Select(x => (MemberInfo)x.Property));
         }
 
         private IReadOnlyList<FieldValuePair> BuildUpdateSetters<T>(
@@ -239,9 +233,9 @@ namespace Atis.Orm.DataManipulation
                 throw new InvalidOperationException($"'{typeof(T).Name}' has no updatable column, so it cannot be updated.");
             this.ValidateRequired(entity, map.UpdateColumns);
 
-            keys = this.Assignments<T>(entity, this.KeyAndConcurrencyMembers(map, optimisticConcurrency));
+            keys = Assignments<T>(entity, KeyAndConcurrencyMembers(map, optimisticConcurrency));
             generatedMembers = map.UpdateGeneratedMembers;
-            return this.Assignments<T>(entity, map.UpdateColumns.Select(x => (MemberInfo)x.Property));
+            return Assignments<T>(entity, map.UpdateColumns.Select(x => (MemberInfo)x.Property));
         }
 
         private IReadOnlyList<FieldValuePair> BuildDeleteKeys<T>(T entity, bool optimisticConcurrency)
@@ -251,7 +245,7 @@ namespace Atis.Orm.DataManipulation
 
             var map = this.GetWriteMap(typeof(T));
             EnsureHasKey<T>(map, "deleted");
-            return this.Assignments<T>(entity, this.KeyAndConcurrencyMembers(map, optimisticConcurrency));
+            return Assignments<T>(entity, KeyAndConcurrencyMembers(map, optimisticConcurrency));
         }
 
         /// <summary>
@@ -260,16 +254,16 @@ namespace Atis.Orm.DataManipulation
         ///     update to a particular version of a row is the same operation as narrowing it to a
         ///     particular row.
         /// </summary>
-        private IEnumerable<MemberInfo> KeyAndConcurrencyMembers(EntityWriteMap map, bool optimisticConcurrency)
+        private static IEnumerable<MemberInfo> KeyAndConcurrencyMembers(EntityWriteMap map, bool optimisticConcurrency)
             => optimisticConcurrency
                 ? map.KeyMembers.Concat(map.ConcurrencyMembers)
                 : map.KeyMembers;
 
         /// <summary>Pairs each member with the entity's current value for it.</summary>
-        private IReadOnlyList<FieldValuePair> Assignments<T>(T entity, IEnumerable<MemberInfo> members)
+        private static IReadOnlyList<FieldValuePair> Assignments<T>(T entity, IEnumerable<MemberInfo> members)
             => members.Select(member => new FieldValuePair(
                                     CreateFieldSelector<T>(member),
-                                    this.CreateValueSelector(entity, member)))
+                                    CreateValueSelector(entity, member)))
                       .ToArray();
 
         private static IReadOnlyList<LambdaExpression> OutputSelectors<T>(IReadOnlyList<MemberInfo> members)
@@ -283,16 +277,28 @@ namespace Atis.Orm.DataManipulation
         }
 
         /// <summary>
-        ///     The <c>() =&gt; value</c> selector holding the entity's current value. It stays a lambda
-        ///     because that is what keeps a value visible in the tree for rebinding when a compiled query
-        ///     is reused.
+        ///     <para>
+        ///         The value selector for one column: <c>() =&gt; entity.Member</c>, where <c>entity</c> is
+        ///         the instance being written, held in a <see cref="ConstantExpression"/>.
+        ///     </para>
+        ///     <para>
+        ///         Reading the member off the entity, rather than emitting its <em>value</em> as a constant,
+        ///         is what lets every saved row share one compiled query. A constant becomes a
+        ///         <c>SqlLiteralExpression</c>, and a literal is frozen at translation time — it keeps its
+        ///         first value on every cache hit — so its value has to be part of the cache key, which
+        ///         means one compiled query per row saved. A member access over a constant is the shape a
+        ///         captured local has, so it becomes a parameter instead: the key records the member and
+        ///         not the value, and the value is re-read from whichever entity this call was given.
+        ///     </para>
+        ///     <para>
+        ///         Using the entity itself as the parameter's container is also what keeps the parameter
+        ///         identities apart — <c>MyEntity.Field1</c> against <c>MyEntity.Field2</c>. A shared value
+        ///         holder would give every column of every entity the same identity, and two columns
+        ///         claiming one identity is rejected outright when the values are re-extracted.
+        ///     </para>
         /// </summary>
-        private LambdaExpression CreateValueSelector(object entity, MemberInfo member)
-        {
-            var memberType = this.reflectionService.GetPropertyOrFieldType(member);
-            var value = this.reflectionService.GetPropertyOrFieldValue(entity, member);
-            return Expression.Lambda(Expression.Constant(value, memberType));
-        }
+        private static LambdaExpression CreateValueSelector<T>(T entity, MemberInfo member)
+            => Expression.Lambda(Expression.MakeMemberAccess(Expression.Constant(entity, typeof(T)), member));
 
         // ---------------------------------------------------------------------------------------
         // Execution

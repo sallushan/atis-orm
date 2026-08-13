@@ -294,10 +294,15 @@ values ('Widget', 'Tools', 'sallu')
         public void Update_sets_updatable_columns_and_keys_on_pk_plus_row_version()
         {
             var provider = new CapturingQueryProvider();
+            // The row version comes back unchanged on purpose. The submitted expression reads its values
+            // off the entity when it is translated -- that is what makes one compiled query serve every
+            // row -- and this test translates after the persister has already assigned the returned row
+            // image back. A bumped version here would therefore change the predicate being asserted, for
+            // a reason that has nothing to do with what the persister built.
             provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Rank"] = 1,
-                ["VersionNo"] = 2,
+                ["VersionNo"] = 1,
             });
             var product = new Product
             {
@@ -536,6 +541,88 @@ where	((a_1.Id = 7) and (a_1.VersionNo = 4))
                 () => context.SaveEntity(new Asset { ItemId = "123" }));
 
             StringAssert.Contains(thrown.Message, nameof(Record));
+        }
+
+        #endregion
+
+        #region compiled query reuse
+
+        /// <summary>
+        ///     <para>
+        ///         The reason the persister reads values off the entity instead of emitting them as
+        ///         constants. Two saves of two different rows must produce the same cache key, so one
+        ///         compiled query serves the whole table rather than one being compiled and kept per row
+        ///         ever written.
+        ///     </para>
+        ///     <para>
+        ///         A constant would not do this: <c>ExpressionEqualityComparer</c> folds a constant's value
+        ///         into the hash, and it has to — a constant becomes a literal, whose value is frozen at
+        ///         translation time and never rebound, so two rows sharing an entry would write the first
+        ///         row's values twice.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Insert_of_two_different_rows_shares_one_cache_key()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            var first = new CapturingQueryProvider();
+            CreatePersister(first).Insert(new Tag { Code = "T1", Label = "First" });
+
+            var second = new CapturingQueryProvider();
+            CreatePersister(second).Insert(new Tag { Code = "T2", Label = "Second" });
+
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(first.CapturedExpression),
+                keyProvider.GetCacheKey(second.CapturedExpression),
+                "Two rows of one entity type must share a compiled query.");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Sharing a compiled query is only safe if each value can be found again on a cache hit,
+        ///         which is done by the parameter's identity. Using the entity as the container gives every
+        ///         column its own identity for free.
+        ///     </para>
+        ///     <para>
+        ///         A single shared value holder would not: every column would arrive as
+        ///         <c>Holder.Value</c>, and two columns claiming one identity with different values is
+        ///         rejected outright — which is what this asserts by extracting the values the way the
+        ///         execution path does.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Insert_values_are_parameters_with_one_identity_per_column()
+        {
+            var provider = new CapturingQueryProvider();
+            CreatePersister(provider).Insert(new Tag { Code = "T1", Label = "First" });
+
+            var extractor = new ExpressionVariableValuesExtractor(
+                new global::Atis.SqlExpressionEngine.Services.ExpressionEvaluator(),
+                new global::Atis.SqlExpressionEngine.Services.VariableIdentityProvider());
+
+            var valuesByIdentity = extractor.ExtractVariableValuesByIdentity(provider.CapturedExpression);
+
+            Assert.AreEqual(2, valuesByIdentity.Count, "Each column must carry its own parameter identity.");
+            Assert.AreEqual("T1", valuesByIdentity.Single(x => x.Key.EndsWith("." + nameof(Tag.Code))).Value);
+            Assert.AreEqual("First", valuesByIdentity.Single(x => x.Key.EndsWith("." + nameof(Tag.Label))).Value);
+        }
+
+        /// <summary>
+        ///     The values are read from the entity at translation time, so the entity the persister was
+        ///     handed is the one that gets written — not whichever entity first compiled this statement.
+        /// </summary>
+        [TestMethod]
+        public void Insert_binds_the_values_of_the_entity_it_was_given()
+        {
+            var provider = new CapturingQueryProvider();
+            CreatePersister(provider).Insert(new Tag { Code = "T2", Label = "Second" });
+
+            string expectedResult = @"
+insert into Tag (Code, Label)
+values ('T2', 'Second')
+";
+            Test("Persister Insert Second Row Test", provider.CapturedExpression, expectedResult);
         }
 
         #endregion
