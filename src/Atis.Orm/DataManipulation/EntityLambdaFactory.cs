@@ -26,6 +26,13 @@ namespace Atis.Orm
         public static readonly EntityFluentApiNames Delete =
             new EntityFluentApiNames(nameof(DataContext.DeleteEntity), "Key", "delete", "deleted");
 
+        // Not a fluent API at all: the read-back after a write on a database with no OUTPUT clause
+        // builds the same keyed predicate, and CreateKeyPredicate needs names for its diagnostics.
+        // Nothing here can be reached by typing a method, so the names describe the operation rather
+        // than name a call the reader could go and look at.
+        public static readonly EntityFluentApiNames ReadBack =
+            new EntityFluentApiNames(nameof(DataContext.SaveEntity), "Key", "read back", "read back");
+
         private EntityFluentApiNames(string apiMethod, string setterMethod, string operationVerb, string operationPastTense)
         {
             this.ApiMethod = apiMethod;

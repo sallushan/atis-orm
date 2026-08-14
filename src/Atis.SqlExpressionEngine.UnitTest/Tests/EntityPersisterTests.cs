@@ -5,7 +5,10 @@ using Atis.Orm.DataAccess;
 using Atis.Orm.DataManipulation;
 using Atis.Orm.Metadata;
 using Atis.Orm.Services;
+using System.Data;
+using System.Data.Common;
 using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Atis.SqlExpressionEngine.UnitTest.Tests
 {
@@ -88,6 +91,36 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             public int Serial { get; }
         }
 
+        /// <summary>
+        ///     An identity primary key and nothing else generated — the commonest shape, and the one that
+        ///     needs no read-back select at all once the generated key has been asked for.
+        /// </summary>
+        [DbTable]
+        public class Ticket : Record
+        {
+            [PrimaryKey]
+            [DbIdentityColumn]
+            public int Id { get; set; }
+
+            public string Subject { get; set; }
+        }
+
+        /// <summary>
+        ///     An identity column that is <em>not</em> the key. The key is the caller's, so the row can be
+        ///     found without asking the database for anything — the identity comes back with the select.
+        /// </summary>
+        [DbTable]
+        public class Invoice : Record
+        {
+            [PrimaryKey]
+            public string Number { get; set; }
+
+            [DbIdentityColumn]
+            public int Seq { get; set; }
+
+            public string Notes { get; set; }
+        }
+
         /// <summary>Two column kinds on one property, which the kinds being exclusive makes meaningless.</summary>
         [DbTable]
         public class Contradictory : Record
@@ -104,35 +137,45 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         #region harness
 
-        /// <summary>Records the expression the persister submits, and serves canned OUTPUT rows.</summary>
+        /// <summary>Records the expressions the persister submits, and serves canned OUTPUT rows.</summary>
         private sealed class CapturingQueryProvider : IAsyncQueryProvider
         {
-            public Expression CapturedExpression { get; private set; }
+            /// <summary>
+            ///     Every expression submitted, in order. The read-back path submits more than one — the
+            ///     write, then the select that reads it back — and which is which is the point of most of
+            ///     those tests.
+            /// </summary>
+            public List<Expression> CapturedExpressions { get; } = new List<Expression>();
+
+            public Expression CapturedExpression => this.CapturedExpressions.LastOrDefault();
 
             public int AffectedRows { get; set; } = 1;
 
             public List<Dictionary<string, object>> OutputRows { get; } = new List<Dictionary<string, object>>();
+
+            /// <summary>The rows a read-back select finds, as entities rather than as a row image.</summary>
+            public List<object> EntityRows { get; } = new List<object>();
 
             public IQueryable CreateQuery(Expression expression)
                 => throw new NotSupportedException();
 
             public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
             {
-                this.CapturedExpression = expression;
+                this.CapturedExpressions.Add(expression);
                 if (typeof(TElement) == typeof(Dictionary<string, object>))
                     return (IQueryable<TElement>)this.OutputRows.AsQueryable();
-                return Enumerable.Empty<TElement>().AsQueryable();
+                return this.EntityRows.Cast<TElement>().AsQueryable();
             }
 
             public object Execute(Expression expression)
             {
-                this.CapturedExpression = expression;
+                this.CapturedExpressions.Add(expression);
                 return null;
             }
 
             public TResult Execute<TResult>(Expression expression)
             {
-                this.CapturedExpression = expression;
+                this.CapturedExpressions.Add(expression);
                 if (typeof(TResult) == typeof(int))
                     return (TResult)(object)this.AffectedRows;
                 return default;
@@ -141,11 +184,16 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             // TResult is the Task or the IAsyncEnumerable itself, not something wrapping it.
             public TResult ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
             {
-                this.CapturedExpression = expression;
+                this.CapturedExpressions.Add(expression);
                 if (typeof(TResult) == typeof(Task<int>))
                     return (TResult)(object)Task.FromResult(this.AffectedRows);
                 if (typeof(TResult) == typeof(IAsyncEnumerable<Dictionary<string, object>>))
                     return (TResult)(object)this.YieldOutputRows();
+                if (typeof(TResult).IsGenericType && typeof(TResult).GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>))
+                    return (TResult)this.GetType()
+                                        .GetMethod(nameof(YieldEntityRows), BindingFlags.NonPublic | BindingFlags.Instance)
+                                        .MakeGenericMethod(typeof(TResult).GetGenericArguments()[0])
+                                        .Invoke(this, null);
                 return default;
             }
 
@@ -157,6 +205,89 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                     yield return row;
                 }
             }
+
+            private async IAsyncEnumerable<TElement> YieldEntityRows<TElement>()
+            {
+                foreach (var row in this.EntityRows)
+                {
+                    await Task.Yield();
+                    yield return (TElement)row;
+                }
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Stands in for the connection the read-back path runs on. It serves the generated-key
+        ///         scalar and, more importantly, asserts that every command reaching it arrived inside a
+        ///         transaction — which is the whole reason the read-back path opens one.
+        ///     </para>
+        /// </summary>
+        private sealed class FakeDbCommunication : IDbCommunication
+        {
+            public int TransactionsStarted { get; private set; }
+
+            public bool InTransaction { get; private set; }
+
+            /// <summary>What the generated-key statement returns. Decimal on purpose: SCOPE_IDENTITY is numeric(38,0).</summary>
+            public object ScalarResult { get; set; } = 7m;
+
+            public List<string> ScalarCommands { get; } = new List<string>();
+
+            public void Transaction(Action work)
+            {
+                this.TransactionsStarted++;
+                this.InTransaction = true;
+                try { work(); }
+                finally { this.InTransaction = false; }
+            }
+
+            public async Task TransactionAsync(Func<Task> work, CancellationToken cancellationToken = default)
+            {
+                this.TransactionsStarted++;
+                this.InTransaction = true;
+                try { await work().ConfigureAwait(false); }
+                finally { this.InTransaction = false; }
+            }
+
+            public T ExecuteScalarCommand<T>(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType)
+            {
+                Assert.IsTrue(this.InTransaction,
+                    "The generated-key statement is session scoped, so it must run inside the transaction that pins it to the insert's connection.");
+                this.ScalarCommands.Add(sql);
+                return (T)this.ScalarResult;
+            }
+
+            public Task<T> ExecuteScalarCommandAsync<T>(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
+                => Task.FromResult(this.ExecuteScalarCommand<T>(sql, dbParameters, commandType));
+
+            public void OpenConnection() => throw new NotSupportedException();
+            public Task OpenConnectionAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+            public void CloseConnection() => throw new NotSupportedException();
+            public Task CloseConnectionAsync() => throw new NotSupportedException();
+            public IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType) => throw new NotSupportedException();
+            public Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public int ExecuteNonQueryCommand(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType) => throw new NotSupportedException();
+            public Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public void TransactionWithSavepoint(Action work) => throw new NotSupportedException();
+            public Task TransactionWithSavepointAsync(Func<Task> work, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            public DbReaderExecutionResult ExecuteReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType) => throw new NotSupportedException();
+            public Task<DbReaderExecutionResult> ExecuteReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken) => throw new NotSupportedException();
+        }
+
+        /// <summary>
+        ///     Stands in for a provider whose database has no OUTPUT clause but can be asked for the key it
+        ///     generated — SQLite, MySQL, SQL Server against a table with a trigger.
+        /// </summary>
+        private sealed class NoOutputPersister : EntityPersister
+        {
+            public NoOutputPersister(IOrmReflectionService reflectionService, IOrmModel model, IEntityCrudMetadataFactory crudMetadataFactory, IAsyncQueryProvider queryProvider, IDbCommunication dbCommunication)
+                : base(reflectionService, model, crudMetadataFactory, queryProvider, dbCommunication)
+            {
+            }
+
+            protected override string GetLastGeneratedKeySql(Type entityType, MemberInfo keyMember)
+                => "select last_insert_rowid()";
         }
 
         /// <summary>Stands in for a provider whose database has an OUTPUT clause.</summary>
@@ -184,6 +315,45 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             return supportsOutput
                 ? new OutputCapablePersister(ReflectionService, model, crudMetadataFactory, provider)
                 : new EntityPersister(ReflectionService, model, crudMetadataFactory, provider);
+        }
+
+        /// <summary>A persister for a database with no OUTPUT clause, over a fresh model.</summary>
+        private static EntityPersister CreateNoOutputPersister(IAsyncQueryProvider provider, IDbCommunication communication)
+        {
+            var metadataBuilder = new EntityMetadataBuilder(ReflectionService);
+            var model = new OrmModel(metadataBuilder);
+            var crudMetadataFactory = new EntityCrudMetadataFactory(metadataBuilder);
+            return new NoOutputPersister(ReflectionService, model, crudMetadataFactory, provider, communication);
+        }
+
+        /// <summary>The member names the read-back select's predicate compares against.</summary>
+        private static IReadOnlyList<string> ReadBackPredicateMembers(Expression selectCall)
+        {
+            var where = (MethodCallExpression)selectCall;
+            var predicate = (LambdaExpression)((UnaryExpression)where.Arguments[1]).Operand;
+
+            var names = new List<string>();
+            CollectComparedMembers(predicate.Body, predicate.Parameters[0], names);
+            return names;
+        }
+
+        private static void CollectComparedMembers(Expression node, ParameterExpression parameter, List<string> names)
+        {
+            switch (node)
+            {
+                case BinaryExpression binary when binary.NodeType == ExpressionType.AndAlso:
+                    CollectComparedMembers(binary.Left, parameter, names);
+                    CollectComparedMembers(binary.Right, parameter, names);
+                    break;
+                case BinaryExpression binary when binary.NodeType == ExpressionType.Equal:
+                    // Only the side written against the lambda parameter names a column; the other side
+                    // is the value read off the entity.
+                    if (binary.Left is MemberExpression left && left.Expression == parameter)
+                        names.Add(left.Member.Name);
+                    if (binary.Right is MemberExpression right && right.Expression == parameter)
+                        names.Add(right.Member.Name);
+                    break;
+            }
         }
 
         #endregion
@@ -267,18 +437,226 @@ values ('Widget', 'Tools', 'sallu')
         }
 
         /// <summary>
-        ///     A database that cannot return the written row leaves the entity's generated values
-        ///     unknowable, so it must say so rather than hand back a half-populated entity.
+        ///     Reading values back without an OUTPUT clause takes several commands on one connection, and
+        ///     a persister built without a connection has no way to hold them together — so it says so
+        ///     rather than issue them and hope they land on the same one.
         /// </summary>
         [TestMethod]
-        public void Insert_without_output_support_reports_the_columns_it_cannot_read_back()
+        public void Insert_without_output_support_and_without_a_connection_is_reported()
         {
             var provider = new CapturingQueryProvider();
 
-            var thrown = Assert.ThrowsException<NotSupportedException>(
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
                 () => CreatePersister(provider).Insert(new Product { Name = "Widget" }));
 
-            StringAssert.Contains(thrown.Message, nameof(Product.Id));
+            StringAssert.Contains(thrown.Message, nameof(IDbCommunication));
+            Assert.AreEqual(0, provider.CapturedExpressions.Count, "Nothing may be written before the failure is reported.");
+        }
+
+        #endregion
+
+        #region read-back without an OUTPUT clause
+
+        /// <summary>
+        ///     <para>
+        ///         The commonest shape, and the cheapest: an identity primary key and nothing else
+        ///         generated. Once the database has been asked for the key it chose, everything the entity
+        ///         was missing is known, so there is nothing left to select and the second round trip never
+        ///         happens.
+        ///     </para>
+        ///     <para>
+        ///         The key also arrives as a <see cref="decimal"/> — SCOPE_IDENTITY is <c>numeric(38,0)</c>
+        ///         whatever the column is — so assigning it onto an <c>int</c> member has to convert.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Insert_with_an_identity_key_asks_for_it_and_needs_no_select()
+        {
+            var provider = new CapturingQueryProvider();
+            var communication = new FakeDbCommunication { ScalarResult = 7m };
+            var ticket = new Ticket { Subject = "Printer jam" };
+
+            var rowsAffected = CreateNoOutputPersister(provider, communication).Insert(ticket);
+
+            Assert.AreEqual(1, rowsAffected);
+            Assert.AreEqual(7, ticket.Id, "The generated key must be read back and converted onto the member's type.");
+            CollectionAssert.AreEqual(new[] { "select last_insert_rowid()" }, communication.ScalarCommands.ToArray());
+            Assert.AreEqual(1, provider.CapturedExpressions.Count,
+                "Nothing is left to read back, so the insert is the only statement submitted.");
+        }
+
+        /// <summary>
+        ///     Every command of the read-back must run inside one transaction. Not for atomicity — a
+        ///     single-row insert is atomic already — but because the generated-key statement is session
+        ///     scoped, so it only answers for the connection the insert ran on.
+        /// </summary>
+        [TestMethod]
+        public void Read_back_runs_every_command_inside_one_transaction()
+        {
+            var provider = new CapturingQueryProvider();
+            var communication = new FakeDbCommunication();
+
+            // FakeDbCommunication asserts the transaction is open when the scalar reaches it; this asserts
+            // that exactly one was started rather than one per command.
+            CreateNoOutputPersister(provider, communication).Insert(new Ticket { Subject = "x" });
+
+            Assert.AreEqual(1, communication.TransactionsStarted);
+        }
+
+        /// <summary>
+        ///     With more than the key to read back, the generated key is asked for first — it is what makes
+        ///     the row findable — and the rest arrive by selecting that row.
+        /// </summary>
+        [TestMethod]
+        public void Insert_selects_the_remaining_generated_columns_back_by_key()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.EntityRows.Add(new Product { Id = 42, Rank = 9, VersionNo = 5 });
+            var communication = new FakeDbCommunication { ScalarResult = 42m };
+            var product = new Product { Name = "Widget" };
+
+            var rowsAffected = CreateNoOutputPersister(provider, communication).Insert(product);
+
+            Assert.AreEqual(1, rowsAffected);
+            Assert.AreEqual(42, product.Id);
+            Assert.AreEqual(9, product.Rank);
+            Assert.AreEqual(5, product.VersionNo);
+            Assert.AreEqual(2, provider.CapturedExpressions.Count, "The insert, then the select that reads the rest back.");
+            CollectionAssert.AreEqual(
+                new[] { nameof(Product.Id) },
+                ReadBackPredicateMembers(provider.CapturedExpressions[1]).ToArray(),
+                "The read-back is keyed on the primary key.");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         An identity column that is not the key needs no generated-key statement at all. The key
+        ///         was supplied by the caller, so the row can be found straight away and the identity comes
+        ///         back with the select like any other generated column.
+        ///     </para>
+        ///     <para>
+        ///         Worth having its own test because it is the case that removes the session-scoped
+        ///         statement — and with it the only part of this path that depends on which connection the
+        ///         commands land on.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Insert_with_an_identity_outside_the_key_never_asks_for_a_generated_key()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.EntityRows.Add(new Invoice { Number = "INV-1", Seq = 31, Notes = "read back" });
+            var communication = new FakeDbCommunication();
+            var invoice = new Invoice { Number = "INV-1", Notes = "written" };
+
+            CreateNoOutputPersister(provider, communication).Insert(invoice);
+
+            Assert.AreEqual(0, communication.ScalarCommands.Count, "The key was already known, so nothing had to be asked for.");
+            Assert.AreEqual(31, invoice.Seq, "The identity arrives with the select.");
+            CollectionAssert.AreEqual(
+                new[] { nameof(Invoice.Number) },
+                ReadBackPredicateMembers(provider.CapturedExpressions[1]).ToArray());
+        }
+
+        /// <summary>
+        ///     A store generated key that the provider has no way to ask for leaves the row unfindable, so
+        ///     the mapping and the provider cannot both be right — and saying which one to change is more
+        ///     use than a failure at the select.
+        /// </summary>
+        [TestMethod]
+        public void Insert_without_a_way_to_ask_for_the_generated_key_is_reported()
+        {
+            var provider = new CapturingQueryProvider();
+            var metadataBuilder = new EntityMetadataBuilder(ReflectionService);
+            // The base persister: no OUTPUT clause and no GetLastGeneratedKeySql either.
+            var persister = new EntityPersister(
+                ReflectionService,
+                new OrmModel(metadataBuilder),
+                new EntityCrudMetadataFactory(metadataBuilder),
+                provider,
+                new FakeDbCommunication());
+
+            var thrown = Assert.ThrowsException<NotSupportedException>(
+                () => persister.Insert(new Ticket { Subject = "x" }));
+
+            StringAssert.Contains(thrown.Message, "GetLastGeneratedKeySql");
+            StringAssert.Contains(thrown.Message, nameof(Ticket.Id));
+        }
+
+        /// <summary>
+        ///     The row version has just been changed by the update, so keying the read-back on it would
+        ///     look for the version that no longer exists. The primary key alone identifies the row.
+        /// </summary>
+        [TestMethod]
+        public void Update_reads_back_on_the_primary_key_alone()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.EntityRows.Add(new Product { Id = 7, Rank = 3, VersionNo = 2 });
+            var product = new Product { Id = 7, Name = "Widget", ModifiedBy = "sallu", VersionNo = 1 };
+
+            var rowsAffected = CreateNoOutputPersister(provider, new FakeDbCommunication())
+                .Update(product, optimisticConcurrency: true);
+
+            Assert.AreEqual(1, rowsAffected);
+            Assert.AreEqual(2, product.VersionNo, "The bumped row version must be read back.");
+            Assert.AreEqual(3, product.Rank);
+            CollectionAssert.AreEqual(
+                new[] { nameof(Product.Id) },
+                ReadBackPredicateMembers(provider.CapturedExpressions[1]).ToArray(),
+                "The row version identifies a version, not a row, and the update has just changed it.");
+        }
+
+        /// <summary>
+        ///     An update that matched nothing lost an optimistic concurrency check. Reading back afterwards
+        ///     would either find the row someone else wrote and report success, or find nothing and report
+        ///     a mapping error — both of which hide what actually happened.
+        /// </summary>
+        [TestMethod]
+        public void Update_that_affects_no_row_does_not_read_back()
+        {
+            var provider = new CapturingQueryProvider { AffectedRows = 0 };
+            var product = new Product { Id = 7, Name = "Widget", ModifiedBy = "sallu", VersionNo = 1 };
+
+            var rowsAffected = CreateNoOutputPersister(provider, new FakeDbCommunication())
+                .Update(product, optimisticConcurrency: true);
+
+            Assert.AreEqual(0, rowsAffected);
+            Assert.AreEqual(1, provider.CapturedExpressions.Count, "Only the update itself was submitted.");
+        }
+
+        /// <summary>
+        ///     The write reported that it affected a row, so the row is there. Failing to find it again
+        ///     means the primary key does not describe how to reach it — a mapping error, not the zero-rows
+        ///     answer that would be read as a concurrency failure.
+        /// </summary>
+        [TestMethod]
+        public void Read_back_that_finds_no_row_is_reported_as_a_key_problem()
+        {
+            var provider = new CapturingQueryProvider();
+            var product = new Product { Id = 7, Name = "Widget", ModifiedBy = "sallu" };
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => CreateNoOutputPersister(provider, new FakeDbCommunication())
+                        .Update(product, optimisticConcurrency: false));
+
+            StringAssert.Contains(thrown.Message, "primary key");
+        }
+
+        /// <summary>The asynchronous path takes the same three steps, on the asynchronous transaction.</summary>
+        [TestMethod]
+        public async Task InsertAsync_reads_the_generated_values_back_the_same_way()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.EntityRows.Add(new Product { Id = 42, Rank = 9, VersionNo = 5 });
+            var communication = new FakeDbCommunication { ScalarResult = 42m };
+            var product = new Product { Name = "Widget" };
+
+            var rowsAffected = await CreateNoOutputPersister(provider, communication).InsertAsync(product);
+
+            Assert.AreEqual(1, rowsAffected);
+            Assert.AreEqual(42, product.Id);
+            Assert.AreEqual(9, product.Rank);
+            Assert.AreEqual(5, product.VersionNo);
+            Assert.AreEqual(1, communication.TransactionsStarted);
         }
 
         #endregion
