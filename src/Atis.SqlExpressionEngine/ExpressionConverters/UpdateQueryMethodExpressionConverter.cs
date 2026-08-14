@@ -1,5 +1,6 @@
 using Atis.Expressions;
 using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.Internal;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
@@ -126,23 +127,10 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
                 outputs.Add(new SelectColumn(
                     new SqlOutputColumnExpression(SqlOutputSource.Inserted, selectedColumn.ColumnName),
-                    GetOutputColumnAlias(outputArray.Expressions[i], i),
+                    SelectedMemberAlias.Resolve(outputArray.Expressions[i], i, "Update output"),
                     scalarColumn: false));
             }
             return outputs;
-        }
-
-        private static string GetOutputColumnAlias(Expression outputExpression, int index)
-        {
-            while (outputExpression is UnaryExpression unary &&
-                   (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
-            {
-                outputExpression = unary.Operand;
-            }
-
-            return (outputExpression as MemberExpression)?.Member.Name
-                   ?? throw new InvalidOperationException(
-                       $"Update output field {index} must select a member, for example 'x => new object[] {{ x.EmployeeId }}', but was '{outputExpression}'.");
         }
     }
 }

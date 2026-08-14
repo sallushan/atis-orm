@@ -79,6 +79,19 @@ namespace Atis.Orm.Services
             var queryShape = derivedTable.QueryShape;
             var selectColumns = derivedTable.SelectColumnCollection.SelectColumns;
 
+            // A dictionary row satisfies the element type, so the caller asked for names rather than
+            // a type -- which is what SelectFields is for, and the only way to project a column list
+            // that is not known until run time. The aliases are known here at plan time, exactly as
+            // they are for an OUTPUT clause above, so the same pair of DictionaryRow calls applies
+            // and every dictionary path keeps one set of rules for casing, nulls and duplicates.
+            if (elementType.IsAssignableFrom(typeof(Dictionary<string, object>)))
+            {
+                var columnNames = selectColumns.Select(x => x.Alias).ToArray();
+                var keyComparer = DictionaryRow.DefaultKeyComparer;
+                DictionaryRow.EnsureNoDuplicateColumns(columnNames, keyComparer);
+                return dr => DictionaryRow.Read(dr, columnNames, keyComparer);
+            }
+
             // Build ordinal map: SqlExpression -> index in SelectColumns
             var ordinalMap = BuildOrdinalMap(selectColumns);
 

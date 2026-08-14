@@ -649,6 +649,47 @@ namespace Atis.SqlExpressionEngine
             return new List<Dictionary<string, object>>(outputQuery);
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Narrows the query's select list to <paramref name="fields"/> and returns each row as
+        ///         a dictionary keyed by the member each field selects.
+        ///     </para>
+        ///     <para>
+        ///         For a caller whose column list is only known at run time. Nothing can be written in
+        ///         source to project onto — an anonymous type would have to be emitted and a generic
+        ///         closed over its members by reflection — so the shape is a dictionary, which carries
+        ///         its own names and needs no type at all.
+        ///     </para>
+        ///     <para>
+        ///         Keys are the <em>member</em> names, not the mapped column names, so
+        ///         <c>row[nameof(Student.Name)]</c> reads a column named anything. They are compared
+        ///         case-insensitively, the way a database treats identifiers.
+        ///     </para>
+        ///     <para>
+        ///         This shapes the query and nothing more: the result is an <see cref="IQueryable{T}"/>,
+        ///         so it is executed by the ordinary <c>ToList</c> or the ORM's <c>ToListAsync</c> like
+        ///         any other query. Each field must select a member — a computed value has no member to
+        ///         name the key by, and is rejected rather than given an invented one.
+        ///     </para>
+        /// </summary>
+        /// <param name="fields">The fields to select, as <c>x =&gt; new object[] { x.A, x.B }</c>.</param>
+        public static IQueryable<IReadOnlyDictionary<string, object>> SelectFields<T>(
+            this IQueryable<T> query,
+            Expression<Func<T, object[]>> fields)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (fields is null)
+                throw new ArgumentNullException(nameof(fields));
+
+            return query.Provider.CreateQuery<IReadOnlyDictionary<string, object>>(
+                Expression.Call(
+                    null,
+                    new Func<IQueryable<T>, Expression<Func<T, object[]>>, IQueryable<IReadOnlyDictionary<string, object>>>(SelectFields).Method,
+                    query.Expression,
+                    Expression.Quote(fields)));
+        }
+
         public static int BulkInsert<T>(this IQueryable<T> query)
         {
             if (query is null)
