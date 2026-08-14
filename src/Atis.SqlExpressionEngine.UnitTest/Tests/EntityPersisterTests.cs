@@ -137,7 +137,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         #region harness
 
-        /// <summary>Records the expressions the persister submits, and serves canned OUTPUT rows.</summary>
+        /// <summary>Records the expressions the persister submits, and serves canned row images.</summary>
         private sealed class CapturingQueryProvider : IAsyncQueryProvider
         {
             /// <summary>
@@ -151,10 +151,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             public int AffectedRows { get; set; } = 1;
 
-            public List<Dictionary<string, object>> OutputRows { get; } = new List<Dictionary<string, object>>();
-
-            /// <summary>The rows a read-back select finds, as entities rather than as a row image.</summary>
-            public List<object> EntityRows { get; } = new List<object>();
+            /// <summary>
+            ///     The rows every query returns. One list serves both paths because both ask for a row
+            ///     image rather than an entity: the OUTPUT clause and the read-back select alike.
+            /// </summary>
+            public List<Dictionary<string, object>> Rows { get; } = new List<Dictionary<string, object>>();
 
             public IQueryable CreateQuery(Expression expression)
                 => throw new NotSupportedException();
@@ -162,9 +163,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
             {
                 this.CapturedExpressions.Add(expression);
-                if (typeof(TElement) == typeof(Dictionary<string, object>))
-                    return (IQueryable<TElement>)this.OutputRows.AsQueryable();
-                return this.EntityRows.Cast<TElement>().AsQueryable();
+                return (IQueryable<TElement>)this.Rows.AsQueryable();
             }
 
             public object Execute(Expression expression)
@@ -188,30 +187,16 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 if (typeof(TResult) == typeof(Task<int>))
                     return (TResult)(object)Task.FromResult(this.AffectedRows);
                 if (typeof(TResult) == typeof(IAsyncEnumerable<Dictionary<string, object>>))
-                    return (TResult)(object)this.YieldOutputRows();
-                if (typeof(TResult).IsGenericType && typeof(TResult).GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>))
-                    return (TResult)this.GetType()
-                                        .GetMethod(nameof(YieldEntityRows), BindingFlags.NonPublic | BindingFlags.Instance)
-                                        .MakeGenericMethod(typeof(TResult).GetGenericArguments()[0])
-                                        .Invoke(this, null);
+                    return (TResult)(object)this.YieldRows();
                 return default;
             }
 
-            private async IAsyncEnumerable<Dictionary<string, object>> YieldOutputRows()
+            private async IAsyncEnumerable<Dictionary<string, object>> YieldRows()
             {
-                foreach (var row in this.OutputRows)
+                foreach (var row in this.Rows)
                 {
                     await Task.Yield();
                     yield return row;
-                }
-            }
-
-            private async IAsyncEnumerable<TElement> YieldEntityRows<TElement>()
-            {
-                foreach (var row in this.EntityRows)
-                {
-                    await Task.Yield();
-                    yield return (TElement)row;
                 }
             }
         }
@@ -326,15 +311,31 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             return new NoOutputPersister(ReflectionService, model, crudMetadataFactory, provider, communication);
         }
 
-        /// <summary>The member names the read-back select's predicate compares against.</summary>
+        /// <summary>
+        ///     The member names the read-back select's predicate compares against. The read-back is a
+        ///     SelectFields over a Where, so the predicate is one call further in than the call itself.
+        /// </summary>
         private static IReadOnlyList<string> ReadBackPredicateMembers(Expression selectCall)
         {
-            var where = (MethodCallExpression)selectCall;
+            var where = (MethodCallExpression)((MethodCallExpression)selectCall).Arguments[0];
             var predicate = (LambdaExpression)((UnaryExpression)where.Arguments[1]).Operand;
 
             var names = new List<string>();
             CollectComparedMembers(predicate.Body, predicate.Parameters[0], names);
             return names;
+        }
+
+        /// <summary>The member names the read-back select asks the database for.</summary>
+        private static IReadOnlyList<string> ReadBackSelectedMembers(Expression selectCall)
+        {
+            var selectFields = (MethodCallExpression)selectCall;
+            Assert.AreEqual(nameof(QueryExtensions.SelectFields), selectFields.Method.Name,
+                "The read-back must name its columns rather than select the whole row.");
+
+            var fields = (LambdaExpression)((UnaryExpression)selectFields.Arguments[1]).Operand;
+            return ((NewArrayExpression)fields.Body).Expressions
+                   .Select(x => ((MemberExpression)((UnaryExpression)x).Operand).Member.Name)
+                   .ToArray();
         }
 
         private static void CollectComparedMembers(Expression node, ParameterExpression parameter, List<string> names)
@@ -384,7 +385,7 @@ values ('T1', 'First')
         public void Insert_skips_generated_and_update_only_columns()
         {
             var provider = new CapturingQueryProvider();
-            provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Id"] = 7,
                 ["Rank"] = 3,
@@ -407,7 +408,7 @@ values ('Widget', 'Tools', 'sallu')
         public void Insert_assigns_generated_values_back_onto_the_entity()
         {
             var provider = new CapturingQueryProvider();
-            provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Id"] = 42,
                 ["Rank"] = 9,
@@ -511,7 +512,7 @@ values ('Widget', 'Tools', 'sallu')
         public void Insert_selects_the_remaining_generated_columns_back_by_key()
         {
             var provider = new CapturingQueryProvider();
-            provider.EntityRows.Add(new Product { Id = 42, Rank = 9, VersionNo = 5 });
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 9, ["VersionNo"] = 5 });
             var communication = new FakeDbCommunication { ScalarResult = 42m };
             var product = new Product { Name = "Widget" };
 
@@ -530,6 +531,53 @@ values ('Widget', 'Tools', 'sallu')
 
         /// <summary>
         ///     <para>
+        ///         The read-back asks for the generated columns and nothing else. Every other column is
+        ///         already what the caller wrote, so fetching the whole row would move a table's worth of
+        ///         data to copy two values out of it.
+        ///     </para>
+        ///     <para>
+        ///         The key is not in the list either: it was asked for separately, and by the time this
+        ///         select runs it is what the row is being found by.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Read_back_selects_only_the_generated_columns()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 9, ["VersionNo"] = 5 });
+            var communication = new FakeDbCommunication { ScalarResult = 42m };
+
+            CreateNoOutputPersister(provider, communication).Insert(new Product { Name = "Widget" });
+
+            CollectionAssert.AreEqual(
+                new[] { nameof(Product.Rank), nameof(Product.VersionNo) },
+                ReadBackSelectedMembers(provider.CapturedExpressions[1]).ToArray(),
+                "Name, Category and the rest were written by the caller and must not be fetched again.");
+        }
+
+        /// <summary>
+        ///     The read-back is keyed on the entity's own values, so it renders as an ordinary select —
+        ///     worth pinning because this is the only query in the persister whose SQL is not a write.
+        /// </summary>
+        [TestMethod]
+        public void Read_back_renders_as_a_keyed_select_of_the_generated_columns()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 9, ["VersionNo"] = 5 });
+            var communication = new FakeDbCommunication { ScalarResult = 42m };
+
+            CreateNoOutputPersister(provider, communication).Insert(new Product { Name = "Widget" });
+
+            string expectedResult = @"
+select	a_1.Rank as Rank, a_1.VersionNo as VersionNo
+from	Product as a_1
+where	(a_1.Id = 42)
+";
+            Test("Persister Read Back Select Test", provider.CapturedExpressions[1], expectedResult);
+        }
+
+        /// <summary>
+        ///     <para>
         ///         An identity column that is not the key needs no generated-key statement at all. The key
         ///         was supplied by the caller, so the row can be found straight away and the identity comes
         ///         back with the select like any other generated column.
@@ -544,7 +592,7 @@ values ('Widget', 'Tools', 'sallu')
         public void Insert_with_an_identity_outside_the_key_never_asks_for_a_generated_key()
         {
             var provider = new CapturingQueryProvider();
-            provider.EntityRows.Add(new Invoice { Number = "INV-1", Seq = 31, Notes = "read back" });
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Seq"] = 31 });
             var communication = new FakeDbCommunication();
             var invoice = new Invoice { Number = "INV-1", Notes = "written" };
 
@@ -590,7 +638,7 @@ values ('Widget', 'Tools', 'sallu')
         public void Update_reads_back_on_the_primary_key_alone()
         {
             var provider = new CapturingQueryProvider();
-            provider.EntityRows.Add(new Product { Id = 7, Rank = 3, VersionNo = 2 });
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 3, ["VersionNo"] = 2 });
             var product = new Product { Id = 7, Name = "Widget", ModifiedBy = "sallu", VersionNo = 1 };
 
             var rowsAffected = CreateNoOutputPersister(provider, new FakeDbCommunication())
@@ -646,7 +694,7 @@ values ('Widget', 'Tools', 'sallu')
         public async Task InsertAsync_reads_the_generated_values_back_the_same_way()
         {
             var provider = new CapturingQueryProvider();
-            provider.EntityRows.Add(new Product { Id = 42, Rank = 9, VersionNo = 5 });
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 9, ["VersionNo"] = 5 });
             var communication = new FakeDbCommunication { ScalarResult = 42m };
             var product = new Product { Name = "Widget" };
 
@@ -677,7 +725,7 @@ values ('Widget', 'Tools', 'sallu')
             // row -- and this test translates after the persister has already assigned the returned row
             // image back. A bumped version here would therefore change the predicate being asserted, for
             // a reason that has nothing to do with what the persister built.
-            provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Rank"] = 1,
                 ["VersionNo"] = 1,
@@ -711,7 +759,7 @@ where	((a_1.Id = 7) and (a_1.VersionNo = 1))
         public void Update_without_optimistic_concurrency_keys_on_the_primary_key_alone()
         {
             var provider = new CapturingQueryProvider();
-            provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Rank"] = 1,
                 ["VersionNo"] = 2,
@@ -737,7 +785,7 @@ where	(a_1.Id = 7)
         public void Update_does_not_read_the_identity_column_back()
         {
             var provider = new CapturingQueryProvider();
-            provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Rank"] = 1,
                 ["VersionNo"] = 2,
@@ -774,8 +822,8 @@ where	(a_1.Id = 7)
         public void Update_returning_several_rows_rejects_the_key_as_non_unique()
         {
             var provider = new CapturingQueryProvider();
-            provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 1, ["VersionNo"] = 2 });
-            provider.OutputRows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 1, ["VersionNo"] = 2 });
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 1, ["VersionNo"] = 2 });
+            provider.Rows.Add(new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Rank"] = 1, ["VersionNo"] = 2 });
 
             var thrown = Assert.ThrowsException<InvalidOperationException>(
                 () => CreatePersister(provider, supportsOutput: true)

@@ -251,7 +251,7 @@ namespace Atis.Orm.DataManipulation
 
                 if (plan.SelectBackMembers.Count > 0)
                 {
-                    var rows = this.queryProvider.CreateQuery<T>(this.CreateReadBackCall(entity, plan)).ToList();
+                    var rows = this.ExecuteDictionary(this.CreateReadBackCall(entity, plan));
                     this.AssignReadBackValues(entity, plan.SelectBackMembers, rows, "insert");
                 }
             });
@@ -282,7 +282,7 @@ namespace Atis.Orm.DataManipulation
 
                 if (plan.SelectBackMembers.Count > 0)
                 {
-                    var rows = await this.ExecuteEntitiesAsync<T>(this.CreateReadBackCall(entity, plan), cancellationToken)
+                    var rows = await this.ExecuteDictionaryAsync(this.CreateReadBackCall(entity, plan), cancellationToken)
                                          .ConfigureAwait(false);
                     this.AssignReadBackValues(entity, plan.SelectBackMembers, rows, "insert");
                 }
@@ -317,7 +317,7 @@ namespace Atis.Orm.DataManipulation
                 if (rowsAffected == 0)
                     return;
 
-                var rows = this.queryProvider.CreateQuery<T>(this.CreateReadBackCall(entity, plan)).ToList();
+                var rows = this.ExecuteDictionary(this.CreateReadBackCall(entity, plan));
                 this.AssignReadBackValues(entity, plan.SelectBackMembers, rows, "update");
             });
             return rowsAffected;
@@ -337,7 +337,7 @@ namespace Atis.Orm.DataManipulation
                 if (rowsAffected == 0)
                     return;
 
-                var rows = await this.ExecuteEntitiesAsync<T>(this.CreateReadBackCall(entity, plan), cancellationToken)
+                var rows = await this.ExecuteDictionaryAsync(this.CreateReadBackCall(entity, plan), cancellationToken)
                                      .ConfigureAwait(false);
                 this.AssignReadBackValues(entity, plan.SelectBackMembers, rows, "update");
             }, cancellationToken).ConfigureAwait(false);
@@ -591,15 +591,22 @@ namespace Atis.Orm.DataManipulation
             return found;
         }
 
-        /// <summary>The keyed select that brings the written row back, keyed on the primary key alone.</summary>
+        /// <summary>
+        ///     <para>
+        ///         The keyed select that brings the written row back, keyed on the primary key alone and
+        ///         selecting only the columns being read back.
+        ///     </para>
+        ///     <para>
+        ///         Narrowing the select list is why this returns a row image rather than an entity. The
+        ///         values wanted are a handful of generated columns, and every other column would be
+        ///         fetched only to be thrown away — on a table with a large column, or a row version next
+        ///         to a blob, that is the expensive part of the whole write.
+        ///     </para>
+        /// </summary>
         private Expression CreateReadBackCall<T>(T entity, ReadBackPlan plan)
-            => SelectEntityMethodCallFactory.CreateKeyedSelectCall<T>(Assignments<T>(entity, plan.KeyMembers));
-
-        private async Task<IReadOnlyList<T>> ExecuteEntitiesAsync<T>(Expression call, CancellationToken cancellationToken)
-        {
-            var rows = this.queryProvider.ExecuteAsync<IAsyncEnumerable<T>>(call, cancellationToken);
-            return await rows.DrainAsync(cancellationToken).ConfigureAwait(false);
-        }
+            => SelectEntityMethodCallFactory.CreateKeyedSelectCall<T>(
+                Assignments<T>(entity, plan.KeyMembers),
+                OutputSelectors<T>(plan.SelectBackMembers));
 
         private IDbCommunication RequireDbCommunication<T>(string operationPastTense)
             => this.dbCommunication ?? throw new InvalidOperationException(
@@ -642,7 +649,8 @@ namespace Atis.Orm.DataManipulation
 
         /// <summary>
         ///     <para>
-        ///         Copies the generated values off the row the select brought back.
+        ///         Copies the generated values off the row image the select brought back. The keys are the
+        ///         member names, since that is what <c>SelectFields</c> aliases each column by.
         ///     </para>
         ///     <para>
         ///         Unlike the OUTPUT path, no row here is an error rather than a count of zero. The write
@@ -651,7 +659,11 @@ namespace Atis.Orm.DataManipulation
         ///         that as a concurrency failure instead.
         ///     </para>
         /// </summary>
-        private void AssignReadBackValues<T>(T entity, IReadOnlyList<MemberInfo> members, IReadOnlyList<T> rows, string operation)
+        private void AssignReadBackValues<T>(
+            T entity,
+            IReadOnlyList<MemberInfo> members,
+            IReadOnlyList<IReadOnlyDictionary<string, object>> rows,
+            string operation)
         {
             if (rows.Count == 0)
             {
@@ -666,16 +678,36 @@ namespace Atis.Orm.DataManipulation
                     "The columns marked as the primary key do not identify a single row.");
             }
 
+            var row = rows[0];
             foreach (var member in members)
             {
+                // Only reachable if the select list and this loop disagreed about the member set, since
+                // both are built from the same list -- but a silently skipped column would leave the
+                // entity holding the value it was written with, which reads as "the database did not
+                // change it".
+                if (!row.TryGetValue(member.Name, out var value))
+                {
+                    throw new InvalidOperationException(
+                        $"Reading back the {operation}d '{typeof(T).Name}' returned no value for the database " +
+                        $"generated column '{member.Name}'.");
+                }
+
                 this.reflectionService.SetPropertyOrFieldValue(
-                    entity, member, this.reflectionService.GetPropertyOrFieldValue(rows[0], member));
+                    entity, member, ConvertToMemberType(value, this.reflectionService.GetPropertyOrFieldType(member)));
             }
         }
 
-        /// <summary>Widens or narrows a scalar onto the member it is about to be assigned to.</summary>
+        /// <summary>
+        ///     Widens or narrows a scalar onto the member it is about to be assigned to. A row image comes
+        ///     off the reader with whatever type the provider chose for the column, which is not always the
+        ///     member's — the same reason the generated key needs converting.
+        /// </summary>
         private static object ConvertToMemberType(object value, Type memberType)
         {
+            // A null is already the member's own null, and ChangeType would reject it against a value type
+            // rather than let the assignment report which member could not hold it.
+            if (value is null || value is DBNull)
+                return null;
             if (memberType.IsInstanceOfType(value))
                 return value;
 
