@@ -84,8 +84,8 @@ namespace Atis.Orm.Querying
             {
                 // Always the original tree, never a re-preprocessed one. Values are rebound by identity, so
                 // the variable nodes preprocessing would add, drop or reorder are irrelevant here; and any
-                // parameter the original tree cannot satisfy was already frozen into a literal at compile
-                // time by IParameterRebindabilityPolicy.
+                // parameter the original tree cannot satisfy falls back to its translation-time value in
+                // CompiledQueryBase.ResolveValue, i.e. behaves as a literal frozen at the first compile.
                 parameterValuesByIdentity = this.expressionVariableValuesExtractor.ExtractVariableValuesByIdentity(expression);
             }
             IExecutionContext queryExecutionParameter = compiledQuery.GetExecutionContext(parameterValuesByIdentity, useInitialValues: !cacheHit);

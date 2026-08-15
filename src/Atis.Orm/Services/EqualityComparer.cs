@@ -5,6 +5,8 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 
+using Atis.SqlExpressionEngine.Abstractions;
+
 namespace Atis.Orm.Services
 {
     public class ExpressionEqualityComparer : IEqualityComparer<Expression>
@@ -262,7 +264,16 @@ namespace Atis.Orm.Services
                             // never matches its own cache entry and the cache grows an entry per
                             // execution. The runtime type separates one kind of extension node from
                             // another, and the children carry the rest of the shape.
+                            //
+                            // State that is NOT a child expression is invisible here, so a node carrying a
+                            // plain field would hash identically to a sibling differing only in that field —
+                            // and since the cache is keyed on this hash alone, the two would share one
+                            // compiled query. Such a node opts back in through IStructuralKeyExpression.
                             hash.Add(obj.GetType());
+                            if (obj is IStructuralKeyExpression keyedExtension && keyedExtension.StructuralKey != null)
+                            {
+                                hash.Add(keyedExtension.StructuralKey);
+                            }
                             AddListToHash(ref hash, GetExtensionChildren(obj));
                             break;
                         }

@@ -1,4 +1,5 @@
 using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.ExpressionExtensions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,6 +21,12 @@ namespace Atis.Orm.Services
     ///         at translation time and must never be re-extracted, so they are deliberately skipped here. Query-typed
     ///         members (e.g. a <c>context.Employees</c> root) are sources, not parameters, and are only removed by
     ///         preprocessing, so they are excluded here too for the skip path that runs over the original expression.
+    ///     </para>
+    ///     <para>
+    ///         A <see cref="NamedParameterExpression"/> is collected as well: it is the hand-built-tree
+    ///         equivalent of a captured local, and becomes a <c>SqlParameterExpression</c> the same way. It
+    ///         supplies its own identity and value, so neither <see cref="IVariableIdentityProvider"/> nor
+    ///         <see cref="IExpressionEvaluator"/> is consulted for it.
     ///     </para>
     /// </summary>
     public class ExpressionVariableValuesExtractor : ExpressionVisitor, IExpressionVariableValuesExtractor
@@ -48,7 +55,7 @@ namespace Atis.Orm.Services
             var nodes = this.ExtractParameterNodes(sqlExpression);
             var values = new object[nodes.Count];
             for (int i = 0; i < nodes.Count; i++)
-                values[i] = this.expressionEvaluator.Evaluate(nodes[i]);
+                values[i] = this.ValueOf(nodes[i]);
             return values;
         }
 
@@ -59,8 +66,8 @@ namespace Atis.Orm.Services
             var byIdentity = new Dictionary<string, object>();
             foreach (var node in nodes)
             {
-                var identity = this.variableIdentityProvider.GetIdentity(node);
-                var value = this.expressionEvaluator.Evaluate(node);
+                var identity = this.IdentityOf(node);
+                var value = this.ValueOf(node);
                 if (byIdentity.TryGetValue(identity, out var existing))
                 {
                     // Same variable referenced more than once -> identical value, keep the single entry.
@@ -68,14 +75,37 @@ namespace Atis.Orm.Services
                     // captures; fail loudly rather than silently mis-bind.
                     if (!Equals(existing, value))
                         throw new InvalidOperationException(
-                            $"Two distinct variables resolved to the same parameter identity '{identity}' with different values. " +
-                            $"This would corrupt cache-hit rebinding.");
+                            node is NamedParameterExpression named
+                                // Normally unreachable: NamedParameterValidator rejects this at compile time,
+                                // on the first run. Kept as a backstop for a tree that reaches execution
+                                // without having been compiled through QueryCompiler.
+                                ? NamedParameterValidator.DuplicateNameMessage(named.Name, existing, value)
+                                : $"Two distinct variables resolved to the same parameter identity '{identity}' with different values. " +
+                                  $"This would corrupt cache-hit rebinding.");
                     continue;
                 }
                 byIdentity.Add(identity, value);
             }
             return byIdentity;
         }
+
+        /// <summary>
+        ///     The identity a collected node's value is rebound under. A named parameter carries its own; a
+        ///     variable member access has one derived from its member path.
+        /// </summary>
+        private string IdentityOf(Expression node)
+            => node is NamedParameterExpression named
+                    ? named.Identity
+                    : this.variableIdentityProvider.GetIdentity(node);
+
+        /// <summary>
+        ///     The current value of a collected node. A named parameter holds its own; a variable member
+        ///     access is evaluated through its container.
+        /// </summary>
+        private object ValueOf(Expression node)
+            => node is NamedParameterExpression named
+                    ? named.Value
+                    : this.expressionEvaluator.Evaluate(node);
 
         protected override Expression VisitMember(MemberExpression node)
         {
@@ -90,6 +120,18 @@ namespace Atis.Orm.Services
                 return node;
             }
             return base.VisitMember(node);
+        }
+
+        /// <inheritdoc />
+        protected override Expression VisitExtension(Expression node)
+        {
+            if (node is NamedParameterExpression)
+            {
+                // The value is a plain field, not a child expression, so there is nothing below to visit.
+                this.parameterNodes.Add(node);
+                return node;
+            }
+            return base.VisitExtension(node);
         }
 
         private static bool IsQuerySourceType(Type type)

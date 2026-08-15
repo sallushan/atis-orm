@@ -7,6 +7,7 @@ using System.Data;
 using System.Linq.Expressions;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.Services;
 using Atis.Orm.Translation;
 namespace Atis.Orm.Querying
 {
@@ -29,6 +30,12 @@ namespace Atis.Orm.Querying
         {
             if (expression is null)
                 throw new ArgumentNullException(nameof(expression));
+
+            // On the ORIGINAL tree — the one values are re-extracted from on a cache hit — and once per cache
+            // miss rather than per execution. Without it a duplicated parameter name compiles and returns
+            // correct rows the first time (each node keeps its own translation-time value) and only throws
+            // once the query is served from cache.
+            NamedParameterValidator.Validate(expression);
 
             var queryTranslationResult = this.queryTranslator.Translate(expression);
             var isNonQuery = (queryTranslationResult.SqlExpression is SqlUpdateExpression sqlUpdate && sqlUpdate.Outputs.Count == 0)
