@@ -23,6 +23,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.TestEntities
     [DbTable]
     public class Employee
     {
+        [PrimaryKey]
         public int EmployeeId { get; set; }
         public string FirstName { get; set; }
         public string LastName { get; set; }
@@ -69,9 +70,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.TestEntities
     /// <summary>
     /// Represents an employee's skill
     /// </summary>
+    [DbTable]
     public class EmployeeSkill
     {
+        [PrimaryKey]
         public int SkillId { get; set; }
+        [PrimaryKey]
         public int EmployeeId { get; set; }
         public string SkillName { get; set; }
         public int ProficiencyLevel { get; set; } // 1-5

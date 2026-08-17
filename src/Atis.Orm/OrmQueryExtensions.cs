@@ -225,5 +225,28 @@ namespace Atis.Orm
 
             return await asyncEnumerable.DrainAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        /// <summary>
+        ///     The asynchronous <see cref="Queryable.FirstOrDefault{TSource}(IQueryable{TSource})"/>: returns
+        ///     the first row, or <c>default</c> when the query matches none.
+        /// </summary>
+        /// <remarks>
+        ///     The <c>FirstOrDefault</c> call is appended to the expression tree rather than applied to the
+        ///     rows coming back, so <c>FirstOrDefaultQueryMethodExpressionConverter</c> runs and the row limit
+        ///     is pushed into the SQL as <c>TOP 1</c> — the same statement the synchronous path produces.
+        ///     Taking the first row client-side instead would leave the statement unbounded.
+        /// </remarks>
+        public static Task<T> FirstOrDefaultAsync<T>(
+            this IQueryable<T> query,
+            CancellationToken cancellationToken = default)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+
+            var firstOrDefaultMethod = new Func<IQueryable<T>, T>(Queryable.FirstOrDefault).Method;
+            var call = Expression.Call(null, firstOrDefaultMethod, query.Expression);
+
+            return query.Provider.RequireAsync().ExecuteAsync<Task<T>>(call, cancellationToken);
+        }
     }
 }

@@ -3,7 +3,10 @@ using Atis.Orm.DataAccess;
 using Atis.Orm.DataManipulation;
 using Atis.Orm.Metadata;
 using Atis.Orm.Translation;
+using Atis.SqlExpressionEngine;
 using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.ExpressionExtensions;
+using Atis.SqlExpressionEngine.SqlExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
@@ -342,6 +345,229 @@ namespace Atis.Orm
                 default:
                     throw new InvalidOperationException($"'{state}' is not a record state {nameof(SaveEntityAsync)} knows how to act on.");
             }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Returns the entity whose primary-key columns match <paramref name="key"/>, or <c>null</c>
+        ///         when no matching row exists.
+        ///     </para>
+        ///     <para>
+        ///         Key values are matched to columns <em>by name</em>, never by position — pass an object
+        ///         carrying them, usually an anonymous one:
+        ///         <c>GetEntity&lt;OrderLine&gt;(new { OrderId = 7, LineNo = 2 })</c>. The order the properties
+        ///         are written in is irrelevant. An entity keyed on a single column also accepts the bare
+        ///         value: <c>GetEntity&lt;Order&gt;(7)</c>.
+        ///     </para>
+        /// </summary>
+        /// <exception cref="ArgumentNullException"><paramref name="key"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException">
+        ///     <paramref name="key"/> does not supply every primary-key column, or a value's type cannot bind
+        ///     to its column.
+        /// </exception>
+        /// <exception cref="InvalidOperationException"><typeparamref name="T"/> has no primary key.</exception>
+        public virtual T GetEntity<T>(object key) where T : class
+        {
+            var predicateLambda = GetWherePredicateByKey<T>(key, this.Model.GetRequiredEntity(typeof(T)));
+            return this.CreateQuery<T>().Where(predicateLambda).FirstOrDefault();
+        }
+
+        /// <summary>
+        ///     The asynchronous <see cref="GetEntity{T}(object)"/>. Returns the entity whose primary-key
+        ///     columns match <paramref name="key"/>, or <c>null</c> when no matching row exists.
+        /// </summary>
+        /// <typeparam name="T">The entity type to read.</typeparam>
+        /// <param name="key">The key, matched to columns by name — see <see cref="GetEntity{T}(object)"/>.</param>
+        /// <param name="cancellationToken">Cancels the read.</param>
+        /// <returns>The matching entity, or <c>null</c> when no row matched.</returns>
+        public virtual async Task<T> GetEntityAsync<T>(object key, CancellationToken cancellationToken = default) where T : class
+        {
+            var predicateLambda = GetWherePredicateByKey<T>(key, this.Model.GetRequiredEntity(typeof(T)));
+            return await this.CreateQuery<T>().Where(predicateLambda)
+                             .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        ///     Returns the entity whose primary-key columns match <paramref name="key"/>, throwing
+        ///     <see cref="RecordNotFoundException"/> when no matching row exists. The key is matched by name —
+        ///     see <see cref="GetEntity{T}(object)"/>.
+        /// </summary>
+        /// <exception cref="RecordNotFoundException">No row matched the key.</exception>
+        public virtual T GetRequiredEntity<T>(object key) where T : class
+        {
+            var entity = GetEntity<T>(key);
+            if (entity is null)
+                throw this.RecordNotFound<T>(key);
+            return entity;
+        }
+
+        /// <summary>
+        ///     The asynchronous <see cref="GetRequiredEntity{T}(object)"/>. Returns the entity whose
+        ///     primary-key columns match <paramref name="key"/>, throwing
+        ///     <see cref="RecordNotFoundException"/> when no matching row exists.
+        /// </summary>
+        /// <typeparam name="T">The entity type to read.</typeparam>
+        /// <param name="key">The key, matched to columns by name — see <see cref="GetEntity{T}(object)"/>.</param>
+        /// <param name="cancellationToken">Cancels the read.</param>
+        /// <returns>The matching entity, never <c>null</c>.</returns>
+        /// <exception cref="RecordNotFoundException">No row matched the key.</exception>
+        public virtual async Task<T> GetRequiredEntityAsync<T>(object key, CancellationToken cancellationToken = default) where T : class
+        {
+            var entity = await GetEntityAsync<T>(key, cancellationToken).ConfigureAwait(false);
+            if (entity is null)
+                throw this.RecordNotFound<T>(key);
+            return entity;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The primary-key columns of <typeparamref name="T"/>, in a fixed order.
+        ///     </para>
+        ///     <para>
+        ///         Sorted by property name rather than left in <see cref="EntityMetadata.SqlColumns"/> order,
+        ///         because that order comes from <c>Type.GetProperties()</c>, which the CLR does not specify.
+        ///         Key values are bound by name, so this order never decides <em>which</em> value goes to which
+        ///         column — it only fixes the shape of the generated predicate, which keeps one compiled-query
+        ///         cache entry serving every caller regardless of how they wrote the key object.
+        ///     </para>
+        /// </summary>
+        private static TableColumn[] GetPrimaryKeyColumns<T>(EntityMetadata metadata)
+        {
+            var primaryKeyColumns = metadata.SqlColumns
+                                            .Where(x => x.IsPrimaryKey)
+                                            .OrderBy(x => x.ModelPropertyName, StringComparer.Ordinal)
+                                            .ToArray();
+            if (primaryKeyColumns.Length == 0)
+                throw new InvalidOperationException($"Entity '{typeof(T).Name}' does not have a primary key defined.");
+            return primaryKeyColumns;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Reads one value per primary-key column out of <paramref name="key"/>, in the order of
+        ///         <paramref name="primaryKeyColumns"/>.
+        ///     </para>
+        ///     <para>
+        ///         <paramref name="key"/> is any object carrying the key columns as public readable
+        ///         properties. An anonymous object is the usual form; a whole entity works too, so a row can
+        ///         be re-read by handing back what it produced. Properties beyond the key columns are ignored,
+        ///         which is what makes that work — and a misspelt key property is still caught, because the
+        ///         column it was meant to supply then has nothing supplying it.
+        ///     </para>
+        ///     <para>
+        ///         An entity keyed on a single column also accepts the bare value, since with one column there
+        ///         is no order to get wrong. The value is taken as that column's own unless it carries a
+        ///         property named after the column, so <c>GetEntity&lt;Employee&gt;(5)</c> and
+        ///         <c>GetEntity&lt;Employee&gt;(new { EmployeeId = 5 })</c> mean the same thing.
+        ///     </para>
+        /// </summary>
+        private static object[] ResolveKeyValues<T>(object key, TableColumn[] primaryKeyColumns)
+        {
+            if (key == null)
+                throw new ArgumentNullException(nameof(key));
+
+            var keyType = key.GetType();
+            if (primaryKeyColumns.Length == 1)
+            {
+                var carrier = FindReadableProperty(keyType, primaryKeyColumns[0].ModelPropertyName);
+                return new[] { carrier == null ? key : carrier.GetValue(key) };
+            }
+
+            var values = new object[primaryKeyColumns.Length];
+            List<string> missing = null;
+            for (var i = 0; i < primaryKeyColumns.Length; i++)
+            {
+                var property = FindReadableProperty(keyType, primaryKeyColumns[i].ModelPropertyName);
+                if (property == null)
+                    (missing ?? (missing = new List<string>())).Add(primaryKeyColumns[i].ModelPropertyName);
+                else
+                    values[i] = property.GetValue(key);
+            }
+
+            if (missing != null)
+                throw new ArgumentException(
+                    $"Entity '{typeof(T).Name}' is keyed on ({FormatColumnList(primaryKeyColumns)}), but the key " +
+                    $"supplies no {string.Join(" or ", missing)}. Pass the key by name, e.g. " +
+                    $"new {{ {string.Join(", ", primaryKeyColumns.Select(x => x.ModelPropertyName + " = ..."))} }}.",
+                    nameof(key));
+
+            return values;
+        }
+
+        private static PropertyInfo FindReadableProperty(Type type, string name)
+        {
+            var property = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+            return property != null && property.CanRead ? property : null;
+        }
+
+        private static string FormatColumnList(TableColumn[] columns)
+            => string.Join(", ", columns.Select(x => x.ModelPropertyName));
+
+        /// <summary>
+        ///     Rejects a key value that cannot bind to its column before the tree reaches the driver, which
+        ///     reports the same mistake only as "No mapping exists from object type ..." — and only after a
+        ///     round trip.
+        /// </summary>
+        private static void EnsureKeyValueBinds<T>(string propertyName, Type memberType, object value)
+        {
+            var underlying = Nullable.GetUnderlyingType(memberType);
+            var expected = underlying ?? memberType;
+
+            if (value == null)
+            {
+                if (underlying == null && memberType.IsValueType)
+                    throw new ArgumentException(
+                        $"Key property '{typeof(T).Name}.{propertyName}' is {expected.Name}, which has no null value to match on.",
+                        "key");
+                return;
+            }
+
+            if (!expected.IsInstanceOfType(value))
+                throw new ArgumentException(
+                    $"Key property '{typeof(T).Name}.{propertyName}' is {expected.Name}, but the value supplied " +
+                    $"for it is {value.GetType().Name}.",
+                    "key");
+        }
+
+        /// <summary>
+        ///     Builds the <see cref="RecordNotFoundException"/> for a key-based read that matched no row. The
+        ///     key is re-read here rather than carried down from the caller, so a read that does find its row
+        ///     pays for neither the reflection nor the service resolve that only the message needs.
+        /// </summary>
+        private RecordNotFoundException RecordNotFound<T>(object key) where T : class
+        {
+            var primaryKeyColumns = GetPrimaryKeyColumns<T>(this.Model.GetRequiredEntity(typeof(T)));
+            var keyValues = ResolveKeyValues<T>(key, primaryKeyColumns);
+            var namedKey = primaryKeyColumns
+                            .Select((c, i) => new KeyValuePair<string, object>(c.ModelPropertyName, keyValues[i]))
+                            .ToArray();
+
+            var entityName = this.ServiceProvider.GetRequiredService<IOrmReflectionService>()
+                                 .GetTypeDescription(typeof(T));
+            return new RecordNotFoundException(typeof(T), entityName, namedKey);
+        }
+
+        private static Expression<Func<T, bool>> GetWherePredicateByKey<T>(object key, EntityMetadata metadata) where T : class
+        {
+            var primaryKeyColumns = GetPrimaryKeyColumns<T>(metadata);
+            var keyValues = ResolveKeyValues<T>(key, primaryKeyColumns);
+
+            var entityParameter = Expression.Parameter(typeof(T), "e");
+            Expression predicate = null;
+            for (var i = 0; i < primaryKeyColumns.Length; i++)
+            {
+                var primaryKeyColumn = primaryKeyColumns[i];
+                var member = Expression.PropertyOrField(entityParameter, primaryKeyColumn.ModelPropertyName);
+                EnsureKeyValueBinds<T>(primaryKeyColumn.ModelPropertyName, member.Type, keyValues[i]);
+                var keyParameter = new NamedParameterExpression(
+                    $"entity_{primaryKeyColumn.ModelPropertyName}",
+                    keyValues[i],
+                    member.Type);
+                var comparison = Expression.Equal(member, keyParameter);
+                predicate = predicate == null ? comparison : Expression.AndAlso(predicate, comparison);
+            }
+
+            return Expression.Lambda<Func<T, bool>>(predicate, entityParameter);
         }
 
         /// <summary>

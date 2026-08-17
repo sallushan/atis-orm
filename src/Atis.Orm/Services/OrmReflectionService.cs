@@ -2,6 +2,7 @@
 using Atis.SqlExpressionEngine.Services;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -68,6 +69,14 @@ namespace Atis.Orm.Services
                 default:
                     return false;
             }
+        }
+
+        /// <inheritdoc />
+        public string GetTypeDescription(Type type)
+        {
+            if (type is null)
+                throw new ArgumentNullException(nameof(type));
+            return type.GetCustomAttribute<DescriptionAttribute>()?.Description ?? type.Name;
         }
     }
 }

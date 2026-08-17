@@ -539,5 +539,298 @@ OUTER APPLY (
 
             Assert.AreEqual(1, OrmDbContext._onModelCreatingCallCount);
         }
+
+        // ---------------------------------------------------------------------------------------------
+        // Key-based reads: DataContext.GetEntity / GetRequiredEntity and their asynchronous counterparts.
+        //
+        // The read tests seed the database first and then Assert.Inconclusive if the table is still empty,
+        // rather than returning quietly. A silent `return` reports green for a test that exercised nothing,
+        // which is exactly how an emptied database would hide a real regression here.
+        // ---------------------------------------------------------------------------------------------
+
+        private static async Task<OrmDbContext> SeededContextAsync()
+        {
+            await new TestDatabaseSetup("Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True")
+                    .SetupAsync();
+            return new OrmDbContext();
+        }
+
+        [TestMethod]
+        public async Task GetEntity_single_primary_key()
+        {
+            using var dbc = await SeededContextAsync();
+            var employeeId = dbc.CreateQuery<TestEntities.Employee>().Select(x => (int?)x.EmployeeId).FirstOrDefault();
+            if (employeeId == null)
+                Assert.Inconclusive("No Employee rows to read; the key-based read was not exercised.");
+
+            // A single-column key takes the bare value, and the named form means the same thing.
+            var bare = dbc.GetEntity<TestEntities.Employee>(employeeId.Value);
+            var named = dbc.GetEntity<TestEntities.Employee>(new { EmployeeId = employeeId.Value });
+
+            Assert.IsNotNull(bare);
+            Assert.IsNotNull(named);
+            Assert.AreEqual(employeeId.Value, bare.EmployeeId);
+            Assert.AreEqual(employeeId.Value, named.EmployeeId);
+        }
+
+        [TestMethod]
+        public async Task GetEntityAsync_single_primary_key()
+        {
+            using var dbc = await SeededContextAsync();
+            var employeeId = await dbc.CreateQuery<TestEntities.Employee>().Select(x => (int?)x.EmployeeId).FirstOrDefaultAsync();
+            if (employeeId == null)
+                Assert.Inconclusive("No Employee rows to read; the key-based read was not exercised.");
+
+            var employee = await dbc.GetEntityAsync<TestEntities.Employee>(employeeId.Value);
+
+            Assert.IsNotNull(employee);
+            Assert.AreEqual(employeeId.Value, employee.EmployeeId);
+        }
+
+        [TestMethod]
+        public async Task GetEntity_composite_primary_key()
+        {
+            using var dbc = await SeededContextAsync();
+            var skill = dbc.CreateQuery<TestEntities.EmployeeSkill>().FirstOrDefault();
+            if (skill == null)
+                Assert.Inconclusive("No EmployeeSkill rows to read; the composite-key read was not exercised.");
+
+            var retrieved = dbc.GetEntity<TestEntities.EmployeeSkill>(
+                                new { skill.SkillId, skill.EmployeeId });
+
+            Assert.IsNotNull(retrieved);
+            Assert.AreEqual(skill.SkillId, retrieved.SkillId);
+            Assert.AreEqual(skill.EmployeeId, retrieved.EmployeeId);
+        }
+
+        [TestMethod]
+        public async Task GetEntityAsync_composite_primary_key()
+        {
+            using var dbc = await SeededContextAsync();
+            var skill = await dbc.CreateQuery<TestEntities.EmployeeSkill>().FirstOrDefaultAsync();
+            if (skill == null)
+                Assert.Inconclusive("No EmployeeSkill rows to read; the composite-key read was not exercised.");
+
+            var retrieved = await dbc.GetEntityAsync<TestEntities.EmployeeSkill>(
+                                    new { skill.SkillId, skill.EmployeeId });
+
+            Assert.IsNotNull(retrieved);
+            Assert.AreEqual(skill.SkillId, retrieved.SkillId);
+            Assert.AreEqual(skill.EmployeeId, retrieved.EmployeeId);
+        }
+
+        [TestMethod]
+        public async Task GetEntity_composite_key_ignores_the_order_the_key_is_written_in()
+        {
+            using var dbc = await SeededContextAsync();
+            var skill = dbc.CreateQuery<TestEntities.EmployeeSkill>().FirstOrDefault();
+            if (skill == null)
+                Assert.Inconclusive("No EmployeeSkill rows to read; the composite-key read was not exercised.");
+
+            // This is the whole point of binding by name. SkillId and EmployeeId are both int, so a
+            // positional API could not tell these two calls apart — one of them would silently read the
+            // wrong row, or no row at all.
+            var declaredOrder = dbc.GetEntity<TestEntities.EmployeeSkill>(
+                                    new { skill.SkillId, skill.EmployeeId });
+            var reversedOrder = dbc.GetEntity<TestEntities.EmployeeSkill>(
+                                    new { skill.EmployeeId, skill.SkillId });
+
+            Assert.IsNotNull(declaredOrder);
+            Assert.IsNotNull(reversedOrder);
+            Assert.AreEqual(declaredOrder.SkillId, reversedOrder.SkillId);
+            Assert.AreEqual(declaredOrder.EmployeeId, reversedOrder.EmployeeId);
+        }
+
+        [TestMethod]
+        public async Task GetEntity_accepts_a_whole_entity_as_the_key()
+        {
+            using var dbc = await SeededContextAsync();
+            var skill = dbc.CreateQuery<TestEntities.EmployeeSkill>().FirstOrDefault();
+            if (skill == null)
+                Assert.Inconclusive("No EmployeeSkill rows to read; the composite-key read was not exercised.");
+
+            // Non-key properties are ignored, so a row can be re-read from the entity it produced.
+            var reread = dbc.GetEntity<TestEntities.EmployeeSkill>(skill);
+
+            Assert.IsNotNull(reread);
+            Assert.AreEqual(skill.SkillId, reread.SkillId);
+            Assert.AreEqual(skill.EmployeeId, reread.EmployeeId);
+        }
+
+        [TestMethod]
+        public async Task GetEntity_returns_null_when_no_row_matches()
+        {
+            using var dbc = await SeededContextAsync();
+
+            Assert.IsNull(dbc.GetEntity<TestEntities.Employee>(-1));
+            Assert.IsNull(await dbc.GetEntityAsync<TestEntities.Employee>(-1));
+            Assert.IsNull(dbc.GetEntity<TestEntities.EmployeeSkill>(new { SkillId = -1, EmployeeId = -1 }));
+        }
+
+        [TestMethod]
+        public async Task GetRequiredEntity_returns_entity_when_found()
+        {
+            using var dbc = await SeededContextAsync();
+            var employeeId = dbc.CreateQuery<TestEntities.Employee>().Select(x => (int?)x.EmployeeId).FirstOrDefault();
+            if (employeeId == null)
+                Assert.Inconclusive("No Employee rows to read; the key-based read was not exercised.");
+
+            Assert.AreEqual(employeeId.Value, dbc.GetRequiredEntity<TestEntities.Employee>(employeeId.Value).EmployeeId);
+
+            var async = await dbc.GetRequiredEntityAsync<TestEntities.Employee>(employeeId.Value);
+            Assert.AreEqual(employeeId.Value, async.EmployeeId);
+        }
+
+        [TestMethod]
+        public async Task GetRequiredEntity_should_throw_record_not_found_exception()
+        {
+            using var ctx = await SeededContextAsync();
+
+            var ex = Assert.ThrowsException<RecordNotFoundException>(
+                () => ctx.GetRequiredEntity<TestEntities.Employee>(-1));
+
+            // The type and the key are exposed as data, so callers never have to parse the message.
+            Assert.AreEqual(typeof(TestEntities.Employee), ex.EntityType);
+            Assert.AreEqual(-1, ex.Key["EmployeeId"]);
+            StringAssert.Contains(ex.Message, "EmployeeId = -1");
+        }
+
+        [TestMethod]
+        public async Task GetRequiredEntityAsync_should_throw_record_not_found_exception()
+        {
+            using var ctx = await SeededContextAsync();
+
+            var ex = await Assert.ThrowsExceptionAsync<RecordNotFoundException>(
+                () => ctx.GetRequiredEntityAsync<TestEntities.EmployeeSkill>(new { SkillId = -1, EmployeeId = -2 }));
+
+            Assert.AreEqual(typeof(TestEntities.EmployeeSkill), ex.EntityType);
+            Assert.AreEqual(-1, ex.Key["SkillId"]);
+            Assert.AreEqual(-2, ex.Key["EmployeeId"]);
+        }
+
+        [TestMethod]
+        public void GetEntity_should_reject_a_composite_key_given_as_a_bare_value()
+        {
+            using var ctx = new OrmDbContext();
+
+            // EmployeeSkill is keyed on (SkillId, EmployeeId); a lone value cannot say which it is.
+            var ex = Assert.ThrowsException<ArgumentException>(
+                () => ctx.GetEntity<TestEntities.EmployeeSkill>(1));
+
+            StringAssert.Contains(ex.Message, "SkillId");
+            StringAssert.Contains(ex.Message, "EmployeeId");
+        }
+
+        [TestMethod]
+        public void GetEntity_should_reject_a_key_missing_a_column()
+        {
+            using var ctx = new OrmDbContext();
+
+            // A misspelt key property leaves the column it was meant to supply with nothing supplying it,
+            // which is what turns a typo into an error rather than a wrong row.
+            var ex = Assert.ThrowsException<ArgumentException>(
+                () => ctx.GetEntity<TestEntities.EmployeeSkill>(new { SkilId = 1, EmployeeId = 2 }));
+
+            StringAssert.Contains(ex.Message, "SkillId");
+        }
+
+        [TestMethod]
+        public void GetEntity_should_reject_a_key_value_of_the_wrong_type()
+        {
+            using var ctx = new OrmDbContext();
+
+            var ex = Assert.ThrowsException<ArgumentException>(
+                () => ctx.GetEntity<TestEntities.Employee>("not-an-int"));
+
+            StringAssert.Contains(ex.Message, "EmployeeId");
+            StringAssert.Contains(ex.Message, "String");
+        }
+
+        [TestMethod]
+        public async Task GetEntity_should_reject_a_null_key()
+        {
+            using var ctx = new OrmDbContext();
+
+            Assert.ThrowsException<ArgumentNullException>(
+                () => ctx.GetEntity<TestEntities.Employee>(null));
+            await Assert.ThrowsExceptionAsync<ArgumentNullException>(
+                () => ctx.GetEntityAsync<TestEntities.Employee>(null));
+        }
+
+        [TestMethod]
+        public void GetEntity_should_throw_when_entity_has_no_primary_key()
+        {
+            using var ctx = new OrmDbContext();
+
+            // EmployeeDegree is [DbTable] but declares no [PrimaryKey], so there is nothing to match on.
+            Assert.ThrowsException<InvalidOperationException>(
+                () => ctx.GetEntity<EmployeeDegree>(Guid.NewGuid()));
+        }
+
+        [TestMethod]
+        public async Task FirstOrDefaultAsync_pushes_the_row_limit_into_the_expression_tree()
+        {
+            // The row limit has to reach the translator as a FirstOrDefault node — that is what makes
+            // FirstOrDefaultQueryMethodExpressionConverter emit TOP 1. Taking the first row from the
+            // materialized sequence instead would leave the statement unbounded, so this asserts on the
+            // tree handed to the provider rather than on the row that comes back.
+            var provider = new RecordingAsyncQueryProvider();
+            var query = new RecordingQueryable<TestEntities.Employee>(
+                provider, Expression.Constant(null, typeof(IQueryable<TestEntities.Employee>)));
+
+            await query.FirstOrDefaultAsync();
+
+            var call = provider.LastExpression as MethodCallExpression;
+            Assert.IsNotNull(call, "FirstOrDefaultAsync should hand the provider a method call, not the bare query.");
+            // Fully qualified: this test project declares its own `Queryable`, which shadows System.Linq's.
+            Assert.AreEqual(nameof(System.Linq.Queryable.FirstOrDefault), call.Method.Name);
+            Assert.AreEqual(typeof(System.Linq.Queryable), call.Method.DeclaringType);
+
+            // Task<T>, not IAsyncEnumerable<T>: the single row is produced by the database, not by reading
+            // one item off a streamed sequence.
+            Assert.AreEqual(typeof(Task<TestEntities.Employee>), provider.LastResultType);
+        }
+
+        /// <summary>
+        ///     Records the expression and result type a terminal operator hands to the provider, so tests can
+        ///     assert on the shape of the tree that reaches translation without needing a database.
+        /// </summary>
+        private sealed class RecordingAsyncQueryProvider : IAsyncQueryProvider
+        {
+            public Expression LastExpression { get; private set; }
+            public Type LastResultType { get; private set; }
+
+            public IQueryable CreateQuery(Expression expression) => throw new NotSupportedException();
+            public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
+                => new RecordingQueryable<TElement>(this, expression);
+            public object Execute(Expression expression) => throw new NotSupportedException();
+            public TResult Execute<TResult>(Expression expression) => throw new NotSupportedException();
+
+            public TResult ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+            {
+                this.LastExpression = expression;
+                this.LastResultType = typeof(TResult);
+                // Only the expected shape gets a real result. Returning default for anything else lets the
+                // assertions report what changed, instead of the test dying on a cast.
+                return typeof(TResult) == typeof(Task<TestEntities.Employee>)
+                        ? (TResult)(object)Task.FromResult<TestEntities.Employee>(null)
+                        : default;
+            }
+        }
+
+        private sealed class RecordingQueryable<T> : IQueryable<T>
+        {
+            public RecordingQueryable(IQueryProvider provider, Expression expression)
+            {
+                this.Provider = provider;
+                this.Expression = expression;
+            }
+
+            public Type ElementType => typeof(T);
+            public Expression Expression { get; }
+            public IQueryProvider Provider { get; }
+            public IEnumerator<T> GetEnumerator() => throw new NotSupportedException();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => throw new NotSupportedException();
+        }
     }
 }

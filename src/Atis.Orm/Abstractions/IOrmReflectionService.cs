@@ -24,5 +24,12 @@ namespace Atis.Orm.Abstractions
         ///     field that is not <c>readonly</c>.
         /// </summary>
         bool IsWriteableMember(MemberInfo propertyOrField);
+
+        /// <summary>
+        ///     The human-readable name for <paramref name="type"/>, used where a message names an entity —
+        ///     its <see cref="System.ComponentModel.DescriptionAttribute"/> when it carries one, otherwise
+        ///     the plain type name.
+        /// </summary>
+        string GetTypeDescription(Type type);
     }
 }
