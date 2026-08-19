@@ -42,6 +42,8 @@
         Like,
         LikeStartsWith,
         LikeEndsWith,
+        // A LIKE whose pattern is used verbatim - the caller supplies the wildcards.
+        LikePattern,
         Collection,
         UnwrappableDerivedTable,
         DateAdd,

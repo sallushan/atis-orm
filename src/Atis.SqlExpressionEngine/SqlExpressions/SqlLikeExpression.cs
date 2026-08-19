@@ -12,6 +12,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                 SqlExpressionType.Like,
                 SqlExpressionType.LikeStartsWith,
                 SqlExpressionType.LikeEndsWith,
+                SqlExpressionType.LikePattern,
             };
         private static SqlExpressionType ValidateNodeType(SqlExpressionType nodeType)
             => _allowedTypes.Contains(nodeType)

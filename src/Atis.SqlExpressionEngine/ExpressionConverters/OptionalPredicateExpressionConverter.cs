@@ -56,7 +56,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             var guard = convertedChildren[0];
             var predicate = convertedChildren[1];
 
-            return this.SqlFactory.CreateOptionalPredicateExpression(guard, predicate);
+            return this.SqlFactory.CreateOptionalPredicateExpression(guard, predicate, this.Expression.GuardKind);
         }
     }
 }

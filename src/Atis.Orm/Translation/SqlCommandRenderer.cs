@@ -123,10 +123,10 @@ namespace Atis.Orm.Translation
                 }
                 else if (fragments[i] is SqlConditionalFragment conditional)
                 {
-                    // A null guard drops the whole span: no text, no parameters, and no index advance - the
+                    // An absent guard drops the whole span: no text, no parameters, and no index advance - the
                     // names come from this same walk, so skipping simply renumbers what follows. Nothing
                     // downstream depends on a placeholder name being stable across executions.
-                    if (resolveValue(conditional.Guard) is null)
+                    if (conditional.IsAbsent(resolveValue(conditional.Guard)))
                         continue;
 
                     this.RenderFragments(conditional.Fragments, resolveValue, sb, dbParameters, ref parameterIndex, ref hasExpandableParameters);

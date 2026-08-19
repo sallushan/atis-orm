@@ -26,10 +26,12 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
         ///     the variable's identity.
         /// </param>
         /// <param name="predicate">The predicate to emit when the guard has a value.</param>
-        public OptionalPredicateExpression(Expression guard, Expression predicate)
+        /// <param name="guardKind">What counts as "no value" for this term.</param>
+        public OptionalPredicateExpression(Expression guard, Expression predicate, OptionalGuardKind guardKind = OptionalGuardKind.NullOnly)
         {
             this.Guard = guard ?? throw new ArgumentNullException(nameof(guard));
             this.Predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
+            this.GuardKind = guardKind;
         }
 
         /// <inheritdoc />
@@ -43,6 +45,9 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
 
         /// <summary>The predicate emitted when the guard has a value.</summary>
         public Expression Predicate { get; }
+
+        /// <summary>What counts as "no value" for <see cref="Guard"/>.</summary>
+        public OptionalGuardKind GuardKind { get; }
 
         /// <inheritdoc />
         /// <remarks>
@@ -61,7 +66,7 @@ namespace Atis.SqlExpressionEngine.ExpressionExtensions
             if (updatedGuard == this.Guard && updatedPredicate == this.Predicate)
                 return this;
 
-            return new OptionalPredicateExpression(updatedGuard, updatedPredicate);
+            return new OptionalPredicateExpression(updatedGuard, updatedPredicate, this.GuardKind);
         }
 
         /// <inheritdoc />

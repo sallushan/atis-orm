@@ -507,6 +507,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
                     return $"({this.Translate(sqlLikeExpression.Expression)} like {this.Translate(sqlLikeExpression.Pattern)} + '%')";
                 case SqlExpressionType.LikeEndsWith:
                     return $"({this.Translate(sqlLikeExpression.Expression)} like '%' + {this.Translate(sqlLikeExpression.Pattern)})";
+                case SqlExpressionType.LikePattern:
+                    return $"({this.Translate(sqlLikeExpression.Expression)} like {this.Translate(sqlLikeExpression.Pattern)})";
                 default:
                     return $"({this.Translate(sqlLikeExpression.Expression)} like '%' + {this.Translate(sqlLikeExpression.Pattern)} + '%')";
             }
@@ -825,6 +827,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 nt == SqlExpressionType.LessThan || nt == SqlExpressionType.LessThanOrEqual ||
                 nt == SqlExpressionType.Equal || nt == SqlExpressionType.NotEqual ||
                 nt == SqlExpressionType.Like || nt == SqlExpressionType.LikeStartsWith || nt == SqlExpressionType.LikeEndsWith ||
+                nt == SqlExpressionType.LikePattern ||
                 nt == SqlExpressionType.InValues ||
                 nt == SqlExpressionType.OptionalPredicate ||
                 nt == SqlExpressionType.Not || nt == SqlExpressionType.Exists

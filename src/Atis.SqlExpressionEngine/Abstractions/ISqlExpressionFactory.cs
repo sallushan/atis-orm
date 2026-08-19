@@ -25,6 +25,7 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlLikeExpression CreateLike(SqlExpression stringExpression, SqlExpression pattern);
         SqlLikeExpression CreateLikeStartsWith(SqlExpression stringExpression, SqlExpression pattern);
         SqlLikeExpression CreateLikeEndsWith(SqlExpression stringExpression, SqlExpression pattern);
+        SqlLikeExpression CreateLikePattern(SqlExpression stringExpression, SqlExpression pattern);
         SqlDateAddExpression CreateDateAdd(SqlDatePart datePart, SqlExpression interval, SqlExpression dateExpression);
         SqlDateSubtractExpression CreateDateSubtract(SqlDatePart datePart, SqlExpression startDate, SqlExpression endDate);
         SqlCollectionExpression CreateCollection(IEnumerable<SqlExpression> sqlExpressions);
@@ -32,7 +33,7 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlDatePartExpression CreateDatePart(SqlDatePart datePart, SqlExpression dateExpr);
         SqlParameterExpression CreateParameter(object value, bool multipleValues, string identity = null);
         SqlInValuesExpression CreateInValuesExpression(SqlExpression expression, SqlExpression[] values);
-        SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate);
+        SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate, OptionalGuardKind guardKind = OptionalGuardKind.NullOnly);
         SqlNegateExpression CreateNegate(SqlExpression operand);
         SqlNotExpression CreateNot(SqlExpression sqlExpression);
         SqlUpdateExpression CreateUpdate(SqlDerivedTableExpression source, Guid dataSourceToUpdate, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs);

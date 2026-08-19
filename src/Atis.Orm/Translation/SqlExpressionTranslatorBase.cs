@@ -478,6 +478,7 @@ namespace Atis.Orm.Translation
                    nt == SqlExpressionType.Like ||
                    nt == SqlExpressionType.LikeStartsWith ||
                    nt == SqlExpressionType.LikeEndsWith ||
+                   nt == SqlExpressionType.LikePattern ||
                    nt == SqlExpressionType.InValues ||
                    // Emitted as `(1 = 1 [AND ...])`, which is already a boolean group in both states.
                    nt == SqlExpressionType.OptionalPredicate ||
@@ -1128,7 +1129,7 @@ namespace Atis.Orm.Translation
             this.hasConditionalFragments = true;
 
             this.writer.Append("(1 = 1");
-            this.writer.BeginOptional(guard);
+            this.writer.BeginOptional(guard, node.GuardKind);
             this.writer.Append(" AND ");
             this.TranslateAsLogicalExpression(node.Predicate);
             this.writer.EndOptional();
@@ -1199,6 +1200,12 @@ namespace Atis.Orm.Translation
                     break;
                 case SqlExpressionType.LikeEndsWith:
                     this.writer.Append(" LIKE '%' + ");
+                    this.TranslateExpression(node.Pattern);
+                    this.writer.Append(")");
+                    break;
+                case SqlExpressionType.LikePattern:
+                    // The caller's pattern is used verbatim, wildcards and all - no decoration.
+                    this.writer.Append(" LIKE ");
                     this.TranslateExpression(node.Pattern);
                     this.writer.Append(")");
                     break;

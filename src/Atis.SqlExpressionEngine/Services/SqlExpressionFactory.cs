@@ -338,6 +338,11 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlLikeExpression(stringExpression, pattern, SqlExpressionType.LikeStartsWith);
         }
 
+        public SqlLikeExpression CreateLikePattern(SqlExpression stringExpression, SqlExpression pattern)
+        {
+            return new SqlLikeExpression(stringExpression, pattern, SqlExpressionType.LikePattern);
+        }
+
         public SqlLikeExpression CreateLikeEndsWith(SqlExpression stringExpression, SqlExpression pattern)
         {
             return new SqlLikeExpression(stringExpression, pattern, SqlExpressionType.LikeEndsWith);
@@ -378,9 +383,9 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlInValuesExpression(expression, values);
         }
 
-        public SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate)
+        public SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate, OptionalGuardKind guardKind = OptionalGuardKind.NullOnly)
         {
-            return new SqlOptionalPredicateExpression(guard, predicate);
+            return new SqlOptionalPredicateExpression(guard, predicate, guardKind);
         }
 
         public SqlNegateExpression CreateNegate(SqlExpression operand)

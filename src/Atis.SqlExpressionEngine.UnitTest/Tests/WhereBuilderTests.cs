@@ -139,6 +139,93 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void The_four_like_forms_each_decorate_the_pattern_differently()
+        {
+            var pattern = "abc";
+            var employees = new Queryable<Employee>(this.queryProvider);
+
+            AssertRenders(employees.Where(x => WhereBuilder.Contains(x.Department, pattern)),
+                          "(t1.Department LIKE '%' + @p0 + '%')");
+            AssertRenders(employees.Where(x => WhereBuilder.StartsWith(x.Department, pattern)),
+                          "(t1.Department LIKE @p0 + '%')");
+            AssertRenders(employees.Where(x => WhereBuilder.EndsWith(x.Department, pattern)),
+                          "(t1.Department LIKE '%' + @p0)");
+            // LikePattern is the only form with no BCL spelling: the caller's wildcards are used as-is, so
+            // this is the one that behaves like SQL's own LIKE.
+            AssertRenders(employees.Where(x => WhereBuilder.LikePattern(x.Department, pattern)),
+                          "(t1.Department LIKE @p0)");
+
+            void AssertRenders(IQueryable<Employee> query, string expectedPredicate)
+            {
+                var translation = this.TranslateWithSqlServer(query.Expression);
+                var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
+                StringAssert.Contains(rendered.Sql, "(1 = 1 AND " + expectedPredicate + ")");
+            }
+        }
+
+        [TestMethod]
+        public void In_drops_on_an_empty_collection_not_just_on_null()
+        {
+            // An empty list means "no filter", not "match nothing". This is the one place the guard needs to
+            // look past null - and it is opted into per term, never inferred from the value.
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildInQuery(new[] { "IT" }));
+
+            var withValues = compiled.GetExecutionContext(wiring.InValuesByIdentity(new[] { "IT", "HR" }), useInitialValues: false);
+            StringAssert.Contains(withValues.Sql, "t1.Department IN");
+            Assert.AreEqual(2, withValues.DbParameters.Count);
+
+            var empty = compiled.GetExecutionContext(wiring.InValuesByIdentity(new string[0]), useInitialValues: false);
+            Assert.IsFalse(empty.Sql.Contains("t1.Department IN"), "An empty collection drops the term.");
+            Assert.AreEqual(0, empty.DbParameters.Count);
+
+            var nullList = compiled.GetExecutionContext(wiring.InValuesByIdentity(null), useInitialValues: false);
+            Assert.IsFalse(nullList.Sql.Contains("t1.Department IN"), "A null collection drops the term.");
+        }
+
+        [TestMethod]
+        public void NotIn_negates_and_still_drops_when_absent()
+        {
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildNotInQuery(new[] { "IT" }));
+
+            var withValues = compiled.GetExecutionContext(wiring.NotInValuesByIdentity(new[] { "IT" }), useInitialValues: false);
+            StringAssert.Contains(withValues.Sql, "NOT ");
+            StringAssert.Contains(withValues.Sql, "t1.Department IN");
+
+            // The old library's eager NotStringIn(x, null) returned false (match nothing) while its expression
+            // form emitted 1 = 1 (match everything). Here absent means no filter, like every other method.
+            var empty = compiled.GetExecutionContext(wiring.NotInValuesByIdentity(new string[0]), useInitialValues: false);
+            Assert.IsFalse(empty.Sql.Contains("t1.Department IN"), "An empty collection drops the term.");
+        }
+
+        [TestMethod]
+        public void DateRange_shifts_its_upper_bound_in_SQL_and_drops_each_bound_independently()
+        {
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildDateRangeQuery(new DateTime(2020, 1, 1), new DateTime(2020, 12, 31)));
+
+            var both = compiled.GetExecutionContext(
+                wiring.DateRangeValuesByIdentity(new DateTime(2021, 1, 1), new DateTime(2021, 6, 30)), useInitialValues: false);
+
+            // The day arithmetic is SQL, not C#, so the bound rebinds instead of freezing to the first date.
+            // (DATEADD's interval is a bound literal too, hence three parameters rather than two.)
+            StringAssert.Contains(both.Sql, "DATEADD(", "The upper bound is shifted in SQL.");
+            var boundValues = both.DbParameters.Select(p => p.Value).ToList();
+            CollectionAssert.Contains(boundValues, (object)new DateTime(2021, 1, 1), "The lower bound is the caller's value, untransformed.");
+            CollectionAssert.Contains(boundValues, (object)new DateTime(2021, 6, 30), "The upper bound is the caller's value, untransformed.");
+
+            var onlyFrom = compiled.GetExecutionContext(
+                wiring.DateRangeValuesByIdentity(new DateTime(2021, 1, 1), null), useInitialValues: false);
+            Assert.AreEqual(1, onlyFrom.DbParameters.Count, "Only the lower bound survives - the shift went with the dropped term.");
+            Assert.IsFalse(onlyFrom.Sql.Contains("DATEADD("), "The upper bound is gone entirely.");
+
+            var neither = compiled.GetExecutionContext(
+                wiring.DateRangeValuesByIdentity(null, null), useInitialValues: false);
+            Assert.AreEqual(0, neither.DbParameters.Count, "With no bounds the whole range disappears.");
+        }
+
+        [TestMethod]
         public void Calling_a_marker_method_directly_throws()
         {
             // The methods are markers rewritten before they run. Calling one in memory - which is exactly what
@@ -235,10 +322,37 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                                          && WhereBuilder.Equal(x.EmployeeId, employeeId)).Expression;
             }
 
+            public Expression BuildInQuery(string[] departments)
+            {
+                var employees = new Queryable<Employee>(this.probeProvider);
+                return employees.Where(x => WhereBuilder.In(x.Department, departments)).Expression;
+            }
+
+            public Expression BuildNotInQuery(string[] departments)
+            {
+                var employees = new Queryable<Employee>(this.probeProvider);
+                return employees.Where(x => WhereBuilder.NotIn(x.Department, departments)).Expression;
+            }
+
+            public Expression BuildDateRangeQuery(DateTime? from, DateTime? to)
+            {
+                var students = new Queryable<Student>(this.probeProvider);
+                return students.Where(x => WhereBuilder.DateRange(x.RecordUpdateDate, from, to)).Expression;
+            }
+
             // Re-extracts the variable values keyed by identity, as the executor does on a cache hit: straight
             // off the original tree, with no preprocessing in between.
             public IReadOnlyDictionary<string, object> ValuesByIdentity(string department)
                 => this.extractor.ExtractVariableValuesByIdentity(this.BuildOptionalEqualQuery(department));
+
+            public IReadOnlyDictionary<string, object> InValuesByIdentity(string[] departments)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildInQuery(departments));
+
+            public IReadOnlyDictionary<string, object> NotInValuesByIdentity(string[] departments)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildNotInQuery(departments));
+
+            public IReadOnlyDictionary<string, object> DateRangeValuesByIdentity(DateTime? from, DateTime? to)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildDateRangeQuery(from, to));
 
             public IReadOnlyDictionary<string, object> TwoValuesByIdentity(string department, string employeeId)
                 => this.extractor.ExtractVariableValuesByIdentity(this.BuildTwoOptionalTermsQuery(department, employeeId));

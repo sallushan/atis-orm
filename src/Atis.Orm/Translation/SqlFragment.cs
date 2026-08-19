@@ -1,8 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 
 using Atis.Orm.Abstractions;
+using Atis.SqlExpressionEngine;
 
 namespace Atis.Orm.Translation
 {
@@ -97,14 +99,33 @@ namespace Atis.Orm.Translation
     /// </summary>
     public sealed class SqlConditionalFragment : SqlFragment
     {
-        internal SqlConditionalFragment(IQueryParameter guard, IReadOnlyList<SqlFragment> fragments)
+        internal SqlConditionalFragment(IQueryParameter guard, OptionalGuardKind guardKind, IReadOnlyList<SqlFragment> fragments)
         {
             this.Guard = guard ?? throw new ArgumentNullException(nameof(guard));
+            this.GuardKind = guardKind;
             this.Fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
         }
 
         /// <summary>The parameter whose value decides whether <see cref="Fragments"/> are emitted.</summary>
         public IQueryParameter Guard { get; }
+
+        /// <summary>
+        ///     What counts as "no value" here. Decided by the translator from the expression tree, never
+        ///     inferred from the value - an empty <c>byte[]</c> is not an absent filter.
+        /// </summary>
+        public OptionalGuardKind GuardKind { get; }
+
+        /// <summary>Whether <paramref name="guardValue"/> means this span should be dropped.</summary>
+        public bool IsAbsent(object guardValue)
+        {
+            if (guardValue is null || guardValue is DBNull)
+                return true;
+
+            return this.GuardKind == OptionalGuardKind.NullOrEmptyCollection
+                   && guardValue is IEnumerable collection
+                   && !(guardValue is string)
+                   && !collection.GetEnumerator().MoveNext();
+        }
 
         /// <summary>The fragments emitted when the guard has a value. May contain nested conditionals.</summary>
         public IReadOnlyList<SqlFragment> Fragments { get; }
@@ -128,14 +149,16 @@ namespace Atis.Orm.Translation
     {
         private sealed class OpenOptional
         {
-            public OpenOptional(List<SqlFragment> outerFragments, IQueryParameter guard)
+            public OpenOptional(List<SqlFragment> outerFragments, IQueryParameter guard, OptionalGuardKind guardKind)
             {
                 this.OuterFragments = outerFragments;
                 this.Guard = guard;
+                this.GuardKind = guardKind;
             }
 
             public List<SqlFragment> OuterFragments { get; }
             public IQueryParameter Guard { get; }
+            public OptionalGuardKind GuardKind { get; }
         }
 
         private List<SqlFragment> fragments = new List<SqlFragment>();
@@ -171,13 +194,13 @@ namespace Atis.Orm.Translation
         ///     Starts a span that is only emitted when <paramref name="guard"/> has a value at execution
         ///     time. Everything appended until the matching <see cref="EndOptional"/> goes inside it.
         /// </summary>
-        public void BeginOptional(IQueryParameter guard)
+        public void BeginOptional(IQueryParameter guard, OptionalGuardKind guardKind)
         {
             if (guard is null)
                 throw new ArgumentNullException(nameof(guard));
 
             this.FlushTextRun();
-            this.openOptionals.Push(new OpenOptional(this.fragments, guard));
+            this.openOptionals.Push(new OpenOptional(this.fragments, guard, guardKind));
             this.fragments = new List<SqlFragment>();
         }
 
@@ -191,7 +214,7 @@ namespace Atis.Orm.Translation
             var inner = this.fragments;
             var open = this.openOptionals.Pop();
             this.fragments = open.OuterFragments;
-            this.fragments.Add(new SqlConditionalFragment(open.Guard, inner));
+            this.fragments.Add(new SqlConditionalFragment(open.Guard, open.GuardKind, inner));
         }
 
         /// <summary>

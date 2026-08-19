@@ -21,10 +21,11 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
     public class SqlOptionalPredicateExpression : SqlExpression
     {
         /// <summary>Creates an optional predicate node.</summary>
-        public SqlOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate)
+        public SqlOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate, OptionalGuardKind guardKind = OptionalGuardKind.NullOnly)
         {
             this.Guard = guard ?? throw new ArgumentNullException(nameof(guard));
             this.Predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
+            this.GuardKind = guardKind;
         }
 
         /// <summary>The value whose nullness activates or drops <see cref="Predicate"/>.</summary>
@@ -32,6 +33,9 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         /// <summary>The predicate emitted when the guard has a value.</summary>
         public SqlExpression Predicate { get; }
+
+        /// <summary>What counts as "no value" for <see cref="Guard"/>.</summary>
+        public OptionalGuardKind GuardKind { get; }
 
         /// <inheritdoc />
         public override SqlExpressionType NodeType => SqlExpressionType.OptionalPredicate;
@@ -47,7 +51,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (guard == this.Guard && predicate == this.Predicate)
                 return this;
-            return new SqlOptionalPredicateExpression(guard, predicate);
+            return new SqlOptionalPredicateExpression(guard, predicate, this.GuardKind);
         }
 
         /// <inheritdoc />
