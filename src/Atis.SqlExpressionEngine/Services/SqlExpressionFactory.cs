@@ -378,6 +378,11 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlInValuesExpression(expression, values);
         }
 
+        public SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate)
+        {
+            return new SqlOptionalPredicateExpression(guard, predicate);
+        }
+
         public SqlNegateExpression CreateNegate(SqlExpression operand)
         {
             return new SqlNegateExpression(operand);

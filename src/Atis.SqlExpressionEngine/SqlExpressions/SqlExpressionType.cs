@@ -49,6 +49,7 @@
         Cast,
         DatePart,
         InValues,
+        OptionalPredicate,
         Negate,
         Not,
         Update,

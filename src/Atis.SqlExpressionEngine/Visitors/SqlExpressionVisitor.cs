@@ -312,6 +312,13 @@ namespace Atis.SqlExpressionEngine.Visitors
             return node.Update(expression, values.ToArray());
         }
 
+        protected virtual internal SqlExpression VisitOptionalPredicate(SqlOptionalPredicateExpression node)
+        {
+            var guard = Visit(node.Guard);
+            var predicate = Visit(node.Predicate);
+            return node.Update(guard, predicate);
+        }
+
         protected virtual internal SqlExpression VisitNegate(SqlNegateExpression node)
         {
             var operand = Visit(node.Operand);

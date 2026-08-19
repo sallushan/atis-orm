@@ -33,6 +33,7 @@ namespace Atis.Orm.Preprocessing
             var inValuesReplacementPreprocessor = new InValuesExpressionReplacementPreprocessor(expressionEvaluator);
             var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
             var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model, reflectionService);
+            var whereBuilderRewriterPreprocessor = new WhereBuilderRewriterPreprocessor();
             
             this.ExpressionPreprocessors.AddRange(new IExpressionPreprocessor[]
             {
@@ -44,8 +45,9 @@ namespace Atis.Orm.Preprocessing
                 specificationPreprocessor, 
                 convertPreprocessor, 
                 allToAnyRewriterPreprocessor, 
-                inValuesReplacementPreprocessor, 
-                navigationEqualityPreprocessor
+                inValuesReplacementPreprocessor,
+                navigationEqualityPreprocessor,
+                whereBuilderRewriterPreprocessor
             });
         }
 

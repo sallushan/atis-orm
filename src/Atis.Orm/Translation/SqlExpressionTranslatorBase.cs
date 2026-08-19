@@ -41,6 +41,7 @@ namespace Atis.Orm.Translation
         protected List<IQueryParameter> Parameters { get; } = new List<IQueryParameter>();
         private readonly SqlFragmentWriter writer = new SqlFragmentWriter();
         private bool hasExpandableParameters;
+        private bool hasConditionalFragments;
         private Dictionary<Guid, string> aliasCache;
         private int depth;
         // When set, the next derived-table / union query emits without its outer parentheses.
@@ -58,6 +59,7 @@ namespace Atis.Orm.Translation
         {
             this.Parameters.Clear();
             this.hasExpandableParameters = false;
+            this.hasConditionalFragments = false;
             this.aliasCache = new Dictionary<Guid, string>();
             this.depth = 0;
             this.suppressDerivedTableParens = false;
@@ -72,7 +74,7 @@ namespace Atis.Orm.Translation
             // it for the life of its cache entry, and the next translation of anything rewrites its parameter
             // plan underneath it — so it is copied. This translator is registered as a singleton, which makes
             // the aliasing process-wide.
-            return new SqlTranslationResult(this.Parameters.ToArray(), fragments, this.hasExpandableParameters);
+            return new SqlTranslationResult(this.Parameters.ToArray(), fragments, this.hasExpandableParameters, this.hasConditionalFragments);
         }
 
         #region Output helpers
@@ -267,6 +269,8 @@ namespace Atis.Orm.Translation
                 this.TranslateNegate(negate);
             else if (node is SqlInValuesExpression inValues)
                 this.TranslateInValues(inValues);
+            else if (node is SqlOptionalPredicateExpression optionalPredicate)
+                this.TranslateOptionalPredicate(optionalPredicate);
             else if (node is SqlLikeExpression like)
                 this.TranslateLike(like);
             else if (node is SqlCastExpression cast)
@@ -475,6 +479,8 @@ namespace Atis.Orm.Translation
                    nt == SqlExpressionType.LikeStartsWith ||
                    nt == SqlExpressionType.LikeEndsWith ||
                    nt == SqlExpressionType.InValues ||
+                   // Emitted as `(1 = 1 [AND ...])`, which is already a boolean group in both states.
+                   nt == SqlExpressionType.OptionalPredicate ||
                    nt == SqlExpressionType.Not ||
                    nt == SqlExpressionType.Exists;
         }
@@ -1073,6 +1079,60 @@ namespace Atis.Orm.Translation
         {
             this.writer.Append("NOT ");
             this.TranslateAsLogicalExpression(node.Operand);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Translates an optional predicate: a term that disappears from the statement when its guard
+        ///         has no value at execution time.
+        ///     </para>
+        ///     <para>
+        ///         Emitted as a self-anchored group - <c>(1 = 1</c>, then a skippable span holding
+        ///         <c> AND &lt;predicate&gt;</c>, then <c>)</c>. The anchor is load-bearing, not cosmetic: it
+        ///         makes the term valid boolean SQL whether or not it survives, so an inactive term is a pure
+        ///         omission and the surrounding predicate composes through the ordinary binary translation
+        ///         with no separator bookkeeping and no all-terms-dropped special case.
+        ///     </para>
+        ///     <para>
+        ///         The guard gets a query parameter but no placeholder, and is deliberately <em>not</em> added
+        ///         to <see cref="Parameters"/>: it is never written to the output, so it occupies no position
+        ///         in the placeholder plan. Its value still resolves through the same resolver as every other
+        ///         parameter, so it rebinds by identity on a cache hit.
+        ///     </para>
+        /// </summary>
+        protected virtual void TranslateOptionalPredicate(SqlOptionalPredicateExpression node)
+        {
+            object guardValue;
+            bool guardIsLiteral;
+            if (node.Guard is SqlParameterExpression guardParameterExpression)
+            {
+                guardValue = guardParameterExpression.Value;
+                guardIsLiteral = false;
+            }
+            else if (node.Guard is SqlLiteralExpression guardLiteralExpression)
+            {
+                // An inline constant rather than a variable: legal, but frozen at translation, so the term is
+                // permanently on or off for this compiled query. That is the caller's choice to make.
+                guardValue = guardLiteralExpression.LiteralValue;
+                guardIsLiteral = true;
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"An optional predicate's guard must be a value (a captured variable or a constant), but it " +
+                    $"translated to '{node.Guard.GetType().Name}'. A column cannot act as a guard: whether a term " +
+                    $"appears in the statement is decided once per execution, before any row is read.");
+            }
+
+            var guard = this.CreateQueryParameter(guardValue, guardIsLiteral, node.Guard);
+            this.hasConditionalFragments = true;
+
+            this.writer.Append("(1 = 1");
+            this.writer.BeginOptional(guard);
+            this.writer.Append(" AND ");
+            this.TranslateAsLogicalExpression(node.Predicate);
+            this.writer.EndOptional();
+            this.writer.Append(")");
         }
 
         /// <summary>

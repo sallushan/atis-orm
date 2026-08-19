@@ -81,15 +81,65 @@ namespace Atis.Orm.Translation
 
     /// <summary>
     ///     <para>
+    ///         A span of output that is emitted only when <see cref="Guard"/>'s value is not null at
+    ///         execution time; otherwise the whole span - text, parameters and all - is skipped.
+    ///     </para>
+    ///     <para>
+    ///         This is what makes an optional WHERE term possible without a cache entry per combination of
+    ///         supplied values: one compiled query holds every term, and each execution decides which spans
+    ///         survive. It differs from <see cref="SqlParameterFragment.EmptyListTemplate"/>, which only
+    ///         substitutes one marker's own output; here the guard suppresses a whole nested run.
+    ///     </para>
+    ///     <para>
+    ///         The guard is never itself written to the output, so it has no placeholder. Its value is read
+    ///         through the same resolver as any other parameter, so it rebinds by identity on a cache hit.
+    ///     </para>
+    /// </summary>
+    public sealed class SqlConditionalFragment : SqlFragment
+    {
+        internal SqlConditionalFragment(IQueryParameter guard, IReadOnlyList<SqlFragment> fragments)
+        {
+            this.Guard = guard ?? throw new ArgumentNullException(nameof(guard));
+            this.Fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
+        }
+
+        /// <summary>The parameter whose value decides whether <see cref="Fragments"/> are emitted.</summary>
+        public IQueryParameter Guard { get; }
+
+        /// <summary>The fragments emitted when the guard has a value. May contain nested conditionals.</summary>
+        public IReadOnlyList<SqlFragment> Fragments { get; }
+    }
+
+    /// <summary>
+    ///     <para>
     ///         Append-only buffer the translator writes into. Consecutive text appends coalesce into a
     ///         single <see cref="SqlTextFragment"/> run; adding a parameter seals the current run and
     ///         records a <see cref="SqlParameterFragment"/>. Because parameter positions are recorded
     ///         here (never by the derived translators), providers cannot bypass or corrupt them.
     ///     </para>
+    ///     <para>
+    ///         <see cref="BeginOptional"/> / <see cref="EndOptional"/> nest a run inside a
+    ///         <see cref="SqlConditionalFragment"/>. Nesting is handled here rather than by the translator
+    ///         for the same reason parameter positions are: a derived translator cannot leave the fragment
+    ///         list half-built.
+    ///     </para>
     /// </summary>
     internal sealed class SqlFragmentWriter
     {
+        private sealed class OpenOptional
+        {
+            public OpenOptional(List<SqlFragment> outerFragments, IQueryParameter guard)
+            {
+                this.OuterFragments = outerFragments;
+                this.Guard = guard;
+            }
+
+            public List<SqlFragment> OuterFragments { get; }
+            public IQueryParameter Guard { get; }
+        }
+
         private List<SqlFragment> fragments = new List<SqlFragment>();
+        private readonly Stack<OpenOptional> openOptionals = new Stack<OpenOptional>();
         private readonly StringBuilder currentText = new StringBuilder();
         private bool hasCurrentText;
 
@@ -118,11 +168,41 @@ namespace Atis.Orm.Translation
         }
 
         /// <summary>
+        ///     Starts a span that is only emitted when <paramref name="guard"/> has a value at execution
+        ///     time. Everything appended until the matching <see cref="EndOptional"/> goes inside it.
+        /// </summary>
+        public void BeginOptional(IQueryParameter guard)
+        {
+            if (guard is null)
+                throw new ArgumentNullException(nameof(guard));
+
+            this.FlushTextRun();
+            this.openOptionals.Push(new OpenOptional(this.fragments, guard));
+            this.fragments = new List<SqlFragment>();
+        }
+
+        /// <summary>Closes the span opened by the matching <see cref="BeginOptional"/>.</summary>
+        public void EndOptional()
+        {
+            if (this.openOptionals.Count == 0)
+                throw new InvalidOperationException($"{nameof(EndOptional)} was called without a matching {nameof(BeginOptional)}.");
+
+            this.FlushTextRun();
+            var inner = this.fragments;
+            var open = this.openOptionals.Pop();
+            this.fragments = open.OuterFragments;
+            this.fragments.Add(new SqlConditionalFragment(open.Guard, inner));
+        }
+
+        /// <summary>
         ///     Returns the fragments buffered so far. <see cref="Reset"/> installs a fresh list, so a
         ///     returned list is never mutated by a later translation.
         /// </summary>
         public IReadOnlyList<SqlFragment> GetFragments()
         {
+            if (this.openOptionals.Count != 0)
+                throw new InvalidOperationException($"{this.openOptionals.Count} optional span(s) were opened and never closed.");
+
             this.FlushTextRun();
             return this.fragments;
         }
@@ -131,6 +211,7 @@ namespace Atis.Orm.Translation
         public void Reset()
         {
             this.fragments = new List<SqlFragment>();
+            this.openOptionals.Clear();
             this.currentText.Clear();
             this.hasCurrentText = false;
         }

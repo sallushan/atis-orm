@@ -104,6 +104,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateSqlInValuesExpression(sqlInValuesExpression);
             }
+            else if (sqlExpression is SqlOptionalPredicateExpression sqlOptionalPredicateExpression)
+            {
+                return this.TranslateSqlOptionalPredicateExpression(sqlOptionalPredicateExpression);
+            }
             //else if (sqlExpression is SqlKeywordExpression sqlKeywordExpression)
             //{
             //    return this.TranslateSqlKeywordExpression(sqlKeywordExpression);
@@ -574,6 +578,22 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return $"{expressionTranslated} in ({valuesTranslated})";
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Renders the optional term's <em>static</em> shape: the <c>1 = 1</c> anchor plus the guarded
+        ///         predicate, exactly as the production translator emits it.
+        ///     </para>
+        ///     <para>
+        ///         This translator produces a string, not fragments, so it cannot show the term being dropped -
+        ///         that decision belongs to the renderer and is only observable per execution. Translation tests
+        ///         assert this shape; the dropping itself is covered by execution tests.
+        ///     </para>
+        /// </summary>
+        private string TranslateSqlOptionalPredicateExpression(SqlOptionalPredicateExpression sqlOptionalPredicateExpression)
+        {
+            return $"(1 = 1 and {this.TranslateLogicalExpression(sqlOptionalPredicateExpression.Predicate)})";
+        }
+
         private string TranslateSqlUpdateExpression(SqlUpdateExpression sqlUpdateExpression)
         {
             var updateColumns = sqlUpdateExpression.Columns.Zip(sqlUpdateExpression.Values, (c, v) => $"{c} = {this.Translate(v)}");
@@ -806,6 +826,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 nt == SqlExpressionType.Equal || nt == SqlExpressionType.NotEqual ||
                 nt == SqlExpressionType.Like || nt == SqlExpressionType.LikeStartsWith || nt == SqlExpressionType.LikeEndsWith ||
                 nt == SqlExpressionType.InValues ||
+                nt == SqlExpressionType.OptionalPredicate ||
                 nt == SqlExpressionType.Not || nt == SqlExpressionType.Exists
                 )
                 return true;

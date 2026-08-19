@@ -84,6 +84,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new SelectFieldsQueryMethodExpressionConverterFactory(),
                 new DeleteQueryMethodExpressionConverterFactory(),
                 new InValuesExpressionConverterFactory(),
+                new OptionalPredicateExpressionConverterFactory(),
                 new NamedParameterExpressionConverterFactory(),
                 new NewArrayExpressionConverterFactory(),
                 new StandaloneSelectQueryMethodExpressionConverterFactory(),

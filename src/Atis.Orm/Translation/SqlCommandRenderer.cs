@@ -88,6 +88,19 @@ namespace Atis.Orm.Translation
             // One index per logical parameter; the factory turns it (and, for expansion, a sub-index) into names.
             var parameterIndex = 0;
 
+            this.RenderFragments(fragments, resolveValue, sb, dbParameters, ref parameterIndex, ref hasExpandableParameters);
+
+            return new RenderedCommand(sb.ToString(), dbParameters, hasExpandableParameters);
+        }
+
+        private void RenderFragments(
+            IReadOnlyList<SqlFragment> fragments,
+            Func<IQueryParameter, object> resolveValue,
+            StringBuilder sb,
+            List<DbParameter> dbParameters,
+            ref int parameterIndex,
+            ref bool hasExpandableParameters)
+        {
             for (var i = 0; i < fragments.Count; i++)
             {
                 if (fragments[i] is SqlTextFragment text)
@@ -108,13 +121,21 @@ namespace Atis.Orm.Translation
                     }
                     parameterIndex++;
                 }
+                else if (fragments[i] is SqlConditionalFragment conditional)
+                {
+                    // A null guard drops the whole span: no text, no parameters, and no index advance - the
+                    // names come from this same walk, so skipping simply renumbers what follows. Nothing
+                    // downstream depends on a placeholder name being stable across executions.
+                    if (resolveValue(conditional.Guard) is null)
+                        continue;
+
+                    this.RenderFragments(conditional.Fragments, resolveValue, sb, dbParameters, ref parameterIndex, ref hasExpandableParameters);
+                }
                 else
                 {
                     throw new NotSupportedException($"SQL fragment type '{fragments[i]?.GetType().Name}' is not supported.");
                 }
             }
-
-            return new RenderedCommand(sb.ToString(), dbParameters, hasExpandableParameters);
         }
 
         private void RenderSingle(IQueryParameter parameter, object value, int parameterIndex, StringBuilder sb, List<DbParameter> dbParameters)

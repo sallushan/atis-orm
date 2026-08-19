@@ -32,6 +32,7 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlDatePartExpression CreateDatePart(SqlDatePart datePart, SqlExpression dateExpr);
         SqlParameterExpression CreateParameter(object value, bool multipleValues, string identity = null);
         SqlInValuesExpression CreateInValuesExpression(SqlExpression expression, SqlExpression[] values);
+        SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate);
         SqlNegateExpression CreateNegate(SqlExpression operand);
         SqlNotExpression CreateNot(SqlExpression sqlExpression);
         SqlUpdateExpression CreateUpdate(SqlDerivedTableExpression source, Guid dataSourceToUpdate, IReadOnlyList<string> columns, IReadOnlyList<SqlExpression> values, IReadOnlyList<SelectColumn> outputs);

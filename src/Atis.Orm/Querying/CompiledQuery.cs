@@ -87,7 +87,7 @@ namespace Atis.Orm.Querying
         {
             if (translation is null)
                 throw new ArgumentNullException(nameof(translation));
-            Debug.Assert(!translation.HasExpandableParameters, "SimpleCompiledQuery is only valid for a non-expandable translation.");
+            Debug.Assert(!translation.RequiresPerExecutionRendering, "SimpleCompiledQuery is only valid for a translation whose SQL text does not depend on this execution's values.");
             if (renderer is null)
                 throw new ArgumentNullException(nameof(renderer));
             // The SQL text is value-independent here, so render it once with any resolver.
