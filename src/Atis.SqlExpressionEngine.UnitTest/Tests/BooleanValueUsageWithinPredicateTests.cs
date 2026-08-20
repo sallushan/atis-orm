@@ -133,6 +133,103 @@ select	a_1.IsDeleted as Col1
             Test("GroupBy does not rewrite", q.Expression, expectedResult);
         }
 
+        // `Any()` alone becomes a bare `exists(...)` predicate, but comparing it with a bool
+        // makes it a *value*, so it is wrapped in a `case when ... then 1 else 0 end` first
+        // and only then compared.
+        // NOTE: the bool variable shows up as 1/0 only because this test translator prints
+        // parameter values inline (see SqlExpressionTranslator.TranslateSqlParameterExpression).
+        // It is a real SqlParameterExpression -- the ORM renders it as @p, see
+        // AtisOrmTests.Sub_query_Any_compared_with_bool_variable_parameterizes_the_variable.
+        [TestMethod]
+        public void Sub_query_Any_compared_with_bool_variable()
+        {
+            var flag = true;
+            var students = new Queryable<Student>(queryProvider);
+            var studentGrades = new Queryable<StudentGrade>(queryProvider);
+            var q = students.Where(x => studentGrades.Where(y => y.StudentId == x.StudentId).Any() == flag);
+
+            string expectedResult = @"
+select	a_1.StudentId as StudentId, a_1.Name as Name, a_1.Address as Address, a_1.Age as Age, a_1.AdmissionDate as AdmissionDate, a_1.RecordCreateDate as RecordCreateDate, a_1.RecordUpdateDate as RecordUpdateDate, a_1.StudentType as StudentType, a_1.CountryID as CountryID, a_1.HasScholarship as HasScholarship
+	from	Student as a_1
+	where	(case when exists(
+			select	1 as Col1
+			from	StudentGrade as a_2
+			where	(a_2.StudentId = a_1.StudentId)
+		) then 1 else 0 end = 1)
+";
+
+            Test("Sub query Any compared with bool variable", q.Expression, expectedResult);
+        }
+
+        [TestMethod]
+        public void Sub_query_Any_with_predicate_compared_with_false_bool_variable()
+        {
+            var flag = false;
+            var students = new Queryable<Student>(queryProvider);
+            var studentGrades = new Queryable<StudentGrade>(queryProvider);
+            var q = students.Where(x => studentGrades.Any(y => y.StudentId == x.StudentId) == flag);
+
+            string expectedResult = @"
+select	a_1.StudentId as StudentId, a_1.Name as Name, a_1.Address as Address, a_1.Age as Age, a_1.AdmissionDate as AdmissionDate, a_1.RecordCreateDate as RecordCreateDate, a_1.RecordUpdateDate as RecordUpdateDate, a_1.StudentType as StudentType, a_1.CountryID as CountryID, a_1.HasScholarship as HasScholarship
+	from	Student as a_1
+	where	(case when exists(
+			select	1 as Col1
+			from	StudentGrade as a_2
+			where	(a_2.StudentId = a_1.StudentId)
+		) then 1 else 0 end = 0)
+";
+
+            Test("Sub query Any with predicate compared with false bool variable", q.Expression, expectedResult);
+        }
+
+        [TestMethod]
+        public void Sub_query_Any_not_equal_bool_variable()
+        {
+            var flag = true;
+            var students = new Queryable<Student>(queryProvider);
+            var studentGrades = new Queryable<StudentGrade>(queryProvider);
+            var q = students.Where(x => studentGrades.Any(y => y.StudentId == x.StudentId) != flag);
+
+            string expectedResult = @"
+select	a_1.StudentId as StudentId, a_1.Name as Name, a_1.Address as Address, a_1.Age as Age, a_1.AdmissionDate as AdmissionDate, a_1.RecordCreateDate as RecordCreateDate, a_1.RecordUpdateDate as RecordUpdateDate, a_1.StudentType as StudentType, a_1.CountryID as CountryID, a_1.HasScholarship as HasScholarship
+	from	Student as a_1
+	where	(case when exists(
+			select	1 as Col1
+			from	StudentGrade as a_2
+			where	(a_2.StudentId = a_1.StudentId)
+		) then 1 else 0 end <> 1)
+";
+
+            Test("Sub query Any not equal bool variable", q.Expression, expectedResult);
+        }
+
+        // In a projection the comparison itself is also a value, so there are two nested
+        // `case when` wrappers: the inner one turns `exists` into 1/0, the outer one turns
+        // the resulting comparison into 1/0.
+        [TestMethod]
+        public void Sub_query_Any_compared_with_bool_variable_in_projection()
+        {
+            var flag = true;
+            var students = new Queryable<Student>(queryProvider);
+            var studentGrades = new Queryable<StudentGrade>(queryProvider);
+            var q = students.Select(x => new
+            {
+                x.StudentId,
+                HasGrades = studentGrades.Any(y => y.StudentId == x.StudentId) == flag
+            });
+
+            string expectedResult = @"
+select	a_1.StudentId as StudentId, case when (case when exists(
+			select	1 as Col1
+			from	StudentGrade as a_2
+			where	(a_2.StudentId = a_1.StudentId)
+		) then 1 else 0 end = 1) then 1 else 0 end as HasGrades
+	from	Student as a_1
+";
+
+            Test("Sub query Any compared with bool variable in projection", q.Expression, expectedResult);
+        }
+
         [TestMethod]
         public void ConditionalExpression_test_is_rewritten()
         {

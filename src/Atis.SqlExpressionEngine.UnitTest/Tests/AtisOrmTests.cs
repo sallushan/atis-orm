@@ -296,6 +296,84 @@ WHERE (t1.PK = @p0)
         }
 
         [TestMethod]
+        public void Sub_query_Any_compared_with_bool_variable_parameterizes_the_variable()
+        {
+            using var dbc = new OrmDbContext();
+            var authors = dbc.CreateQuery<FluentAuthor>();
+            var flag = true;
+            var q = authors.Where(a => a.Books.Any(b => b.Title == "Test") == flag);
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
+            // `exists` is a predicate, so comparing it with a bool first turns it into a value
+            // via `CASE WHEN ... THEN 1 ELSE 0 END`; the captured `flag` becomes @p2.
+            string expectedResult = @"
+SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
+FROM dbo.AUTHOR AS t1
+WHERE (CASE WHEN EXISTS(
+	SELECT @p0 AS Col1
+	FROM BOOK AS t2
+	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+) THEN 1 ELSE 0 END = @p2)
+";
+            ValidateQueryResults(queryResult, expectedResult);
+        }
+
+        // Baseline for the shape above: plain `Any()` and `!Any()` produce a bare EXISTS /
+        // NOT EXISTS with no CASE WHEN wrapper. Kept next to the `== flag` test so the cost
+        // of the comparison form stays visible.
+        [TestMethod]
+        public void Sub_query_Any_without_comparison_emits_bare_exists()
+        {
+            using var dbc = new OrmDbContext();
+            var authors = dbc.CreateQuery<FluentAuthor>();
+
+            var any = dbc.TranslateToSql(authors.Where(a => a.Books.Any(b => b.Title == "Test")));
+            Console.WriteLine(any);
+            ValidateQueryResults(any, @"
+SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
+FROM dbo.AUTHOR AS t1
+WHERE EXISTS(
+	SELECT @p0 AS Col1
+	FROM BOOK AS t2
+	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+)
+");
+
+            var notAny = dbc.TranslateToSql(authors.Where(a => !a.Books.Any(b => b.Title == "Test")));
+            Console.WriteLine(notAny);
+            ValidateQueryResults(notAny, @"
+SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
+FROM dbo.AUTHOR AS t1
+WHERE NOT EXISTS(
+	SELECT @p0 AS Col1
+	FROM BOOK AS t2
+	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+)
+");
+        }
+
+        // An inline `== true` literal is parameterized just like a captured variable, so it
+        // gets the same CASE WHEN wrapper -- it is NOT folded back to a bare EXISTS.
+        [TestMethod]
+        public void Sub_query_Any_compared_with_bool_literal_is_not_folded()
+        {
+            using var dbc = new OrmDbContext();
+            var authors = dbc.CreateQuery<FluentAuthor>();
+            var q = authors.Where(a => a.Books.Any(b => b.Title == "Test") == true);
+            var queryResult = dbc.TranslateToSql(q);
+            Console.WriteLine(queryResult);
+            ValidateQueryResults(queryResult, @"
+SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
+FROM dbo.AUTHOR AS t1
+WHERE (CASE WHEN EXISTS(
+	SELECT @p0 AS Col1
+	FROM BOOK AS t2
+	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+) THEN 1 ELSE 0 END = @p2)
+");
+        }
+
+        [TestMethod]
         public void Fluent_HasMany_KeyBased_Navigation_Test()
         {
             using var dbc = new OrmDbContext();
