@@ -127,7 +127,10 @@ namespace Atis.Orm.Translation
                    && !collection.GetEnumerator().MoveNext();
         }
 
-        /// <summary>The fragments emitted when the guard has a value. May contain nested conditionals.</summary>
+        /// <summary>
+        ///     The fragments emitted when the guard has a value. Flat: optional terms sit beside each other
+        ///     in the predicate, never inside one another (see <see cref="SqlFragmentWriter.BeginOptional"/>).
+        /// </summary>
         public IReadOnlyList<SqlFragment> Fragments { get; }
     }
 
@@ -139,30 +142,23 @@ namespace Atis.Orm.Translation
     ///         here (never by the derived translators), providers cannot bypass or corrupt them.
     ///     </para>
     ///     <para>
-    ///         <see cref="BeginOptional"/> / <see cref="EndOptional"/> nest a run inside a
-    ///         <see cref="SqlConditionalFragment"/>. Nesting is handled here rather than by the translator
-    ///         for the same reason parameter positions are: a derived translator cannot leave the fragment
-    ///         list half-built.
+    ///         <see cref="BeginOptional"/> / <see cref="EndOptional"/> collect a run into a
+    ///         <see cref="SqlConditionalFragment"/>. Redirecting the buffer is handled here rather than by
+    ///         the translator for the same reason parameter positions are: a derived translator cannot leave
+    ///         the fragment list half-built.
+    ///     </para>
+    ///     <para>
+    ///         <strong>At most one optional span is open at a time.</strong> Optional terms are joined with
+    ///         <c>AND</c>, so they sit beside each other and each opens and closes before the next begins;
+    ///         a two-bound <c>DateRange</c> is two sibling spans, not one inside the other.
     ///     </para>
     /// </summary>
     internal sealed class SqlFragmentWriter
     {
-        private sealed class OpenOptional
-        {
-            public OpenOptional(List<SqlFragment> outerFragments, IQueryParameter guard, OptionalGuardKind guardKind)
-            {
-                this.OuterFragments = outerFragments;
-                this.Guard = guard;
-                this.GuardKind = guardKind;
-            }
-
-            public List<SqlFragment> OuterFragments { get; }
-            public IQueryParameter Guard { get; }
-            public OptionalGuardKind GuardKind { get; }
-        }
-
         private List<SqlFragment> fragments = new List<SqlFragment>();
-        private readonly Stack<OpenOptional> openOptionals = new Stack<OpenOptional>();
+        private List<SqlFragment> fragmentsOutsideOptional;
+        private IQueryParameter openGuard;
+        private OptionalGuardKind openGuardKind;
         private readonly StringBuilder currentText = new StringBuilder();
         private bool hasCurrentText;
 
@@ -194,27 +190,44 @@ namespace Atis.Orm.Translation
         ///     Starts a span that is only emitted when <paramref name="guard"/> has a value at execution
         ///     time. Everything appended until the matching <see cref="EndOptional"/> goes inside it.
         /// </summary>
+        /// <remarks>
+        ///     <para>
+        ///         Rejects a second, nested span. One optional term inside another's predicate has no
+        ///         meaning - it would say "apply this filter only when some unrelated value was also
+        ///         supplied" - and no sensible query reaches it: the only way to write one is to pass a
+        ///         WhereBuilder call in a <em>column</em> position, which type-checks solely when the outer
+        ///         term is itself over <c>bool</c>.
+        ///     </para>
+        /// </remarks>
         public void BeginOptional(IQueryParameter guard, OptionalGuardKind guardKind)
         {
             if (guard is null)
                 throw new ArgumentNullException(nameof(guard));
+            if (this.openGuard != null)
+                throw new InvalidOperationException(
+                    "An optional term cannot contain another optional term. Optional terms are joined with " +
+                    "AND and sit beside each other; nesting one inside another's predicate has no meaning. " +
+                    "This usually means a WhereBuilder call was passed where a column was expected.");
 
             this.FlushTextRun();
-            this.openOptionals.Push(new OpenOptional(this.fragments, guard, guardKind));
+            this.fragmentsOutsideOptional = this.fragments;
+            this.openGuard = guard;
+            this.openGuardKind = guardKind;
             this.fragments = new List<SqlFragment>();
         }
 
         /// <summary>Closes the span opened by the matching <see cref="BeginOptional"/>.</summary>
         public void EndOptional()
         {
-            if (this.openOptionals.Count == 0)
+            if (this.openGuard is null)
                 throw new InvalidOperationException($"{nameof(EndOptional)} was called without a matching {nameof(BeginOptional)}.");
 
             this.FlushTextRun();
             var inner = this.fragments;
-            var open = this.openOptionals.Pop();
-            this.fragments = open.OuterFragments;
-            this.fragments.Add(new SqlConditionalFragment(open.Guard, open.GuardKind, inner));
+            this.fragments = this.fragmentsOutsideOptional;
+            this.fragments.Add(new SqlConditionalFragment(this.openGuard, this.openGuardKind, inner));
+            this.fragmentsOutsideOptional = null;
+            this.openGuard = null;
         }
 
         /// <summary>
@@ -223,8 +236,8 @@ namespace Atis.Orm.Translation
         /// </summary>
         public IReadOnlyList<SqlFragment> GetFragments()
         {
-            if (this.openOptionals.Count != 0)
-                throw new InvalidOperationException($"{this.openOptionals.Count} optional span(s) were opened and never closed.");
+            if (this.openGuard != null)
+                throw new InvalidOperationException("An optional span was opened and never closed.");
 
             this.FlushTextRun();
             return this.fragments;
@@ -234,7 +247,8 @@ namespace Atis.Orm.Translation
         public void Reset()
         {
             this.fragments = new List<SqlFragment>();
-            this.openOptionals.Clear();
+            this.fragmentsOutsideOptional = null;
+            this.openGuard = null;
             this.currentText.Clear();
             this.hasCurrentText = false;
         }

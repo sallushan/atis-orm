@@ -42,6 +42,12 @@ namespace Atis.Orm.Translation
         private readonly SqlFragmentWriter writer = new SqlFragmentWriter();
         private bool hasExpandableParameters;
         private bool hasConditionalFragments;
+        // Set while translating an optional term's predicate. Inside one, a parameter that happens to be null
+        // right now must NOT fold the comparison to `IS NULL`: the span is only ever emitted when the guard
+        // has a value, so the parameter is never null at the moment the SQL runs. Folding here would bake
+        // `IS NULL` (and no placeholder) into the cached query, and every later execution that supplies a
+        // value would silently run the wrong predicate.
+        private bool insideOptionalPredicate;
         private Dictionary<Guid, string> aliasCache;
         private int depth;
         // When set, the next derived-table / union query emits without its outer parentheses.
@@ -60,6 +66,7 @@ namespace Atis.Orm.Translation
             this.Parameters.Clear();
             this.hasExpandableParameters = false;
             this.hasConditionalFragments = false;
+            this.insideOptionalPredicate = false;
             this.aliasCache = new Dictionary<Guid, string>();
             this.depth = 0;
             this.suppressDerivedTableParens = false;
@@ -455,7 +462,7 @@ namespace Atis.Orm.Translation
             if (node is SqlLiteralExpression literal)
                 return literal.LiteralValue == null;
             if (node is SqlParameterExpression parameter)
-                return parameter.Value == null;
+                return !this.insideOptionalPredicate && parameter.Value == null;
             return false;
         }
 
@@ -1131,7 +1138,15 @@ namespace Atis.Orm.Translation
             this.writer.Append("(1 = 1");
             this.writer.BeginOptional(guard, node.GuardKind);
             this.writer.Append(" AND ");
-            this.TranslateAsLogicalExpression(node.Predicate);
+            this.insideOptionalPredicate = true;
+            try
+            {
+                this.TranslateAsLogicalExpression(node.Predicate);
+            }
+            finally
+            {
+                this.insideOptionalPredicate = false;
+            }
             this.writer.EndOptional();
             this.writer.Append(")");
         }

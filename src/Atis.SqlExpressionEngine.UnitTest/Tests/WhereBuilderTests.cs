@@ -226,6 +226,57 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void The_column_side_can_be_any_translatable_expression()
+        {
+            // "column" is shorthand: the left side is an ordinary expression and gets no special treatment,
+            // so a coalesce, a concatenation or a calculated property all work.
+            var department = "IT";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.Equal(x.Department ?? x.Name, department));
+
+            var translation = this.TranslateWithSqlServer(q.Expression);
+            var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
+
+            StringAssert.Contains(rendered.Sql, "1 = 1 AND (COALESCE(t1.Department, t1.Name) = @p0)");
+            Assert.AreEqual(1, rendered.DbParameters.Count);
+        }
+
+        [TestMethod]
+        public void Compiling_with_a_null_value_does_not_bake_IS_NULL_into_the_cached_query()
+        {
+            // The natural first execution of a search screen is "field left blank", so this is the likely
+            // path, not an edge case. TranslateBinary folds `col == <parameter that is null right now>` to
+            // `col IS NULL` and emits no placeholder; inside an optional term that would be doubly wrong,
+            // because the span is only ever rendered when the guard HAS a value.
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildOptionalEqualQuery(null));
+
+            var withValue = compiled.GetExecutionContext(wiring.ValuesByIdentity("Finance"), useInitialValues: false);
+
+            Assert.IsFalse(withValue.Sql.Contains("IS NULL"), "The comparison must not have folded to IS NULL.");
+            StringAssert.Contains(withValue.Sql, "t1.Department = @p0");
+            Assert.AreEqual(1, withValue.DbParameters.Count, "The value must still be bound.");
+            Assert.AreEqual("Finance", withValue.DbParameters[0].Value);
+        }
+
+        [TestMethod]
+        public void An_optional_term_nested_inside_another_is_rejected()
+        {
+            // Optional terms are joined with AND and sit beside each other; one inside another's predicate has
+            // no meaning. It is barely reachable - the outer call has to be over bool for the type arguments to
+            // unify at all, so a WhereBuilder call lands in the *column* position - but it compiles, so it gets
+            // a named error rather than odd SQL.
+            var flag = true;
+            var department = "IT";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.Equal(WhereBuilder.Equal(x.Department, department), flag));
+
+            var ex = Assert.ThrowsException<InvalidOperationException>(() => this.TranslateWithSqlServer(q.Expression));
+
+            StringAssert.Contains(ex.Message, "cannot contain another optional term");
+        }
+
+        [TestMethod]
         public void Calling_a_marker_method_directly_throws()
         {
             // The methods are markers rewritten before they run. Calling one in memory - which is exactly what
