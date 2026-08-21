@@ -29,11 +29,15 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         ///     rebind this parameter's value by lookup on a cache hit instead of by traversal position. May be
         ///     <c>null</c> when the value has no re-extractable source (e.g. a translation-time literal reused here).
         /// </param>
-        public SqlParameterExpression(object value, bool multipleValues, string identity = null)
+        /// <param name="valueType">
+        ///     The declared type of the source the value came from. <c>null</c> when unknown.
+        /// </param>
+        public SqlParameterExpression(object value, bool multipleValues, string identity = null, Type valueType = null)
         {
             this.Value = value;
             this.MultipleValues = multipleValues;
             this.Identity = identity;
+            this.ValueType = valueType;
         }
 
         /// <summary>
@@ -69,6 +73,42 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         ///     </para>
         /// </summary>
         public string Identity { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         Gets the declared type of the source this value came from, or <c>null</c> when unknown.
+        ///     </para>
+        ///     <para>
+        ///         The <em>declared</em> type, not the runtime type of <see cref="Value"/>: a boxed
+        ///         <see cref="Nullable{T}"/> is indistinguishable from its underlying type once it holds a
+        ///         value, so <c>Value.GetType()</c> cannot tell whether a later execution of the same cached
+        ///         query could bind <c>null</c> here. Translators use this to decide whether a comparison
+        ///         needs a null-aware form (see <c>SqlNullSwitchFragment</c>); when it is <c>null</c> they
+        ///         must assume a null is possible.
+        ///     </para>
+        /// </summary>
+        public Type ValueType { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         Whether a value bound here could be <c>null</c> on some execution.
+        ///     </para>
+        ///     <para>
+        ///         Conservative: an unknown <see cref="ValueType"/> counts as nullable, because assuming
+        ///         otherwise silently drops the null handling from the generated SQL.
+        ///     </para>
+        /// </summary>
+        public bool CanBeNull
+        {
+            get
+            {
+                if (this.ValueType is null)
+                    return true;
+                if (Nullable.GetUnderlyingType(this.ValueType) != null)
+                    return true;
+                return !this.ValueType.IsValueType;
+            }
+        }
 
         /// <summary>
         ///     <para>

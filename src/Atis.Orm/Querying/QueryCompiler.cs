@@ -47,8 +47,9 @@ namespace Atis.Orm.Querying
                 elementFactory = this.CreateElementFactory(expression, queryTranslationResult.SqlExpression);
             var translation = queryTranslationResult.SqlTranslation;
             // The shape is decided once, here: a query whose SQL text depends on the values (an expandable
-            // collection, or an optional term that can be dropped) must re-render per execution; everything
-            // else renders its SQL a single time and only rebinds parameters.
+            // collection, an optional term that can be dropped, or a comparison against a value that could be
+            // null) must re-render per execution; everything else renders its SQL a single time and only
+            // rebinds parameters.
             ICompiledQuery compiledQuery = translation.RequiresPerExecutionRendering
                 ? new ExpandableCompiledQuery(translation, this.commandRenderer, isNonQuery, elementFactory)
                 : (ICompiledQuery)new SimpleCompiledQuery(translation, this.commandRenderer, this.dbParameterFactory, isNonQuery, elementFactory);

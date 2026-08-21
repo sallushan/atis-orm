@@ -752,20 +752,21 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return SqlParameterExpression.ConvertObjectToString(sqlLiteralExpression.LiteralValue);
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Only a literal null folds, matching the production translator.
+        ///     </para>
+        ///     <para>
+        ///         A parameter that happens to be null right now does not: production emits both spellings and
+        ///         lets the renderer pick per execution (<c>SqlNullSwitchFragment</c>). This translator returns
+        ///         a string, so it cannot express a switch and renders the has-value spelling - the same
+        ///         static-shape convention it already uses for optional terms.
+        ///     </para>
+        /// </summary>
         private bool IsNull(SqlExpression sqlExpression)
         {
-            if (sqlExpression is SqlLiteralExpression sqlLiteralExpression)
-            {
-                return sqlLiteralExpression.LiteralValue == null;
-            }
-            else if (sqlExpression is SqlParameterExpression sqlParameterExpression)
-            {
-                return sqlParameterExpression.Value == null;
-            }
-            else
-            {
-                return false;
-            }
+            return sqlExpression is SqlLiteralExpression sqlLiteralExpression
+                   && sqlLiteralExpression.LiteralValue == null;
         }
 
         private string TranslateSqlBinaryExpression(SqlBinaryExpression sqlBinaryExpression)

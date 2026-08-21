@@ -131,6 +131,15 @@ namespace Atis.Orm.Translation
 
                     this.RenderFragments(conditional.Fragments, resolveValue, sb, dbParameters, ref parameterIndex, ref hasExpandableParameters);
                 }
+                else if (fragments[i] is SqlNullSwitchFragment nullSwitch)
+                {
+                    // `col = @p` or `col IS NULL`, picked from this execution's value. The null branch binds no
+                    // parameter for the compared value, so - as with a dropped conditional span - the indexes
+                    // after it simply shift; names come from this same walk and nothing depends on them being
+                    // stable across executions.
+                    var branch = nullSwitch.SelectBranch(resolveValue(nullSwitch.Parameter));
+                    this.RenderFragments(branch, resolveValue, sb, dbParameters, ref parameterIndex, ref hasExpandableParameters);
+                }
                 else
                 {
                     throw new NotSupportedException($"SQL fragment type '{fragments[i]?.GetType().Name}' is not supported.");

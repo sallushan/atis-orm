@@ -42,12 +42,7 @@ namespace Atis.Orm.Translation
         private readonly SqlFragmentWriter writer = new SqlFragmentWriter();
         private bool hasExpandableParameters;
         private bool hasConditionalFragments;
-        // Set while translating an optional term's predicate. Inside one, a parameter that happens to be null
-        // right now must NOT fold the comparison to `IS NULL`: the span is only ever emitted when the guard
-        // has a value, so the parameter is never null at the moment the SQL runs. Folding here would bake
-        // `IS NULL` (and no placeholder) into the cached query, and every later execution that supplies a
-        // value would silently run the wrong predicate.
-        private bool insideOptionalPredicate;
+        private bool hasNullSwitchFragments;
         private Dictionary<Guid, string> aliasCache;
         private int depth;
         // When set, the next derived-table / union query emits without its outer parentheses.
@@ -66,7 +61,7 @@ namespace Atis.Orm.Translation
             this.Parameters.Clear();
             this.hasExpandableParameters = false;
             this.hasConditionalFragments = false;
-            this.insideOptionalPredicate = false;
+            this.hasNullSwitchFragments = false;
             this.aliasCache = new Dictionary<Guid, string>();
             this.depth = 0;
             this.suppressDerivedTableParens = false;
@@ -81,7 +76,7 @@ namespace Atis.Orm.Translation
             // it for the life of its cache entry, and the next translation of anything rewrites its parameter
             // plan underneath it — so it is copied. This translator is registered as a singleton, which makes
             // the aliasing process-wide.
-            return new SqlTranslationResult(this.Parameters.ToArray(), fragments, this.hasExpandableParameters, this.hasConditionalFragments);
+            return new SqlTranslationResult(this.Parameters.ToArray(), fragments, this.hasExpandableParameters, this.hasConditionalFragments, this.hasNullSwitchFragments);
         }
 
         #region Output helpers
@@ -373,21 +368,34 @@ namespace Atis.Orm.Translation
                 return;
             }
 
-            // Handle null comparisons
-            if (this.IsNullExpression(node.Right))
+            if (node.NodeType == SqlExpressionType.Equal || node.NodeType == SqlExpressionType.NotEqual)
             {
-                if (node.NodeType == SqlExpressionType.Equal)
+                var isEqual = node.NodeType == SqlExpressionType.Equal;
+
+                // A null written into the query (`x.Col == null`) is frozen by design: the tree itself says
+                // null, so no execution can make it say otherwise, and folding it is safe forever.
+                if (this.IsNullLiteral(node.Right))
                 {
-                    this.writer.Append("(");
-                    this.TranslateExpression(node.Left);
-                    this.writer.Append(" IS NULL)");
+                    this.TranslateNullTest(node.Left, isEqual);
                     return;
                 }
-                else if (node.NodeType == SqlExpressionType.NotEqual)
+                if (this.IsNullLiteral(node.Left))
                 {
-                    this.writer.Append("(");
-                    this.TranslateExpression(node.Left);
-                    this.writer.Append(" IS NOT NULL)");
+                    this.TranslateNullTest(node.Right, isEqual);
+                    return;
+                }
+
+                // A null that arrived in a *value* is not frozen: this compiled query is cached by expression
+                // shape and re-executed with whatever the caller supplies next, so the choice between
+                // `col = @p` and `col IS NULL` belongs to each execution, not to this translation. Emit both.
+                if (node.Right is SqlParameterExpression rightParameter && rightParameter.CanBeNull)
+                {
+                    this.TranslateNullSwitch(node.Left, rightParameter, isEqual);
+                    return;
+                }
+                if (node.Left is SqlParameterExpression leftParameter && leftParameter.CanBeNull)
+                {
+                    this.TranslateNullSwitch(node.Right, leftParameter, isEqual);
                     return;
                 }
             }
@@ -454,16 +462,71 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
-        ///         Checks if an expression represents a null value.
+        ///         Whether <paramref name="node"/> is a null the query itself states, rather than one that
+        ///         merely happens to have arrived in a value on this execution.
+        ///     </para>
+        ///     <para>
+        ///         Only a literal qualifies. A literal is part of the expression's shape, so it is part of the
+        ///         cache key and cannot change between executions of the compiled query; a parameter's value
+        ///         can, and folding on it is what bakes one caller's answer into every later caller's SQL.
         ///     </para>
         /// </summary>
-        protected virtual bool IsNullExpression(SqlExpression node)
+        protected virtual bool IsNullLiteral(SqlExpression node)
+            => node is SqlLiteralExpression literal && literal.LiteralValue == null;
+
+        /// <summary>Emits <c>(&lt;operand&gt; IS NULL)</c> / <c>(&lt;operand&gt; IS NOT NULL)</c>.</summary>
+        protected virtual void TranslateNullTest(SqlExpression operand, bool isEqual)
         {
-            if (node is SqlLiteralExpression literal)
-                return literal.LiteralValue == null;
-            if (node is SqlParameterExpression parameter)
-                return !this.insideOptionalPredicate && parameter.Value == null;
-            return false;
+            this.writer.Append("(");
+            this.TranslateAsNonLogicalExpression(operand);
+            this.writer.Append(isEqual ? " IS NULL)" : " IS NOT NULL)");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Emits a comparison against a value that could be null, as both of its spellings - the
+        ///         ordinary <c>col = @p</c> and the null test <c>col IS NULL</c> - leaving the choice to the
+        ///         renderer, which knows the value this execution actually binds.
+        ///     </para>
+        ///     <para>
+        ///         C# <c>==</c> treats two nulls as equal; SQL <c>=</c> never does. So the two languages need
+        ///         different SQL for the same expression depending on the value, and the value is not known
+        ///         here: a compiled query is cached by expression shape and re-run with whatever comes next.
+        ///     </para>
+        ///     <para>
+        ///         Both spellings are built here, in the translator, using the ordinary translation methods -
+        ///         the renderer only picks one. The operand is deliberately translated once per branch, the
+        ///         same way any operand appearing twice in the output is translated twice (each occurrence
+        ///         needs its own markers); only one branch is ever rendered, so only its markers are bound.
+        ///     </para>
+        /// </summary>
+        /// <remarks>
+        ///     <para>
+        ///         The deciding parameter is a second <see cref="IQueryParameter"/> over the same source node,
+        ///         not the one the has-value branch emits, and is deliberately <em>not</em> added to
+        ///         <see cref="Parameters"/>: it writes no placeholder of its own. It carries the same identity,
+        ///         so it resolves to the same value on a cache hit - exactly as an optional term's guard does.
+        ///         A parameter with no identity has no re-extractable source and falls back to its value at
+        ///         translation time, which is the documented behaviour for such parameters everywhere else.
+        ///     </para>
+        /// </remarks>
+        protected virtual void TranslateNullSwitch(SqlExpression operand, SqlParameterExpression parameter, bool isEqual)
+        {
+            var decider = this.CreateQueryParameter(parameter.Value, isLiteral: false, parameter);
+            this.hasNullSwitchFragments = true;
+
+            this.writer.BeginNullSwitch(decider);
+
+            this.writer.Append("(");
+            this.TranslateAsNonLogicalExpression(operand);
+            this.writer.Append(isEqual ? " = " : " <> ");
+            this.TranslateAsNonLogicalExpression(parameter);
+            this.writer.Append(")");
+
+            this.writer.SwitchToNullBranch();
+            this.TranslateNullTest(operand, isEqual);
+
+            this.writer.EndNullSwitch();
         }
 
         /// <summary>
@@ -1138,15 +1201,12 @@ namespace Atis.Orm.Translation
             this.writer.Append("(1 = 1");
             this.writer.BeginOptional(guard, node.GuardKind);
             this.writer.Append(" AND ");
-            this.insideOptionalPredicate = true;
-            try
-            {
-                this.TranslateAsLogicalExpression(node.Predicate);
-            }
-            finally
-            {
-                this.insideOptionalPredicate = false;
-            }
+            // The predicate translates exactly as it would anywhere else. A comparison inside it against a
+            // nullable value still emits its own null switch, which is redundant here - this span only renders
+            // when the guard has a value - but costs nothing at execution and needs no special case. Before
+            // the switch existed this call had to suppress null folding, or a value that was null when the
+            // query compiled would bake `IS NULL` into it for every later execution.
+            this.TranslateAsLogicalExpression(node.Predicate);
             this.writer.EndOptional();
             this.writer.Append(")");
         }

@@ -120,7 +120,9 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             // traversal position) on a cache hit - the SqlExpression tree may be reshaped (CTE hoisting,
             // subtree copying) so parameter emission order need not match LINQ re-extraction order.
             var identity = this.variableIdentityProvider.GetIdentity(this.Expression);
-            return this.SqlFactory.CreateParameter(value, multipleValues: isEnumerable, identity: identity);
+            // The member's declared type, not the value's runtime type: a `int?` holding 5 boxes to `int`, and
+            // the translator needs to know that a later execution of this same cached query could bind null.
+            return this.SqlFactory.CreateParameter(value, multipleValues: isEnumerable, identity: identity, valueType: this.Expression.Type);
         }
 
         private bool IsEnumerable(object value)

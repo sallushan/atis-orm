@@ -71,7 +71,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             return this.SqlFactory.CreateParameter(
                                         value,
                                         multipleValues: this.ReflectionService.IsEnumerable(value),
-                                        identity: this.Expression.Identity);
+                                        identity: this.Expression.Identity,
+                                        valueType: this.Expression.Type);
         }
     }
 }
