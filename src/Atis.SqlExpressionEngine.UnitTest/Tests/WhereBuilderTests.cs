@@ -54,9 +54,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var translation = this.TranslateWithSqlServer(q.Expression);
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
-            // The `1 = 1` anchor is load-bearing: it makes the term valid boolean SQL in both states, so the
-            // surrounding predicate needs no separator bookkeeping when the term disappears.
-            StringAssert.Contains(rendered.Sql, "(1 = 1 AND (t1.Department = @p0))");
+            // A supplied value renders the filter and nothing else. The two states are ALTERNATIVES - the
+            // renderer emits one branch or the other, never both - so the `1 = 1` stand-in appears only when
+            // the term is dropped (pinned by the test below).
+            StringAssert.Contains(rendered.Sql, "(t1.Department = @p0)");
+            Assert.IsFalse(rendered.Sql.Contains("1 = 1"),
+                "The stand-in is the absent branch; a supplied value must not carry it.");
             Assert.AreEqual(1, rendered.DbParameters.Count);
         }
 
@@ -159,7 +162,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             {
                 var translation = this.TranslateWithSqlServer(query.Expression);
                 var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
-                StringAssert.Contains(rendered.Sql, "(1 = 1 AND " + expectedPredicate + ")");
+                // The pattern is supplied here, so the present branch renders on its own.
+                StringAssert.Contains(rendered.Sql, "(" + expectedPredicate + ")");
             }
         }
 
@@ -237,7 +241,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var translation = this.TranslateWithSqlServer(q.Expression);
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
-            StringAssert.Contains(rendered.Sql, "1 = 1 AND (COALESCE(t1.Department, t1.Name) = @p0)");
+            StringAssert.Contains(rendered.Sql, "(COALESCE(t1.Department, t1.Name) = @p0)");
             Assert.AreEqual(1, rendered.DbParameters.Count);
         }
 

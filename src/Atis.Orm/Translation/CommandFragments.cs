@@ -209,14 +209,15 @@ namespace Atis.Orm.Translation
 
     /// <summary>
     ///     <para>
-    ///         An <c>AND</c>-ed predicate term that is emitted only when its guard has a value at execution
-    ///         time; otherwise only the <c>1 = 1</c> anchor survives and the filter disappears.
+    ///         A predicate term in one of two spellings: the filter itself when its guard has a value at
+    ///         execution time, or a standing-true placeholder when it does not. The renderer emits exactly
+    ///         one of them - never both - so it needs to know nothing about what either contains.
     ///     </para>
     ///     <para>
     ///         This is what makes an optional WHERE term possible without a cache entry per combination of
     ///         supplied values: one compiled query holds every term, and each execution decides which survive.
-    ///         The anchor is load-bearing - it keeps the group valid boolean SQL in both states, so the
-    ///         surrounding predicate needs no separator bookkeeping when a term vanishes.
+    ///         <see cref="WhenAbsent"/> is load-bearing - a term that renders to nothing would leave a dangling
+    ///         operator behind, so the dropped state still has to be valid boolean SQL.
     ///     </para>
     ///     <para>
     ///         The guard is never itself written to the output, so it has no placeholder. Its value is read
@@ -228,20 +229,20 @@ namespace Atis.Orm.Translation
         /// <summary>
         /// Initializes a new instance of the <see cref="OptionalPredicateCommandFragment"/> class.
         /// </summary>
-        /// <param name="queryParameter">The parameter whose value decides whether the term is emitted.</param>
+        /// <param name="queryParameter">The parameter whose value decides which branch is emitted.</param>
         /// <param name="guardKind">What counts as "no value" for the guard.</param>
-        /// <param name="oneEqualOne">The anchor, emitted unconditionally.</param>
-        /// <param name="actualPredicate">The term itself, emitted only when the guard has a value.</param>
+        /// <param name="whenAbsent">Emitted when the guard has no value - a term that is always true.</param>
+        /// <param name="whenPresent">The filter itself, emitted when the guard has a value.</param>
         /// <exception cref="ArgumentNullException">Any fragment list is <c>null</c>.</exception>
-        public OptionalPredicateCommandFragment(IQueryParameter queryParameter, OptionalGuardKind guardKind, IReadOnlyList<ICommandFragment> oneEqualOne, IReadOnlyList<ICommandFragment> actualPredicate)
+        public OptionalPredicateCommandFragment(IQueryParameter queryParameter, OptionalGuardKind guardKind, IReadOnlyList<ICommandFragment> whenAbsent, IReadOnlyList<ICommandFragment> whenPresent)
         {
             this.QueryParameter = queryParameter ?? throw new ArgumentNullException(nameof(queryParameter));
             this.GuardKind = guardKind;
-            this.OneEqualOne = oneEqualOne ?? throw new ArgumentNullException(nameof(oneEqualOne));
-            this.ActualPredicate = actualPredicate ?? throw new ArgumentNullException(nameof(actualPredicate));
+            this.WhenAbsent = whenAbsent ?? throw new ArgumentNullException(nameof(whenAbsent));
+            this.WhenPresent = whenPresent ?? throw new ArgumentNullException(nameof(whenPresent));
         }
 
-        /// <summary>The parameter whose value decides whether <see cref="ActualPredicate"/> is emitted.</summary>
+        /// <summary>The parameter whose value decides which branch is emitted.</summary>
         public IQueryParameter QueryParameter { get; }
 
         /// <summary>
@@ -250,13 +251,18 @@ namespace Atis.Orm.Translation
         /// </summary>
         public OptionalGuardKind GuardKind { get; }
 
-        /// <summary>The <c>1 = 1</c> anchor, emitted whether or not the guard has a value.</summary>
-        public IReadOnlyList<ICommandFragment> OneEqualOne { get; }
-
         /// <summary>
-        ///     The term itself - including the leading <c>AND</c> - emitted only when the guard has a value.
+        ///     Emitted when the guard has no value: a term that is always true (<c>1 = 1</c>), so the filter
+        ///     stops narrowing the result while the statement stays valid.
         /// </summary>
-        public IReadOnlyList<ICommandFragment> ActualPredicate { get; }
+        public IReadOnlyList<ICommandFragment> WhenAbsent { get; }
+
+        /// <summary>The filter itself, emitted when the guard has a value.</summary>
+        public IReadOnlyList<ICommandFragment> WhenPresent { get; }
+
+        /// <summary>Picks the branch <paramref name="guardValue"/> calls for.</summary>
+        public IReadOnlyList<ICommandFragment> SelectBranch(object guardValue)
+            => this.IsAbsent(guardValue) ? this.WhenAbsent : this.WhenPresent;
 
         /// <summary>Whether <paramref name="guardValue"/> means this term should be dropped.</summary>
         public bool IsAbsent(object guardValue)

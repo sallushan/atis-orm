@@ -194,18 +194,13 @@ namespace Atis.Orm.Translation
         }
 
         /// <summary>
-        ///     <para>
-        ///         Writes the <c>1 = 1</c> anchor, then the term itself when the guard has a value. The anchor
-        ///         is written either way, because the term carries the joining <c>AND</c>.
-        ///     </para>
+        ///     Writes the filter, or the always-true term standing in for it, picked from the guard's value
+        ///     this execution binds.
         /// </summary>
         protected virtual void RenderOptionalPredicateFragment(OptionalPredicateCommandFragment fragment, RenderContext context)
         {
-            this.RenderFragments(fragment.OneEqualOne, context);
-
             var guardValue = context.ResolveValue(fragment.QueryParameter);
-            if (!fragment.IsAbsent(guardValue))
-                this.RenderFragments(fragment.ActualPredicate, context);
+            this.RenderFragments(fragment.SelectBranch(guardValue), context);
         }
     }
 }

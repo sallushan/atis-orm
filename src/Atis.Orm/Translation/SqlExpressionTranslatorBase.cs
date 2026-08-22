@@ -1372,26 +1372,30 @@ namespace Atis.Orm.Translation
 
             var guard = this.CreateQueryParameter(guardValue, guardIsLiteral, node.Guard);
 
-            var anchorFragments = new List<ICommandFragment> { new TextCommandFragment("1 = 1") };
+            // The two branches are alternatives, not a prefix plus a suffix: the renderer emits exactly one of
+            // them and never joins them, so no operator is split across the pair for it to reassemble.
+            var whenAbsentFragments = new List<ICommandFragment> { new TextCommandFragment("1 = 1") };
 
             // The predicate translates exactly as it would anywhere else. A comparison inside it against a
             // nullable value still emits its own null switch, which is redundant here - this term only renders
             // when the guard has a value - but costs nothing at execution and needs no special case. Before
             // the switch existed this call had to suppress null folding, or a value that was null when the
             // query compiled would bake `IS NULL` into it for every later execution.
-            var predicateFragments = new List<ICommandFragment> { new TextCommandFragment(" AND ") };
+            IReadOnlyList<ICommandFragment> whenPresentFragments;
             this.openOptionalPredicates++;
             try
             {
-                predicateFragments.AddRange(this.TranslateFragments(node.Predicate, this.TranslateAsLogicalExpression));
+                whenPresentFragments = this.TranslateFragments(node.Predicate, this.TranslateAsLogicalExpression);
             }
             finally
             {
                 this.openOptionalPredicates--;
             }
 
+            // The parentheses wrap the choice rather than sitting inside each branch: whichever branch wins is
+            // one predicate term, and the caller joins terms with AND / OR around this group.
             this.Append("(");
-            this.AppendFragment(new OptionalPredicateCommandFragment(guard, node.GuardKind, anchorFragments, predicateFragments));
+            this.AppendFragment(new OptionalPredicateCommandFragment(guard, node.GuardKind, whenAbsentFragments, whenPresentFragments));
             this.Append(")");
         }
 
