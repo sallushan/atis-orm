@@ -14,11 +14,11 @@ namespace Atis.Orm.Querying
     public class QueryCompiler : IQueryCompiler
     {
         private readonly IQueryTranslator queryTranslator;
-        private readonly ISqlCommandRenderer commandRenderer;
+        private readonly ICommandRenderer commandRenderer;
         private readonly IDbParameterFactory dbParameterFactory;
         private readonly IElementFactoryBuilder elementFactoryBuilder;
 
-        public QueryCompiler(IQueryTranslator queryTranslator, ISqlCommandRenderer commandRenderer, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
+        public QueryCompiler(IQueryTranslator queryTranslator, ICommandRenderer commandRenderer, IDbParameterFactory dbParameterFactory, IElementFactoryBuilder elementFactoryBuilder)
         {
             this.queryTranslator = queryTranslator;
             this.commandRenderer = commandRenderer;

@@ -29,8 +29,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     [TestClass]
     public class NullComparisonTests : TestBase
     {
-        private static ISqlCommandRenderer CreateRenderer()
-            => new SqlCommandRenderer(new SqlDbParameterFactory(new SqlDbParameterNameGenerator()));
+        private static ICommandRenderer CreateRenderer()
+            => new CommandRenderer(new SqlDbParameterFactory(new SqlDbParameterNameGenerator()));
 
         private SqlTranslationResult TranslateWithSqlServer(Expression queryExpression)
         {
@@ -38,6 +38,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.IsNotNull(sqlExpression, "Expression should convert to a SQL expression.");
             return new SqlServerSqlExpressionTranslator().Translate(sqlExpression);
         }
+
+        // Whether both spellings were emitted is a decision the TRANSLATOR made from the parameter's declared
+        // type, so it is read off the fragments rather than off any one execution's rendered text.
+        private static bool HasNullSwitch(SqlTranslationResult translation)
+            => translation.Fragments.OfType<NullSwitchCommandFragment>().Any();
 
         [TestMethod]
         public void Compiling_with_a_null_value_does_not_bake_IS_NULL_into_the_cached_query()
@@ -105,7 +110,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             StringAssert.Contains(rendered.Sql, "t1.Department IS NULL");
             Assert.AreEqual(0, rendered.DbParameters.Count);
-            Assert.IsFalse(translation.HasNullSwitchFragments);
+            Assert.IsFalse(HasNullSwitch(translation));
             Assert.IsFalse(translation.RequiresPerExecutionRendering,
                 "A literal null cannot change between executions, so the SQL text is not value-dependent.");
         }
@@ -124,7 +129,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
             StringAssert.Contains(rendered.Sql, "t1.RowId = @p0");
-            Assert.IsFalse(translation.HasNullSwitchFragments);
+            Assert.IsFalse(HasNullSwitch(translation));
             Assert.IsFalse(translation.RequiresPerExecutionRendering);
         }
 
@@ -142,7 +147,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
             StringAssert.Contains(rendered.Sql, "t1.Age = @p0");
-            Assert.IsFalse(translation.HasNullSwitchFragments);
+            Assert.IsFalse(HasNullSwitch(translation));
             Assert.IsFalse(translation.RequiresPerExecutionRendering);
         }
 
@@ -157,7 +162,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             var translation = this.TranslateWithSqlServer(q.Expression);
 
-            Assert.IsTrue(translation.HasNullSwitchFragments,
+            Assert.IsTrue(HasNullSwitch(translation),
                 "A nullable value type can be null on a later execution, so both spellings must be emitted.");
         }
 
@@ -222,7 +227,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));
                 var sqlExpressionTranslator = new SqlServerSqlExpressionTranslator();
                 var dbParameterFactory = new SqlDbParameterFactory(new SqlDbParameterNameGenerator());
-                var commandRenderer = new SqlCommandRenderer(dbParameterFactory);
+                var commandRenderer = new CommandRenderer(dbParameterFactory);
                 var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
                 this.Compiler = new QueryCompiler(queryTranslator, commandRenderer, dbParameterFactory, new ElementFactoryBuilder());
             }

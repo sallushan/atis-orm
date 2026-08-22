@@ -2,6 +2,7 @@ using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 using Atis.Orm.Abstractions;
 using Atis.Orm.Querying;
@@ -16,15 +17,22 @@ namespace Atis.Orm.Translation
     ///         to support database-specific SQL syntax.
     ///     </para>
     ///     <para>
-    ///         Translation is performed by appending fragments into a shared
-    ///         <see cref="SqlFragmentWriter"/> (see the <c>Translate*</c> methods, which return
-    ///         <c>void</c>). Parameter placeholders are recorded as
-    ///         <see cref="SqlParameterFragment"/> markers via <see cref="EmitParameter"/>; this
-    ///         marker bookkeeping is owned by the base and cannot be altered by derived translators.
+    ///         Translation builds an ordered list of <see cref="ICommandFragment"/> (see the
+    ///         <c>Translate*</c> methods, which return <c>void</c>). Literal text goes through
+    ///         <see cref="Append(string)"/>; parameter placeholders are recorded as markers via
+    ///         <see cref="EmitParameter"/>, and that marker bookkeeping is owned by the base and cannot
+    ///         be altered by derived translators.
+    ///     </para>
+    ///     <para>
+    ///         A fragment whose rendering depends on the values bound at execution time is built by
+    ///         capturing its children with <see cref="BeginCapture"/> / <see cref="EndCapture"/> (or the
+    ///         <see cref="TranslateFragments"/> shorthand) and handing them to the fragment's own
+    ///         constructor, then <see cref="AppendFragment"/>. The capture API knows nothing about
+    ///         individual fragment types, so a provider adds one without touching this class.
     ///     </para>
     ///     <para>
     ///         <b>Not thread-safe, and not shareable.</b> <see cref="Translate"/> accumulates state on
-    ///         the instance — the parameter list, the fragment writer, the alias cache, the nesting
+    ///         the instance — the parameter list, the fragment buffers, the alias cache, the nesting
     ///         depth — and resets it at the start of each call. Two translations running at once on one
     ///         instance corrupt each other. It is therefore registered <c>Scoped</c>, matching its only
     ///         consumer (<c>IQueryTranslator</c>) and the rest of that chain; registering it as a
@@ -39,53 +47,204 @@ namespace Atis.Orm.Translation
         ///     </para>
         /// </summary>
         protected List<IQueryParameter> Parameters { get; } = new List<IQueryParameter>();
-        private readonly SqlFragmentWriter writer = new SqlFragmentWriter();
-        private bool hasExpandableParameters;
-        private bool hasConditionalFragments;
-        private bool hasNullSwitchFragments;
+
+        /// <summary>
+        ///     One level of output being collected: the fragments completed so far and the literal text
+        ///     accumulated since the last one. A capture pushes a frame, so a nested capture never disturbs
+        ///     the text its caller had half-written.
+        /// </summary>
+        private sealed class CaptureFrame
+        {
+            public readonly List<ICommandFragment> Fragments = new List<ICommandFragment>();
+            public readonly StringBuilder PendingText = new StringBuilder();
+        }
+
+        // Never empty between Translate() calls: the bottom frame is the statement itself.
+        private readonly Stack<CaptureFrame> captureFrames = new Stack<CaptureFrame>();
         private Dictionary<Guid, string> aliasCache;
         private int depth;
         // When set, the next derived-table / union query emits without its outer parentheses.
         // Replaces the old string-based RemoveOuterParentheses post-processing (union/update/delete).
         private bool suppressDerivedTableParens;
+        // Depth of optional terms currently being translated - see TranslateOptionalPredicate, which rejects
+        // anything past the first. Note this is NOT a limit on capture nesting: a null switch inside an
+        // optional term's predicate is the ordinary shape and must keep working.
+        private int openOptionalPredicates;
+        // Guards the public entry point against re-entry - see Translate.
+        private bool isTranslating;
 
         /// <summary>
         ///     <para>
         ///         Translates a SQL expression tree to a SQL string with parameters.
+        ///     </para>
+        ///     <para>
+        ///         The entry point for a whole statement, and <b>only</b> that: it discards all per-statement
+        ///         state before it starts. To translate a child node from inside a <c>Translate*</c> method,
+        ///         call <see cref="TranslateExpression"/> - or <see cref="TranslateFragments"/> to capture it -
+        ///         never this method. Re-entering it is refused rather than allowed to half-work.
         ///     </para>
         /// </summary>
         /// <param name="sqlExpression">The SQL expression to translate.</param>
         /// <returns>A <see cref="SqlTranslationResult"/> containing the SQL string and parameters.</returns>
         public SqlTranslationResult Translate(SqlExpression sqlExpression)
         {
+            // Re-entry would clear the parameter list, the alias cache and the fragment buffers of the
+            // translation already in progress. The damage is silent - aliases renumber, parameters vanish from
+            // the plan, and the statement still renders - so it is refused outright, with a message naming the
+            // method that was actually meant.
+            if (this.isTranslating)
+                throw new InvalidOperationException(
+                    $"{nameof(Translate)} was called while a translation was already in progress. It is the " +
+                    $"entry point for a complete statement and resets all per-statement state, so calling it " +
+                    $"from inside a Translate* method would discard the translation in progress. Use " +
+                    $"{nameof(TranslateExpression)} to translate a child node, or {nameof(TranslateFragments)} " +
+                    $"to capture one into its own fragment list.");
+
+            this.isTranslating = true;
+            try
+            {
+                return this.TranslateCore(sqlExpression);
+            }
+            finally
+            {
+                this.isTranslating = false;
+            }
+        }
+
+        private SqlTranslationResult TranslateCore(SqlExpression sqlExpression)
+        {
             this.Parameters.Clear();
-            this.hasExpandableParameters = false;
-            this.hasConditionalFragments = false;
-            this.hasNullSwitchFragments = false;
             this.aliasCache = new Dictionary<Guid, string>();
             this.depth = 0;
             this.suppressDerivedTableParens = false;
-            this.writer.Reset();
+            this.openOptionalPredicates = 0;
+            // A fresh frame stack, so an exception mid-translation cannot leave a half-open capture behind
+            // and corrupt the next call. The bottom frame collects the statement itself.
+            this.captureFrames.Clear();
+            this.captureFrames.Push(new CaptureFrame());
 
             this.TranslateExpression(sqlExpression);
 
-            // Reset() installs a fresh list, so the captured fragments are never touched by a later translation.
-            var fragments = this.writer.GetFragments();
+            if (this.captureFrames.Count != 1)
+                throw new InvalidOperationException(
+                    $"{this.captureFrames.Count - 1} capture(s) were opened and never closed. Every " +
+                    $"{nameof(BeginCapture)} needs a matching {nameof(EndCapture)}.");
+
+            // The frame is handed over whole and replaced on the next call, so the returned list is never
+            // touched by a later translation.
+            var fragments = this.CloseFrame();
+
+            // Only the top level is inspected: a composite fragment reports its children's requirement
+            // itself (see ICommandFragment.RequirePerExecutionRendering).
+            var requirePerExecutionRendering = fragments.Any(x => x.RequirePerExecutionRendering);
+
             // Parameters gets no such treatment: it is one list, created with this translator and cleared at
             // the top of this method. Handing out the live reference means a compiled query keeps pointing at
             // it for the life of its cache entry, and the next translation of anything rewrites its parameter
             // plan underneath it — so it is copied. This translator is registered as a singleton, which makes
             // the aliasing process-wide.
-            return new SqlTranslationResult(this.Parameters.ToArray(), fragments, this.hasExpandableParameters, this.hasConditionalFragments, this.hasNullSwitchFragments);
+            return new SqlTranslationResult(this.Parameters.ToArray(), fragments, requirePerExecutionRendering);
         }
 
         #region Output helpers
 
-        /// <summary>Appends literal SQL text to the output.</summary>
-        protected void Append(string text) => this.writer.Append(text);
+        /// <summary>
+        ///     Appends literal SQL text to the output. Consecutive appends coalesce into a single
+        ///     <see cref="TextCommandFragment"/>, which is sealed as soon as a fragment is added beside it.
+        /// </summary>
+        protected void Append(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+            this.captureFrames.Peek().PendingText.Append(text);
+        }
 
         /// <summary>Appends a single literal SQL character to the output.</summary>
-        protected void Append(char c) => this.writer.Append(c);
+        protected void Append(char c) => this.captureFrames.Peek().PendingText.Append(c);
+
+        /// <summary>
+        ///     <para>
+        ///         Seals the literal text written so far and records <paramref name="fragment"/> at this exact
+        ///         point in the output.
+        ///     </para>
+        ///     <para>
+        ///         Any <see cref="ICommandFragment"/> is accepted, including a provider's own type - this
+        ///         method is what makes the translator a factory for fragments rather than a fixed menu of
+        ///         them.
+        ///     </para>
+        /// </summary>
+        protected void AppendFragment(ICommandFragment fragment)
+        {
+            if (fragment is null)
+                throw new ArgumentNullException(nameof(fragment));
+
+            var frame = this.captureFrames.Peek();
+            FlushPendingText(frame);
+            frame.Fragments.Add(fragment);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Starts collecting output separately, so it can be handed to a composite fragment's
+        ///         constructor instead of going straight into the statement. Everything written until the
+        ///         matching <see cref="EndCapture"/> is collected.
+        ///     </para>
+        ///     <para>
+        ///         Captures nest. That is not a corner case: a null switch sits inside an optional term's
+        ///         predicate for every <c>WhereBuilder.Equal</c> over a nullable value, which is the ordinary
+        ///         shape of the whole feature.
+        ///     </para>
+        /// </summary>
+        protected void BeginCapture()
+        {
+            this.captureFrames.Push(new CaptureFrame());
+        }
+
+        /// <summary>
+        ///     Closes the capture opened by the matching <see cref="BeginCapture"/> and returns everything
+        ///     written inside it, with any trailing literal text sealed into a final fragment.
+        /// </summary>
+        protected IReadOnlyList<ICommandFragment> EndCapture()
+        {
+            if (this.captureFrames.Count <= 1)
+                throw new InvalidOperationException($"{nameof(EndCapture)} was called without a matching {nameof(BeginCapture)}.");
+
+            return this.CloseFrame();
+        }
+
+        /// <summary>
+        ///     Shorthand for a capture around a single child translation: the common case when building a
+        ///     composite fragment's branch.
+        /// </summary>
+        /// <param name="node">The expression to translate into the capture.</param>
+        /// <param name="visitMethod">
+        ///     How to translate it - defaults to <see cref="TranslateExpression"/>. Pass
+        ///     <see cref="TranslateAsLogicalExpression"/> / <see cref="TranslateAsNonLogicalExpression"/> when
+        ///     the position demands one of those forms.
+        /// </param>
+        protected IReadOnlyList<ICommandFragment> TranslateFragments(SqlExpression node, Action<SqlExpression> visitMethod = null)
+        {
+            this.BeginCapture();
+            (visitMethod ?? this.TranslateExpression)(node);
+            return this.EndCapture();
+        }
+
+        // Pops the innermost frame and returns its fragments, sealing whatever text it ended with.
+        private IReadOnlyList<ICommandFragment> CloseFrame()
+        {
+            var frame = this.captureFrames.Pop();
+            FlushPendingText(frame);
+            return frame.Fragments;
+        }
+
+        private static void FlushPendingText(CaptureFrame frame)
+        {
+            if (frame.PendingText.Length == 0)
+                return;
+
+            frame.Fragments.Add(new TextCommandFragment(frame.PendingText.ToString()));
+            frame.PendingText.Clear();
+        }
 
         #endregion
 
@@ -100,7 +259,7 @@ namespace Atis.Orm.Translation
         ///     </para>
         ///     <para>
         ///         The placeholder name is not decided here: it is assigned when the fragments are rendered,
-        ///         by <see cref="IDbParameterNameGenerator"/> (see <see cref="ISqlCommandRenderer"/>), so a
+        ///         by <see cref="IDbParameterNameGenerator"/> (see <see cref="ICommandRenderer"/>), so a
         ///         dialect can name positionally (<c>?</c>) or by index without the translator knowing.
         ///     </para>
         /// </summary>
@@ -142,9 +301,9 @@ namespace Atis.Orm.Translation
         {
             var queryParameter = this.CreateQueryParameter(value, isLiteral, source);
             this.Parameters.Add(queryParameter);
-            this.writer.AddParameter(queryParameter, isExpandable, emptyListTemplate);
-            if (isExpandable)
-                this.hasExpandableParameters = true;
+            this.AppendFragment(isExpandable
+                ? (ICommandFragment)new ExpandableParameterCommandFragment(queryParameter, emptyListTemplate)
+                : new ParameterCommandFragment(queryParameter));
         }
 
         /// <summary>
@@ -401,20 +560,20 @@ namespace Atis.Orm.Translation
             }
 
             var op = this.GetBinaryOperator(node.NodeType);
-            this.writer.Append("(");
+            this.Append("(");
             if (node.NodeType == SqlExpressionType.AndAlso || node.NodeType == SqlExpressionType.OrElse)
             {
                 this.TranslateAsLogicalExpression(node.Left);
-                this.writer.Append($" {op} ");
+                this.Append($" {op} ");
                 this.TranslateAsLogicalExpression(node.Right);
             }
             else
             {
                 this.TranslateAsNonLogicalExpression(node.Left);
-                this.writer.Append($" {op} ");
+                this.Append($" {op} ");
                 this.TranslateAsNonLogicalExpression(node.Right);
             }
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -427,11 +586,11 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateCoalesce(SqlExpression left, SqlExpression right)
         {
-            this.writer.Append("COALESCE(");
+            this.Append("COALESCE(");
             this.TranslateAsNonLogicalExpression(left);
-            this.writer.Append(", ");
+            this.Append(", ");
             this.TranslateAsNonLogicalExpression(right);
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -477,9 +636,9 @@ namespace Atis.Orm.Translation
         /// <summary>Emits <c>(&lt;operand&gt; IS NULL)</c> / <c>(&lt;operand&gt; IS NOT NULL)</c>.</summary>
         protected virtual void TranslateNullTest(SqlExpression operand, bool isEqual)
         {
-            this.writer.Append("(");
+            this.Append("(");
             this.TranslateAsNonLogicalExpression(operand);
-            this.writer.Append(isEqual ? " IS NULL)" : " IS NOT NULL)");
+            this.Append(isEqual ? " IS NULL)" : " IS NOT NULL)");
         }
 
         /// <summary>
@@ -495,9 +654,9 @@ namespace Atis.Orm.Translation
         ///     </para>
         ///     <para>
         ///         Both spellings are built here, in the translator, using the ordinary translation methods -
-        ///         the renderer only picks one. The operand is deliberately translated once per branch, the
-        ///         same way any operand appearing twice in the output is translated twice (each occurrence
-        ///         needs its own markers); only one branch is ever rendered, so only its markers are bound.
+        ///         the renderer only picks one. The operand is translated once and its fragments are shared by
+        ///         both branches: exactly one branch reaches the output, so a marker inside it is emitted -
+        ///         and bound - exactly once, and translating twice would only add a second unbindable copy.
         ///     </para>
         /// </summary>
         /// <remarks>
@@ -512,21 +671,26 @@ namespace Atis.Orm.Translation
         /// </remarks>
         protected virtual void TranslateNullSwitch(SqlExpression operand, SqlParameterExpression parameter, bool isEqual)
         {
+            var operandFragments = this.TranslateFragments(operand, this.TranslateAsNonLogicalExpression);
+            var parameterFragments = this.TranslateFragments(parameter, this.TranslateAsNonLogicalExpression);
+            var op = this.GetBinaryOperator(isEqual ? SqlExpressionType.Equal : SqlExpressionType.NotEqual);
+
+            var whenNotNullFragments = new List<ICommandFragment>();
+            whenNotNullFragments.AddRange(operandFragments);
+            whenNotNullFragments.Add(new TextCommandFragment($" {op} "));
+            whenNotNullFragments.AddRange(parameterFragments);
+
+            var whenNullFragments = new List<ICommandFragment>();
+            whenNullFragments.AddRange(operandFragments);
+            whenNullFragments.Add(new TextCommandFragment(isEqual ? " IS NULL" : " IS NOT NULL"));
+
             var decider = this.CreateQueryParameter(parameter.Value, isLiteral: false, parameter);
-            this.hasNullSwitchFragments = true;
 
-            this.writer.BeginNullSwitch(decider);
-
-            this.writer.Append("(");
-            this.TranslateAsNonLogicalExpression(operand);
-            this.writer.Append(isEqual ? " = " : " <> ");
-            this.TranslateAsNonLogicalExpression(parameter);
-            this.writer.Append(")");
-
-            this.writer.SwitchToNullBranch();
-            this.TranslateNullTest(operand, isEqual);
-
-            this.writer.EndNullSwitch();
+            // The parentheses wrap the switch rather than sitting inside each branch: both spellings need
+            // them, and either branch is a complete predicate on its own.
+            this.Append("(");
+            this.AppendFragment(new NullSwitchCommandFragment(decider, whenNullFragments, whenNotNullFragments));
+            this.Append(")");
         }
 
         /// <summary>
@@ -568,9 +732,9 @@ namespace Atis.Orm.Translation
         {
             if (!this.IsLogicalExpression(node))
             {
-                this.writer.Append("(");
+                this.Append("(");
                 this.TranslateExpression(node);
-                this.writer.Append(" = 1)");
+                this.Append(" = 1)");
             }
             else
             {
@@ -590,9 +754,9 @@ namespace Atis.Orm.Translation
         {
             if (this.IsLogicalExpression(node))
             {
-                this.writer.Append("CASE WHEN ");
+                this.Append("CASE WHEN ");
                 this.TranslateExpression(node);
-                this.writer.Append(" THEN 1 ELSE 0 END");
+                this.Append(" THEN 1 ELSE 0 END");
             }
             else
             {
@@ -621,16 +785,16 @@ namespace Atis.Orm.Translation
             switch (node.Source)
             {
                 case SqlOutputSource.Inserted:
-                    this.writer.Append("inserted");
+                    this.Append("inserted");
                     break;
                 case SqlOutputSource.Deleted:
-                    this.writer.Append("deleted");
+                    this.Append("deleted");
                     break;
                 default:
                     throw new NotSupportedException($"Output source '{node.Source}' is not supported by {this.GetType().Name}.");
             }
-            this.writer.Append(".");
-            this.writer.Append(node.ColumnName);
+            this.Append(".");
+            this.Append(node.ColumnName);
         }
 
         /// <summary>
@@ -640,9 +804,9 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateDataSourceColumn(SqlDataSourceColumnExpression node)
         {
-            this.writer.Append(this.GetAlias(node.DataSourceAlias));
-            this.writer.Append(".");
-            this.writer.Append(node.ColumnName);
+            this.Append(this.GetAlias(node.DataSourceAlias));
+            this.Append(".");
+            this.Append(node.ColumnName);
         }
 
         /// <summary>
@@ -652,7 +816,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateTable(SqlTableExpression node)
         {
-            this.writer.Append(this.GetQualifiedTableName(node.SqlTable));
+            this.Append(this.GetQualifiedTableName(node.SqlTable));
         }
 
         /// <summary>
@@ -674,7 +838,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateAlias(SqlAliasExpression node)
         {
-            this.writer.Append(node.ColumnAlias);
+            this.Append(node.ColumnAlias);
         }
 
         #endregion
@@ -692,7 +856,7 @@ namespace Atis.Orm.Translation
             // A caller (union/update/delete) can suppress wrapping to emit a bare query.
             var wrap = this.depth > 1 && !this.ConsumeSuppressParens();
             if (wrap)
-                this.writer.Append("(\r\n");
+                this.Append("(\r\n");
 
             // Clauses are joined by "\r\n". A clause occupies a "part slot" only when present; the FROM
             // clause always occupies a slot (matching the original unconditional add, even when empty).
@@ -700,7 +864,7 @@ namespace Atis.Orm.Translation
             void Separator()
             {
                 if (!first)
-                    this.writer.Append("\r\n");
+                    this.Append("\r\n");
                 first = false;
             }
 
@@ -757,7 +921,7 @@ namespace Atis.Orm.Translation
             }
 
             if (wrap)
-                this.writer.Append("\r\n)");
+                this.Append("\r\n)");
         }
 
         /// <summary>
@@ -770,11 +934,11 @@ namespace Atis.Orm.Translation
             if (node.SelectColumnCollection == null)
                 return;
 
-            this.writer.Append("SELECT ");
+            this.Append("SELECT ");
             if (node.IsDistinct)
-                this.writer.Append("DISTINCT ");
+                this.Append("DISTINCT ");
             if (node.Top > 0)
-                this.writer.Append($"TOP ({node.Top}) ");
+                this.Append($"TOP ({node.Top}) ");
             this.TranslateSelectColumns(node.SelectColumnCollection.SelectColumns);
         }
 
@@ -788,11 +952,11 @@ namespace Atis.Orm.Translation
             for (var i = 0; i < selectColumns.Count; i++)
             {
                 if (i > 0)
-                    this.writer.Append(", ");
+                    this.Append(", ");
                 var col = selectColumns[i];
                 this.TranslateAsNonLogicalExpression(col.ColumnExpression);
-                this.writer.Append(" AS ");
-                this.writer.Append(col.Alias);
+                this.Append(" AS ");
+                this.Append(col.Alias);
             }
         }
 
@@ -805,7 +969,7 @@ namespace Atis.Orm.Translation
         {
             if (fromSource == null)
                 return;
-            this.writer.Append("FROM ");
+            this.Append("FROM ");
             this.TranslateAliasedFromSource(fromSource);
         }
 
@@ -817,8 +981,8 @@ namespace Atis.Orm.Translation
         protected virtual void TranslateAliasedFromSource(SqlAliasedFromSourceExpression node)
         {
             this.TranslateExpression(node.QuerySource);
-            this.writer.Append(" AS ");
-            this.writer.Append(this.GetAlias(node.Alias));
+            this.Append(" AS ");
+            this.Append(this.GetAlias(node.Alias));
         }
 
         /// <summary>
@@ -834,7 +998,7 @@ namespace Atis.Orm.Translation
             for (var i = 0; i < joins.Count; i++)
             {
                 if (i > 0)
-                    this.writer.Append("\r\n");
+                    this.Append("\r\n");
                 this.TranslateAliasedJoinSource(joins[i]);
             }
         }
@@ -846,14 +1010,14 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateAliasedJoinSource(SqlAliasedJoinSourceExpression node)
         {
-            this.writer.Append(this.GetJoinTypeKeyword(node.JoinType));
-            this.writer.Append(" ");
+            this.Append(this.GetJoinTypeKeyword(node.JoinType));
+            this.Append(" ");
             this.TranslateExpression(node.QuerySource);
-            this.writer.Append(" AS ");
-            this.writer.Append(this.GetAlias(node.Alias, node.JoinName));
+            this.Append(" AS ");
+            this.Append(this.GetAlias(node.Alias, node.JoinName));
             if (node.JoinCondition != null)
             {
-                this.writer.Append(" ON ");
+                this.Append(" ON ");
                 this.TranslateAsLogicalExpression(node.JoinCondition);
             }
         }
@@ -888,13 +1052,13 @@ namespace Atis.Orm.Translation
             if (filterClause == null || filterClause.FilterConditions.Count == 0)
                 return;
 
-            this.writer.Append(keyword);
-            this.writer.Append(" ");
+            this.Append(keyword);
+            this.Append(" ");
             for (var i = 0; i < filterClause.FilterConditions.Count; i++)
             {
                 var condition = filterClause.FilterConditions[i];
                 if (i > 0)
-                    this.writer.Append(condition.UseOrOperator ? " OR " : " AND ");
+                    this.Append(condition.UseOrOperator ? " OR " : " AND ");
                 this.TranslateAsLogicalExpression(condition.Predicate);
             }
         }
@@ -909,11 +1073,11 @@ namespace Atis.Orm.Translation
             if (groupByClause == null || groupByClause.Count == 0)
                 return;
 
-            this.writer.Append("GROUP BY ");
+            this.Append("GROUP BY ");
             for (var i = 0; i < groupByClause.Count; i++)
             {
                 if (i > 0)
-                    this.writer.Append(", ");
+                    this.Append(", ");
                 this.TranslateExpression(groupByClause[i]);
             }
         }
@@ -928,14 +1092,14 @@ namespace Atis.Orm.Translation
             if (orderByClause == null || orderByClause.OrderByColumns.Count == 0)
                 return;
 
-            this.writer.Append("ORDER BY ");
+            this.Append("ORDER BY ");
             for (var i = 0; i < orderByClause.OrderByColumns.Count; i++)
             {
                 if (i > 0)
-                    this.writer.Append(", ");
+                    this.Append(", ");
                 var o = orderByClause.OrderByColumns[i];
                 this.TranslateExpression(o.ColumnExpression);
-                this.writer.Append(o.Direction == SortDirection.Ascending ? " ASC" : " DESC");
+                this.Append(o.Direction == SortDirection.Ascending ? " ASC" : " DESC");
             }
         }
 
@@ -952,7 +1116,7 @@ namespace Atis.Orm.Translation
             if (rowOffset == null || rowsPerPage == null)
                 return;
 
-            this.writer.Append($"OFFSET {rowOffset} ROWS FETCH NEXT {rowsPerPage} ROWS ONLY");
+            this.Append($"OFFSET {rowOffset} ROWS FETCH NEXT {rowsPerPage} ROWS ONLY");
         }
 
         #endregion
@@ -969,11 +1133,11 @@ namespace Atis.Orm.Translation
             if (cteDataSources == null || cteDataSources.Count == 0)
                 return;
 
-            this.writer.Append("WITH ");
+            this.Append("WITH ");
             for (var i = 0; i < cteDataSources.Count; i++)
             {
                 if (i > 0)
-                    this.writer.Append(", ");
+                    this.Append(", ");
                 this.TranslateAliasedCteSource(cteDataSources[i]);
             }
         }
@@ -985,8 +1149,8 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateAliasedCteSource(SqlAliasedCteSourceExpression node)
         {
-            this.writer.Append(this.GetAlias(node.CteAlias, "cte"));
-            this.writer.Append(" AS\r\n");
+            this.Append(this.GetAlias(node.CteAlias, "cte"));
+            this.Append(" AS\r\n");
             this.TranslateExpression(node.CteBody);
         }
 
@@ -997,7 +1161,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateCteReference(SqlCteReferenceExpression node)
         {
-            this.writer.Append(this.GetAlias(node.CteAlias, "cte"));
+            this.Append(this.GetAlias(node.CteAlias, "cte"));
         }
 
         #endregion
@@ -1017,23 +1181,23 @@ namespace Atis.Orm.Translation
             // Special handling for COUNT with no arguments -> COUNT(1)
             if (node.FunctionName.Equals("Count", StringComparison.OrdinalIgnoreCase) && !hasArgs)
             {
-                this.writer.Append(node.FunctionName);
-                this.writer.Append("(1)");
+                this.Append(node.FunctionName);
+                this.Append("(1)");
                 return;
             }
 
-            this.writer.Append(node.FunctionName);
-            this.writer.Append("(");
+            this.Append(node.FunctionName);
+            this.Append("(");
             if (hasArgs)
             {
                 for (var i = 0; i < arguments.Count; i++)
                 {
                     if (i > 0)
-                        this.writer.Append(", ");
+                        this.Append(", ");
                     this.TranslateAsNonLogicalExpression(arguments[i]);
                 }
             }
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -1043,18 +1207,18 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateStringFunction(SqlStringFunctionExpression node)
         {
-            this.writer.Append(node.StringFunction.ToString());
-            this.writer.Append("(");
+            this.Append(node.StringFunction.ToString());
+            this.Append("(");
             this.TranslateExpression(node.StringExpression);
             if (node.Arguments != null && node.Arguments.Count > 0)
             {
                 for (var i = 0; i < node.Arguments.Count; i++)
                 {
-                    this.writer.Append(", ");
+                    this.Append(", ");
                     this.TranslateExpression(node.Arguments[i]);
                 }
             }
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -1064,11 +1228,11 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateDateAdd(SqlDateAddExpression node)
         {
-            this.writer.Append($"DATEADD({node.DatePart}, ");
+            this.Append($"DATEADD({node.DatePart}, ");
             this.TranslateExpression(node.Interval);
-            this.writer.Append(", ");
+            this.Append(", ");
             this.TranslateExpression(node.DateExpression);
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -1078,9 +1242,9 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateDatePart(SqlDatePartExpression node)
         {
-            this.writer.Append($"DATEPART({node.DatePart}, ");
+            this.Append($"DATEPART({node.DatePart}, ");
             this.TranslateExpression(node.DateExpression);
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -1090,11 +1254,11 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateDateSubtract(SqlDateSubtractExpression node)
         {
-            this.writer.Append($"DATEDIFF({node.DatePart}, ");
+            this.Append($"DATEDIFF({node.DatePart}, ");
             this.TranslateExpression(node.StartDate);
-            this.writer.Append(", ");
+            this.Append(", ");
             this.TranslateExpression(node.EndDate);
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -1107,7 +1271,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateNewGuid(SqlNewGuidExpression node)
         {
-            this.writer.Append("NEWID()");
+            this.Append("NEWID()");
         }
 
         #endregion
@@ -1121,7 +1285,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateExists(SqlExistsExpression node)
         {
-            this.writer.Append("EXISTS");
+            this.Append("EXISTS");
             this.TranslateExpression(node.SubQuery);
         }
 
@@ -1132,13 +1296,13 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateConditional(SqlConditionalExpression node)
         {
-            this.writer.Append("CASE WHEN ");
+            this.Append("CASE WHEN ");
             this.TranslateAsLogicalExpression(node.Test);
-            this.writer.Append(" THEN ");
+            this.Append(" THEN ");
             this.TranslateAsNonLogicalExpression(node.IfTrue);
-            this.writer.Append(" ELSE ");
+            this.Append(" ELSE ");
             this.TranslateAsNonLogicalExpression(node.IfFalse);
-            this.writer.Append(" END");
+            this.Append(" END");
         }
 
         /// <summary>
@@ -1148,7 +1312,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateNot(SqlNotExpression node)
         {
-            this.writer.Append("NOT ");
+            this.Append("NOT ");
             this.TranslateAsLogicalExpression(node.Operand);
         }
 
@@ -1195,20 +1359,40 @@ namespace Atis.Orm.Translation
                     $"appears in the statement is decided once per execution, before any row is read.");
             }
 
-            var guard = this.CreateQueryParameter(guardValue, guardIsLiteral, node.Guard);
-            this.hasConditionalFragments = true;
+            // One optional term inside another's predicate has no meaning - it would say "apply this filter
+            // only when some unrelated value was also supplied" - and no sensible query reaches it: the only
+            // way to write one is to pass a WhereBuilder call in a *column* position, which type-checks solely
+            // when the outer term is itself over bool. It compiles, so it gets a named error rather than odd
+            // SQL. This bars only optional-inside-optional; other spans nest freely.
+            if (this.openOptionalPredicates > 0)
+                throw new InvalidOperationException(
+                    "An optional term cannot contain another optional term. Optional terms are joined with " +
+                    "AND and sit beside each other; nesting one inside another's predicate has no meaning. " +
+                    "This usually means a WhereBuilder call was passed where a column was expected.");
 
-            this.writer.Append("(1 = 1");
-            this.writer.BeginOptional(guard, node.GuardKind);
-            this.writer.Append(" AND ");
+            var guard = this.CreateQueryParameter(guardValue, guardIsLiteral, node.Guard);
+
+            var anchorFragments = new List<ICommandFragment> { new TextCommandFragment("1 = 1") };
+
             // The predicate translates exactly as it would anywhere else. A comparison inside it against a
-            // nullable value still emits its own null switch, which is redundant here - this span only renders
+            // nullable value still emits its own null switch, which is redundant here - this term only renders
             // when the guard has a value - but costs nothing at execution and needs no special case. Before
             // the switch existed this call had to suppress null folding, or a value that was null when the
             // query compiled would bake `IS NULL` into it for every later execution.
-            this.TranslateAsLogicalExpression(node.Predicate);
-            this.writer.EndOptional();
-            this.writer.Append(")");
+            var predicateFragments = new List<ICommandFragment> { new TextCommandFragment(" AND ") };
+            this.openOptionalPredicates++;
+            try
+            {
+                predicateFragments.AddRange(this.TranslateFragments(node.Predicate, this.TranslateAsLogicalExpression));
+            }
+            finally
+            {
+                this.openOptionalPredicates--;
+            }
+
+            this.Append("(");
+            this.AppendFragment(new OptionalPredicateCommandFragment(guard, node.GuardKind, anchorFragments, predicateFragments));
+            this.Append(")");
         }
 
         /// <summary>
@@ -1218,7 +1402,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateNegate(SqlNegateExpression node)
         {
-            this.writer.Append("-");
+            this.Append("-");
             this.TranslateExpression(node.Operand);
         }
 
@@ -1243,18 +1427,18 @@ namespace Atis.Orm.Translation
         protected virtual void TranslateInValues(SqlInValuesExpression node)
         {
             this.TranslateExpression(node.Expression);
-            this.writer.Append(" IN (");
+            this.Append(" IN (");
             var firstValue = true;
             foreach (var value in node.Values)
             {
                 if (!firstValue)
-                    this.writer.Append(", ");
+                    this.Append(", ");
                 firstValue = false;
                 // The values of an inline array arrive as separate expressions; a captured collection arrives
                 // as one multi-value parameter, which this expands.
                 this.TranslateValueList(value, this.EmptyValueListTemplate);
             }
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -1264,30 +1448,30 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateLike(SqlLikeExpression node)
         {
-            this.writer.Append("(");
+            this.Append("(");
             this.TranslateExpression(node.Expression);
             switch (node.NodeType)
             {
                 case SqlExpressionType.LikeStartsWith:
-                    this.writer.Append(" LIKE ");
+                    this.Append(" LIKE ");
                     this.TranslateExpression(node.Pattern);
-                    this.writer.Append(" + '%')");
+                    this.Append(" + '%')");
                     break;
                 case SqlExpressionType.LikeEndsWith:
-                    this.writer.Append(" LIKE '%' + ");
+                    this.Append(" LIKE '%' + ");
                     this.TranslateExpression(node.Pattern);
-                    this.writer.Append(")");
+                    this.Append(")");
                     break;
                 case SqlExpressionType.LikePattern:
                     // The caller's pattern is used verbatim, wildcards and all - no decoration.
-                    this.writer.Append(" LIKE ");
+                    this.Append(" LIKE ");
                     this.TranslateExpression(node.Pattern);
-                    this.writer.Append(")");
+                    this.Append(")");
                     break;
                 default: // SqlExpressionType.Like (contains)
-                    this.writer.Append(" LIKE '%' + ");
+                    this.Append(" LIKE '%' + ");
                     this.TranslateExpression(node.Pattern);
-                    this.writer.Append(" + '%')");
+                    this.Append(" + '%')");
                     break;
             }
         }
@@ -1299,11 +1483,11 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateCast(SqlCastExpression node)
         {
-            this.writer.Append("CAST(");
+            this.Append("CAST(");
             this.TranslateExpression(node.Expression);
-            this.writer.Append(" AS ");
-            this.writer.Append(this.TranslateDataType(node.SqlDataType));
-            this.writer.Append(")");
+            this.Append(" AS ");
+            this.Append(this.TranslateDataType(node.SqlDataType));
+            this.Append(")");
         }
 
         /// <summary>
@@ -1347,7 +1531,7 @@ namespace Atis.Orm.Translation
             foreach (var e in node.SqlExpressions)
             {
                 if (!firstItem)
-                    this.writer.Append(", ");
+                    this.Append(", ");
                 firstItem = false;
                 this.TranslateExpression(e);
             }
@@ -1363,13 +1547,13 @@ namespace Atis.Orm.Translation
             // Top-level union (depth 1) is a complete statement; only nest subqueries in parentheses.
             var wrap = this.depth > 1 && !this.ConsumeSuppressParens();
             if (wrap)
-                this.writer.Append("(\r\n");
+                this.Append("(\r\n");
 
             var first = true;
             void Separator()
             {
                 if (!first)
-                    this.writer.Append("\r\n");
+                    this.Append("\r\n");
                 first = false;
             }
 
@@ -1379,7 +1563,7 @@ namespace Atis.Orm.Translation
                 if (i > 0)
                 {
                     Separator();
-                    this.writer.Append(unionItem.UnionType == SqlUnionType.UnionAll ? "UNION ALL" : "UNION");
+                    this.Append(unionItem.UnionType == SqlUnionType.UnionAll ? "UNION ALL" : "UNION");
                 }
                 Separator();
                 // Each union member is emitted without its outer parentheses.
@@ -1388,7 +1572,7 @@ namespace Atis.Orm.Translation
             }
 
             if (wrap)
-                this.writer.Append("\r\n)");
+                this.Append("\r\n)");
         }
 
         /// <summary>
@@ -1398,9 +1582,9 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateStandaloneSelect(SqlStandaloneSelectExpression node)
         {
-            this.writer.Append("(SELECT ");
+            this.Append("(SELECT ");
             this.TranslateSelectColumns(node.SelectList);
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         #endregion
@@ -1415,34 +1599,34 @@ namespace Atis.Orm.Translation
         protected virtual void TranslateUpdate(SqlUpdateExpression node)
         {
             var alias = this.GetAlias(node.DataSource);
-            this.writer.Append("UPDATE ");
-            this.writer.Append(alias);
-            this.writer.Append("\r\nSET ");
+            this.Append("UPDATE ");
+            this.Append(alias);
+            this.Append("\r\nSET ");
 
             var count = Math.Min(node.Columns.Count, node.Values.Count);
             for (var i = 0; i < count; i++)
             {
                 if (i > 0)
-                    this.writer.Append(",\r\n\t");
-                this.writer.Append(node.Columns[i]);
-                this.writer.Append(" = ");
+                    this.Append(",\r\n\t");
+                this.Append(node.Columns[i]);
+                this.Append(" = ");
                 this.TranslateExpression(node.Values[i]);
             }
 
-            this.writer.Append("\r\n");
+            this.Append("\r\n");
 
             if (node.Outputs.Count > 0)
             {
-                this.writer.Append("OUTPUT ");
+                this.Append("OUTPUT ");
                 for (var i = 0; i < node.Outputs.Count; i++)
                 {
                     if (i > 0)
-                        this.writer.Append(", ");
+                        this.Append(", ");
                     this.TranslateExpression(node.Outputs[i].ColumnExpression);
-                    this.writer.Append(" AS ");
-                    this.writer.Append(node.Outputs[i].Alias);
+                    this.Append(" AS ");
+                    this.Append(node.Outputs[i].Alias);
                 }
-                this.writer.Append("\r\n");
+                this.Append("\r\n");
             }
 
             // Source query is emitted bare (no outer parentheses).
@@ -1453,34 +1637,34 @@ namespace Atis.Orm.Translation
         /// <summary>Translates a single-row INSERT ... VALUES statement.</summary>
         protected virtual void TranslateInsert(SqlInsertExpression node)
         {
-            this.writer.Append("INSERT INTO ");
-            this.writer.Append(this.GetQualifiedTableName(node.Table));
-            this.writer.Append(" (");
-            this.writer.Append(string.Join(", ", node.Columns));
-            this.writer.Append(")\r\n");
+            this.Append("INSERT INTO ");
+            this.Append(this.GetQualifiedTableName(node.Table));
+            this.Append(" (");
+            this.Append(string.Join(", ", node.Columns));
+            this.Append(")\r\n");
 
             if (node.Outputs.Count > 0)
             {
-                this.writer.Append("OUTPUT ");
+                this.Append("OUTPUT ");
                 for (var i = 0; i < node.Outputs.Count; i++)
                 {
                     if (i > 0)
-                        this.writer.Append(", ");
+                        this.Append(", ");
                     this.TranslateExpression(node.Outputs[i].ColumnExpression);
-                    this.writer.Append(" AS ");
-                    this.writer.Append(node.Outputs[i].Alias);
+                    this.Append(" AS ");
+                    this.Append(node.Outputs[i].Alias);
                 }
-                this.writer.Append("\r\n");
+                this.Append("\r\n");
             }
 
-            this.writer.Append("VALUES (");
+            this.Append("VALUES (");
             for (var i = 0; i < node.Values.Count; i++)
             {
                 if (i > 0)
-                    this.writer.Append(", ");
+                    this.Append(", ");
                 this.TranslateExpression(node.Values[i]);
             }
-            this.writer.Append(")");
+            this.Append(")");
         }
 
         /// <summary>
@@ -1490,9 +1674,9 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateDelete(SqlDeleteExpression node)
         {
-            this.writer.Append("DELETE ");
-            this.writer.Append(this.GetAlias(node.DataSourceAlias));
-            this.writer.Append("\r\n");
+            this.Append("DELETE ");
+            this.Append(this.GetAlias(node.DataSourceAlias));
+            this.Append("\r\n");
             // Source query is emitted bare (no outer parentheses).
             this.suppressDerivedTableParens = true;
             this.TranslateExpression(node.Source);
@@ -1513,11 +1697,11 @@ namespace Atis.Orm.Translation
             ).ToDictionary(x => x.Alias, x => x.DatabaseColumnName);
 
             var columns = string.Join(", ", selectColumns.Select(c => propertyWithDbColumnMap[c.Alias]));
-            this.writer.Append("INSERT INTO ");
-            this.writer.Append(this.GetQualifiedTableName(node.SqlTable));
-            this.writer.Append("(");
-            this.writer.Append(columns);
-            this.writer.Append(")\r\n");
+            this.Append("INSERT INTO ");
+            this.Append(this.GetQualifiedTableName(node.SqlTable));
+            this.Append("(");
+            this.Append(columns);
+            this.Append(")\r\n");
             this.TranslateExpression(node.SelectQuery);
         }
 
@@ -1532,9 +1716,9 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateComment(SqlCommentExpression node)
         {
-            this.writer.Append("/*");
-            this.writer.Append(node.Comment);
-            this.writer.Append("*/");
+            this.Append("/*");
+            this.Append(node.Comment);
+            this.Append("*/");
         }
 
         /// <summary>
@@ -1544,7 +1728,7 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateFragment(SqlFragmentExpression node)
         {
-            this.writer.Append(node.Fragment);
+            this.Append(node.Fragment);
         }
 
         /// <summary>
@@ -1554,9 +1738,9 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateQueryable(SqlQueryableExpression node)
         {
-            this.writer.Append("Queryable: {\r\n");
+            this.Append("Queryable: {\r\n");
             this.TranslateExpression(node.Query);
-            this.writer.Append("\r\n}");
+            this.Append("\r\n}");
         }
 
         #endregion

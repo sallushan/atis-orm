@@ -69,5 +69,36 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 second.GetService<Atis.Orm.Abstractions.IOrmModel>(),
                 "The model is a singleton and must stay shared between contexts.");
         }
+
+        /// <summary>
+        ///     <para>
+        ///         <c>Translate</c> is the entry point for a whole statement and clears every piece of
+        ///         per-statement state, so calling it from inside a <c>Translate*</c> method wipes the
+        ///         translation in progress. The failure is silent - aliases renumber, parameters vanish from
+        ///         the plan, and a statement still comes out - so re-entry is refused instead.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Calling_Translate_recursively_is_rejected()
+        {
+            var assets = new Queryable<Asset>(this.queryProvider);
+            var serial = "S1";
+            Expression<Func<IQueryable<Asset>>> query = () => assets.Where(x => x.SerialNumber == serial);
+            var sqlExpression = ConvertExpressionToSqlExpression(query.Body, out _);
+
+            var ex = Assert.ThrowsException<InvalidOperationException>(
+                () => new RecursivelyTranslatingTranslator().Translate(sqlExpression));
+
+            StringAssert.Contains(ex.Message, "while a translation was already in progress");
+            // The message has to name the method that was actually meant, or the reader is left guessing.
+            StringAssert.Contains(ex.Message, "TranslateExpression");
+        }
+
+        /// <summary>A derived translator making the mistake the guard exists to catch.</summary>
+        private sealed class RecursivelyTranslatingTranslator : SqlExpressionTranslatorBase
+        {
+            protected override void TranslateTable(Atis.SqlExpressionEngine.SqlExpressions.SqlTableExpression node)
+                => this.Translate(node);
+        }
     }
 }

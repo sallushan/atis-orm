@@ -99,7 +99,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var result = db.GetService<IQueryTranslator>().Translate(query.Expression);
             return string.Concat(result.SqlTranslation
                                        .Fragments
-                                       .OfType<SqlTextFragment>()
+                                       .OfType<TextCommandFragment>()
                                        .Select(x => x.Text));
         }
     }

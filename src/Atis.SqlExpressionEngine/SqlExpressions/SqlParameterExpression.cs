@@ -83,7 +83,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         ///         <see cref="Nullable{T}"/> is indistinguishable from its underlying type once it holds a
         ///         value, so <c>Value.GetType()</c> cannot tell whether a later execution of the same cached
         ///         query could bind <c>null</c> here. Translators use this to decide whether a comparison
-        ///         needs a null-aware form (see <c>SqlNullSwitchFragment</c>); when it is <c>null</c> they
+        ///         needs a null-aware form (see <c>NullSwitchCommandFragment</c>); when it is <c>null</c> they
         ///         must assume a null is possible.
         ///     </para>
         /// </summary>

@@ -12,7 +12,8 @@ namespace Atis.Orm.Querying
     /// <summary>
     ///     <para>
     ///         Shared state and value-resolution policy for the two compiled-query shapes. The concrete
-    ///         shape is chosen once, at compile time, from <see cref="SqlTranslationResult.HasExpandableParameters"/>:
+    ///         shape is chosen once, at compile time, from
+    ///         <see cref="SqlTranslationResult.RequiresPerExecutionRendering"/>:
     ///         <see cref="SimpleCompiledQuery"/> renders its SQL once, <see cref="ExpandableCompiledQuery"/>
     ///         re-renders every execution. Both instances are immutable, so a compiled query shared in the
     ///         singleton cache is safe to execute concurrently.
@@ -69,9 +70,9 @@ namespace Atis.Orm.Querying
 
     /// <summary>
     ///     <para>
-    ///         Compiled query with no expandable parameters: the SQL text and the placeholder names are
-    ///         value-independent, so they are rendered once. Each execution only rebuilds the
-    ///         <see cref="DbParameter"/>s with that execution's values.
+    ///         Compiled query whose SQL text is value-independent: the text and the placeholder names are
+    ///         rendered once. Each execution only rebuilds the <see cref="DbParameter"/>s with that
+    ///         execution's values.
     ///     </para>
     /// </summary>
     public sealed class SimpleCompiledQuery : CompiledQueryBase
@@ -82,7 +83,7 @@ namespace Atis.Orm.Querying
         private readonly IReadOnlyList<IQueryParameter> orderedParameters;
         private readonly IDbParameterFactory parameterFactory;
 
-        public SimpleCompiledQuery(SqlTranslationResult translation, ISqlCommandRenderer renderer, IDbParameterFactory parameterFactory, bool isNonQuery, Func<IDataReader, object> elementFactory)
+        public SimpleCompiledQuery(SqlTranslationResult translation, ICommandRenderer renderer, IDbParameterFactory parameterFactory, bool isNonQuery, Func<IDataReader, object> elementFactory)
             : base(isNonQuery, elementFactory)
         {
             if (translation is null)
@@ -111,16 +112,18 @@ namespace Atis.Orm.Querying
 
     /// <summary>
     ///     <para>
-    ///         Compiled query with at least one expandable parameter: the placeholder count depends on the
-    ///         collection length at execution time, so the fragments are re-rendered on every execution.
+    ///         Compiled query whose SQL text depends on the values bound at execution time - an expandable
+    ///         parameter whose placeholder count follows a collection's length, an optional term that
+    ///         disappears when its guard has no value, or a comparison spelled two ways. The fragments are
+    ///         re-rendered on every execution.
     ///     </para>
     /// </summary>
     public sealed class ExpandableCompiledQuery : CompiledQueryBase
     {
-        private readonly IReadOnlyList<SqlFragment> fragments;
-        private readonly ISqlCommandRenderer renderer;
+        private readonly IReadOnlyList<ICommandFragment> fragments;
+        private readonly ICommandRenderer renderer;
 
-        public ExpandableCompiledQuery(SqlTranslationResult translation, ISqlCommandRenderer renderer, bool isNonQuery, Func<IDataReader, object> elementFactory)
+        public ExpandableCompiledQuery(SqlTranslationResult translation, ICommandRenderer renderer, bool isNonQuery, Func<IDataReader, object> elementFactory)
             : base(isNonQuery, elementFactory)
         {
             if (translation is null)

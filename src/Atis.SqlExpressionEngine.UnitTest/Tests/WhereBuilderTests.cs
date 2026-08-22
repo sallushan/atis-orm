@@ -31,10 +31,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     [TestClass]
     public class WhereBuilderTests : TestBase
     {
-        private static ISqlCommandRenderer CreateRenderer()
+        private static ICommandRenderer CreateRenderer()
         {
             var nameGenerator = new SqlDbParameterNameGenerator();
-            return new SqlCommandRenderer(new SqlDbParameterFactory(nameGenerator));
+            return new CommandRenderer(new SqlDbParameterFactory(nameGenerator));
         }
 
         private SqlTranslationResult TranslateWithSqlServer(Expression queryExpression)
@@ -352,7 +352,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 var sqlExpressionTranslator = new SqlServerSqlExpressionTranslator();
                 var nameGenerator = new SqlDbParameterNameGenerator();
                 var dbParameterFactory = new SqlDbParameterFactory(nameGenerator);
-                var commandRenderer = new SqlCommandRenderer(dbParameterFactory);
+                var commandRenderer = new CommandRenderer(dbParameterFactory);
                 var elementFactoryBuilder = new ElementFactoryBuilder();
                 var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
                 this.Compiler = new QueryCompiler(queryTranslator, commandRenderer, dbParameterFactory, elementFactoryBuilder);

@@ -26,20 +26,27 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     [TestClass]
     public class InValuesExpansionTests : TestBase
     {
-        private static ISqlCommandRenderer CreateRenderer()
+        private static ICommandRenderer CreateRenderer()
         {
             var nameGenerator = new SqlDbParameterNameGenerator();
-            return new SqlCommandRenderer(new SqlDbParameterFactory(nameGenerator));
+            return new CommandRenderer(new SqlDbParameterFactory(nameGenerator));
         }
 
         // Translates with the SQL Server dialect and renders with the parameters' translation-time values.
         private RenderedCommand RenderWithSqlServer(Expression queryExpression)
+            => CreateRenderer().Render(this.TranslateWithSqlServer(queryExpression).Fragments, p => p.InitialValue);
+
+        private SqlTranslationResult TranslateWithSqlServer(Expression queryExpression)
         {
             var sqlExpression = ConvertExpressionToSqlExpression(queryExpression, out _);
             Assert.IsNotNull(sqlExpression, "Expression should convert to a SQL expression.");
-            var translation = new SqlServerSqlExpressionTranslator().Translate(sqlExpression);
-            return CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
+            return new SqlServerSqlExpressionTranslator().Translate(sqlExpression);
         }
+
+        // Expansion is a decision the TRANSLATOR records per position, so it is read off the fragments
+        // rather than off the rendered text - the value is never what decides it.
+        private static bool HasExpandableParameter(SqlTranslationResult translation)
+            => translation.Fragments.OfType<ExpandableParameterCommandFragment>().Any();
 
         [TestMethod]
         public void Captured_collection_in_Contains_expands_to_one_placeholder_per_element()
@@ -48,10 +55,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var employees = new Queryable<Employee>(this.queryProvider);
             var q = employees.Where(x => departments.Contains(x.Department));
 
-            var rendered = this.RenderWithSqlServer(q.Expression);
+            var translation = this.TranslateWithSqlServer(q.Expression);
+            var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
             StringAssert.Contains(rendered.Sql, "IN (@p0_1, @p0_2)");
-            Assert.IsTrue(rendered.HasExpandableParameters, "The IN list holds an expandable parameter.");
+            Assert.IsTrue(HasExpandableParameter(translation), "The IN list holds an expandable parameter.");
             Assert.AreEqual(2, rendered.DbParameters.Count, "Two elements -> two DbParameters.");
         }
 
@@ -97,7 +105,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
             Assert.AreEqual("@p0", rendered.Sql, "A non-list multi-value parameter is a single placeholder.");
-            Assert.IsFalse(rendered.HasExpandableParameters);
+            Assert.IsFalse(HasExpandableParameter(translation));
             Assert.AreEqual(1, rendered.DbParameters.Count);
         }
 
@@ -199,7 +207,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 var sqlExpressionTranslator = new SqlServerSqlExpressionTranslator();
                 var nameGenerator = new SqlDbParameterNameGenerator();
                 var dbParameterFactory = new SqlDbParameterFactory(nameGenerator);
-                var commandRenderer = new SqlCommandRenderer(dbParameterFactory);
+                var commandRenderer = new CommandRenderer(dbParameterFactory);
                 var elementFactoryBuilder = new ElementFactoryBuilder();
                 var queryTranslator = new QueryTranslator(this.preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
                 this.Compiler = new QueryCompiler(queryTranslator, commandRenderer, dbParameterFactory, elementFactoryBuilder);

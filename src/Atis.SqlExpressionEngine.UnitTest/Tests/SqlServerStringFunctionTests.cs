@@ -15,7 +15,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.IsNotNull(sqlExpression, "Expected a non-null SqlExpression.");
             var translation = new SqlServerSqlExpressionTranslator().Translate(sqlExpression);
             var nameGenerator = new SqlDbParameterNameGenerator();
-            var renderer = new SqlCommandRenderer(new SqlDbParameterFactory(nameGenerator));
+            var renderer = new CommandRenderer(new SqlDbParameterFactory(nameGenerator));
             var sql = renderer.Render(translation.Fragments, p => p.InitialValue).Sql;
             System.Console.WriteLine(sql);
             return sql;

@@ -71,7 +71,7 @@ namespace Atis.Orm
                 { typeof(IExpressionVariableValuesExtractor),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IDbParameterFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IDbParameterNameGenerator),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
-                { typeof(ISqlCommandRenderer),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                { typeof(ICommandRenderer),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IDatabaseAdapter),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IDbCommunication),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryExecutor),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
@@ -120,7 +120,7 @@ namespace Atis.Orm
             this.TryAdd<IExpressionPreprocessorProvider, OrmExpressionPreprocessorProvider>();
             this.TryAdd<ISqlExpressionPostprocessorProvider, SqlExpressionPostprocessorProvider>();
             this.TryAdd<ISqlExpressionTranslator, SqlExpressionTranslatorBase>();
-            this.TryAdd<ISqlCommandRenderer, SqlCommandRenderer>();
+            this.TryAdd<ICommandRenderer, CommandRenderer>();
             this.TryAdd<IQueryTranslator, QueryTranslator>();
             this.TryAdd<IQueryCompiler, QueryCompiler>();
             this.TryAdd<IExpressionVariableValuesExtractor, ExpressionVariableValuesExtractor>();

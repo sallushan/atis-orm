@@ -758,7 +758,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         ///     </para>
         ///     <para>
         ///         A parameter that happens to be null right now does not: production emits both spellings and
-        ///         lets the renderer pick per execution (<c>SqlNullSwitchFragment</c>). This translator returns
+        ///         lets the renderer pick per execution (<c>NullSwitchCommandFragment</c>). This translator returns
         ///         a string, so it cannot express a switch and renders the has-value spelling - the same
         ///         static-shape convention it already uses for optional terms.
         ///     </para>

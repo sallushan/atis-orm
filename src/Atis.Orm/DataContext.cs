@@ -717,7 +717,7 @@ namespace Atis.Orm
             if (query is null)
                 throw new ArgumentNullException(nameof(query));
             var queryTranslator = this.ServiceProvider.GetRequiredService<IQueryTranslator>();
-            var commandRenderer = this.ServiceProvider.GetRequiredService<ISqlCommandRenderer>();
+            var commandRenderer = this.ServiceProvider.GetRequiredService<ICommandRenderer>();
             var queryTranslationResult = queryTranslator.Translate(query.Expression);
             return commandRenderer.Render(queryTranslationResult.SqlTranslation.Fragments, p => p.InitialValue);
         }
