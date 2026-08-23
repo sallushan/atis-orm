@@ -348,6 +348,12 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlLikeExpression(stringExpression, pattern, SqlExpressionType.LikeEndsWith);
         }
 
+        /// <inheritdoc />
+        public SqlLikeAnyExpression CreateLikeAny(SqlExpression stringExpression, SqlExpression values, LikeMatchMode matchMode)
+        {
+            return new SqlLikeAnyExpression(stringExpression, values, matchMode);
+        }
+
         public SqlDateAddExpression CreateDateAdd(SqlDatePart datePart, SqlExpression interval, SqlExpression dateExpression)
         {
             return new SqlDateAddExpression(datePart, interval, dateExpression);

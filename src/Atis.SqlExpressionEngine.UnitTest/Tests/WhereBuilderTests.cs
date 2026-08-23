@@ -168,6 +168,99 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void The_four_multi_value_like_forms_repeat_the_whole_term_per_value()
+        {
+            // SQL has no "LIKE any of these", so the term itself repeats - unlike IN, where one position
+            // holds a comma-separated list. Each copy gets its own placeholder.
+            var patterns = new[] { "abc", "def" };
+            var employees = new Queryable<Employee>(this.queryProvider);
+
+            AssertRenders(employees.Where(x => WhereBuilder.ContainsAny(x.Department, patterns)),
+                          "((t1.Department LIKE '%' + @p0 + '%') OR (t1.Department LIKE '%' + @p1 + '%'))");
+            AssertRenders(employees.Where(x => WhereBuilder.StartsWithAny(x.Department, patterns)),
+                          "((t1.Department LIKE @p0 + '%') OR (t1.Department LIKE @p1 + '%'))");
+            AssertRenders(employees.Where(x => WhereBuilder.EndsWithAny(x.Department, patterns)),
+                          "((t1.Department LIKE '%' + @p0) OR (t1.Department LIKE '%' + @p1))");
+            AssertRenders(employees.Where(x => WhereBuilder.LikePatternAny(x.Department, patterns)),
+                          "((t1.Department LIKE @p0) OR (t1.Department LIKE @p1))");
+
+            void AssertRenders(IQueryable<Employee> query, string expectedPredicate)
+            {
+                var translation = this.TranslateWithSqlServer(query.Expression);
+                var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
+                StringAssert.Contains(rendered.Sql, expectedPredicate);
+                Assert.AreEqual(2, rendered.DbParameters.Count, "One parameter per value, not one for the collection.");
+                Assert.AreEqual("abc", rendered.DbParameters[0].Value);
+                Assert.AreEqual("def", rendered.DbParameters[1].Value);
+            }
+        }
+
+        [TestMethod]
+        public void A_multi_value_term_repeats_as_many_times_as_this_execution_s_collection_is_long()
+        {
+            // The property the whole fragment exists for: the number of copies belongs to the execution, not
+            // to the translation, so ONE compiled query serves collections of every length. Translating the
+            // repetition instead would freeze it to whatever the first caller passed.
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildContainsAnyQuery(new[] { "IT", "HR" }));
+
+            var three = compiled.GetExecutionContext(wiring.ContainsAnyValuesByIdentity(new[] { "a", "b", "c" }), useInitialValues: false);
+            Assert.AreEqual(3, three.DbParameters.Count, "Three values, three placeholders.");
+            Assert.AreEqual(2, CountOccurrences(three.Sql, " OR "), "Three terms are joined by two separators.");
+            CollectionAssert.AreEqual(new object[] { "a", "b", "c" }, three.DbParameters.Select(p => p.Value).ToArray());
+
+            var one = compiled.GetExecutionContext(wiring.ContainsAnyValuesByIdentity(new[] { "z" }), useInitialValues: false);
+            Assert.AreEqual(1, one.DbParameters.Count, "A single value needs no disjunction at all.");
+            Assert.AreEqual(0, CountOccurrences(one.Sql, " OR "));
+            Assert.AreEqual("z", one.DbParameters[0].Value);
+
+            static int CountOccurrences(string text, string value)
+            {
+                var count = 0;
+                for (var i = text.IndexOf(value); i >= 0; i = text.IndexOf(value, i + value.Length))
+                    count++;
+                return count;
+            }
+        }
+
+        [TestMethod]
+        public void ContainsAny_drops_on_an_empty_collection_or_null()
+        {
+            // Same rule as the IN family: an empty list means "no filter", not "match nothing" - and the term
+            // is dropped by the guard around it, so the repetition is never reached with nothing to repeat.
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildContainsAnyQuery(new[] { "IT" }));
+
+            var empty = compiled.GetExecutionContext(wiring.ContainsAnyValuesByIdentity(new string[0]), useInitialValues: false);
+            Assert.IsFalse(empty.Sql.Contains("t1.Department LIKE"), "An empty collection drops the term.");
+            Assert.IsFalse(empty.Sql.Contains("1 = 0"), "Dropping is the guard's job; the term must not degrade to 'match nothing'.");
+            StringAssert.Contains(empty.Sql, "1 = 1", "The anchor stays, so the WHERE clause is still valid.");
+            Assert.AreEqual(0, empty.DbParameters.Count);
+
+            var nullList = compiled.GetExecutionContext(wiring.ContainsAnyValuesByIdentity(null), useInitialValues: false);
+            Assert.IsFalse(nullList.Sql.Contains("t1.Department LIKE"), "A null collection drops the term.");
+            Assert.AreEqual(0, nullList.DbParameters.Count);
+        }
+
+        [TestMethod]
+        public void A_multi_value_term_composes_with_an_ordinary_optional_term()
+        {
+            // The disjunction is parenthesized as one term, so it joins the AND chain like any other and the
+            // two terms still drop independently.
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildContainsAnyAndEqualQuery(new[] { "IT" }, "E1"));
+
+            var both = compiled.GetExecutionContext(wiring.ContainsAnyAndEqualValuesByIdentity(new[] { "a", "b" }, "E2"), useInitialValues: false);
+            Assert.AreEqual(3, both.DbParameters.Count, "Two values plus the equality's value.");
+            StringAssert.Contains(both.Sql, "t1.EmployeeId =");
+
+            var onlyEqual = compiled.GetExecutionContext(wiring.ContainsAnyAndEqualValuesByIdentity(null, "E2"), useInitialValues: false);
+            Assert.AreEqual(1, onlyEqual.DbParameters.Count, "The dropped disjunction takes all its values with it.");
+            Assert.IsFalse(onlyEqual.Sql.Contains("t1.Department LIKE"));
+            StringAssert.Contains(onlyEqual.Sql, "t1.EmployeeId =");
+        }
+
+        [TestMethod]
         public void In_drops_on_an_empty_collection_not_just_on_null()
         {
             // An empty list means "no filter", not "match nothing". This is the one place the guard needs to
@@ -327,6 +420,40 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.AreEqual(9, refiltered[0].DepartmentId);
         }
 
+        [TestMethod]
+        public async Task Multi_value_term_repeats_and_drops_against_a_real_database()
+        {
+            // Asserts ROWS, not SQL, from a single query shape executed with collections of three different
+            // lengths - the repetition is the one part of this feature a valid-looking statement can get
+            // wrong silently, by matching against the wrong number of values.
+            var setup = new TestDatabaseSetup("Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            await setup.SetupAsync();
+
+            using var db = new OrmDbContext();
+
+            // Two prefixes: John and Joshua, Michael and Michelle.
+            var prefixes = new[] { "Jo", "Mi" };
+            var two = await db.CreateQuery<TestEntities.Employee>()
+                              .Where(x => WhereBuilder.StartsWithAny(x.FirstName, prefixes))
+                              .ToListAsync();
+            Assert.AreEqual(4, two.Count, "Four seeded employees start with Jo or Mi.");
+
+            // Same shape, cache hit, a longer collection: the compiled query must grow a third term rather
+            // than replay the first execution's two.
+            prefixes = new[] { "Jo", "Mi", "Ke" };
+            var three = await db.CreateQuery<TestEntities.Employee>()
+                                .Where(x => WhereBuilder.StartsWithAny(x.FirstName, prefixes))
+                                .ToListAsync();
+            Assert.AreEqual(5, three.Count, "Kevin joins them.");
+
+            // And with no collection at all the term disappears instead of matching nothing.
+            prefixes = null;
+            var all = await db.CreateQuery<TestEntities.Employee>()
+                              .Where(x => WhereBuilder.StartsWithAny(x.FirstName, prefixes))
+                              .ToListAsync();
+            Assert.AreEqual(25, all.Count, "With no values the term is omitted, so nothing is filtered out.");
+        }
+
         // Wires the ORM pipeline (SQL Server dialect) without a database, so the compile -> cache-hit rebind
         // path can be driven directly. Mirrors InValuesExpansionTests.Wiring.
         private sealed class Wiring
@@ -389,6 +516,19 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 return employees.Where(x => WhereBuilder.NotIn(x.Department, departments)).Expression;
             }
 
+            public Expression BuildContainsAnyQuery(string[] values)
+            {
+                var employees = new Queryable<Employee>(this.probeProvider);
+                return employees.Where(x => WhereBuilder.ContainsAny(x.Department, values)).Expression;
+            }
+
+            public Expression BuildContainsAnyAndEqualQuery(string[] values, string employeeId)
+            {
+                var employees = new Queryable<Employee>(this.probeProvider);
+                return employees.Where(x => WhereBuilder.ContainsAny(x.Department, values)
+                                         && WhereBuilder.Equal(x.EmployeeId, employeeId)).Expression;
+            }
+
             public Expression BuildDateRangeQuery(DateTime? from, DateTime? to)
             {
                 var students = new Queryable<Student>(this.probeProvider);
@@ -405,6 +545,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             public IReadOnlyDictionary<string, object> NotInValuesByIdentity(string[] departments)
                 => this.extractor.ExtractVariableValuesByIdentity(this.BuildNotInQuery(departments));
+
+            public IReadOnlyDictionary<string, object> ContainsAnyValuesByIdentity(string[] values)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildContainsAnyQuery(values));
+
+            public IReadOnlyDictionary<string, object> ContainsAnyAndEqualValuesByIdentity(string[] values, string employeeId)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildContainsAnyAndEqualQuery(values, employeeId));
 
             public IReadOnlyDictionary<string, object> DateRangeValuesByIdentity(DateTime? from, DateTime? to)
                 => this.extractor.ExtractVariableValuesByIdentity(this.BuildDateRangeQuery(from, to));

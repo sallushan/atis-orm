@@ -80,6 +80,21 @@ namespace Atis.SqlExpressionEngine.Preprocessors
                     // No BCL spelling means "match this pattern verbatim", so this one needs its own node.
                     return Optional(arguments[1], new LikePatternExpression(arguments[0], arguments[1]));
 
+                // The multi-value forms carry the whole predicate into one node: the term repeats per element,
+                // and the element count is only known once a value is bound. An empty collection deactivates
+                // the term, opted into per term the same way the IN family does it.
+                case nameof(WhereBuilder.ContainsAny):
+                    return OptionalLikeAny(arguments[0], arguments[1], LikeMatchMode.Contains);
+
+                case nameof(WhereBuilder.StartsWithAny):
+                    return OptionalLikeAny(arguments[0], arguments[1], LikeMatchMode.StartsWith);
+
+                case nameof(WhereBuilder.EndsWithAny):
+                    return OptionalLikeAny(arguments[0], arguments[1], LikeMatchMode.EndsWith);
+
+                case nameof(WhereBuilder.LikePatternAny):
+                    return OptionalLikeAny(arguments[0], arguments[1], LikeMatchMode.Pattern);
+
                 case nameof(WhereBuilder.In):
                     return Optional(arguments[1], new InValuesExpression(arguments[0], arguments[1]), OptionalGuardKind.NullOrEmptyCollection);
 
@@ -97,6 +112,11 @@ namespace Atis.SqlExpressionEngine.Preprocessors
 
         private static Expression Optional(Expression guard, Expression predicate, OptionalGuardKind guardKind = OptionalGuardKind.NullOnly)
             => new OptionalPredicateExpression(guard, predicate, guardKind);
+
+        // The collection node is used twice - as the guard and inside the predicate - and both are the
+        // caller's own node instance, so the collection rebinds by identity on a cache hit.
+        private static Expression OptionalLikeAny(Expression column, Expression values, LikeMatchMode matchMode)
+            => Optional(values, new LikeAnyExpression(column, values, matchMode), OptionalGuardKind.NullOrEmptyCollection);
 
         /// <summary>
         ///     <para>

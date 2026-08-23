@@ -26,6 +26,8 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlLikeExpression CreateLikeStartsWith(SqlExpression stringExpression, SqlExpression pattern);
         SqlLikeExpression CreateLikeEndsWith(SqlExpression stringExpression, SqlExpression pattern);
         SqlLikeExpression CreateLikePattern(SqlExpression stringExpression, SqlExpression pattern);
+        /// <summary>Creates a multi-value LIKE: one term per element of <paramref name="values"/>, OR-ed together.</summary>
+        SqlLikeAnyExpression CreateLikeAny(SqlExpression stringExpression, SqlExpression values, LikeMatchMode matchMode);
         SqlDateAddExpression CreateDateAdd(SqlDatePart datePart, SqlExpression interval, SqlExpression dateExpression);
         SqlDateSubtractExpression CreateDateSubtract(SqlDatePart datePart, SqlExpression startDate, SqlExpression endDate);
         SqlCollectionExpression CreateCollection(IEnumerable<SqlExpression> sqlExpressions);

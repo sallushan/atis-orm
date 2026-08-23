@@ -44,6 +44,10 @@ namespace Atis.Orm.Translation
         {
             private readonly Func<IQueryParameter, object> resolveValue;
 
+            // Innermost last. A list rather than a dictionary because it holds one entry per repeat currently
+            // being rendered - in practice one, occasionally two - and the innermost must win.
+            private readonly List<KeyValuePair<IQueryParameter, object>> elementValues = new List<KeyValuePair<IQueryParameter, object>>();
+
             internal RenderContext(Func<IQueryParameter, object> resolveValue)
             {
                 this.resolveValue = resolveValue;
@@ -65,8 +69,44 @@ namespace Atis.Orm.Translation
             /// </summary>
             public int NextParameterIndex { get; set; }
 
-            /// <summary>Obtains the value bound to <paramref name="queryParameter"/> for this execution.</summary>
-            public object ResolveValue(IQueryParameter queryParameter) => this.resolveValue(queryParameter);
+            /// <summary>
+            ///     <para>
+            ///         Obtains the value bound to <paramref name="queryParameter"/> for this execution - or,
+            ///         while a <see cref="RepeatingCommandFragment"/> is rendering one copy of its template,
+            ///         the single element that copy stands for.
+            ///     </para>
+            /// </summary>
+            public object ResolveValue(IQueryParameter queryParameter)
+            {
+                for (var i = this.elementValues.Count - 1; i >= 0; i--)
+                {
+                    if (ReferenceEquals(this.elementValues[i].Key, queryParameter))
+                        return this.elementValues[i].Value;
+                }
+
+                return this.resolveValue(queryParameter);
+            }
+
+            /// <summary>
+            ///     Makes <paramref name="queryParameter"/> resolve to <paramref name="elementValue"/> until the
+            ///     matching <see cref="EndElement"/>. Called by a repeating fragment around each copy.
+            /// </summary>
+            public void BeginElement(IQueryParameter queryParameter, object elementValue)
+            {
+                if (queryParameter is null)
+                    throw new ArgumentNullException(nameof(queryParameter));
+
+                this.elementValues.Add(new KeyValuePair<IQueryParameter, object>(queryParameter, elementValue));
+            }
+
+            /// <summary>Ends the binding opened by the matching <see cref="BeginElement"/>.</summary>
+            public void EndElement()
+            {
+                if (this.elementValues.Count == 0)
+                    throw new InvalidOperationException($"{nameof(EndElement)} was called without a matching {nameof(BeginElement)}.");
+
+                this.elementValues.RemoveAt(this.elementValues.Count - 1);
+            }
         }
 
         /// <inheritdoc />
@@ -107,6 +147,9 @@ namespace Atis.Orm.Translation
                     break;
                 case ExpandableParameterCommandFragment expandable:
                     this.RenderExpandableParameterFragment(expandable, context);
+                    break;
+                case RepeatingCommandFragment repeating:
+                    this.RenderRepeatingFragment(repeating, context);
                     break;
                 case NullSwitchCommandFragment nullSwitch:
                     this.RenderNullSwitchFragment(nullSwitch, context);
@@ -182,6 +225,67 @@ namespace Atis.Orm.Translation
         protected virtual void RenderEmptyValueList(ExpandableParameterCommandFragment fragment, RenderContext context)
         {
             context.Sql.Append(fragment.EmptyListTemplate ?? "NULL");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Writes the template once per element of the collection value, separated by the fragment's
+        ///         separator. Each copy binds its own parameter, so a three-element collection produces three
+        ///         placeholders.
+        ///     </para>
+        ///     <para>
+        ///         A null or empty collection writes the empty stand-in and binds nothing. In the
+        ///         <c>WhereBuilder</c> shapes the surrounding optional term has already dropped by then, so
+        ///         this is the answer for any other use of the fragment.
+        ///     </para>
+        /// </summary>
+        protected virtual void RenderRepeatingFragment(RepeatingCommandFragment fragment, RenderContext context)
+        {
+            var value = context.ResolveValue(fragment.QueryParameter);
+            if (value is null || value is DBNull)
+            {
+                this.RenderEmptyRepetition(fragment, context);
+                return;
+            }
+
+            if (!(value is IEnumerable enumerable) || value is string)
+            {
+                throw new InvalidOperationException(
+                    $"The value for parameter '{fragment.QueryParameter.ParameterIdentity}' must be an IEnumerable, " +
+                    $"but was '{value.GetType().Name}'.");
+            }
+
+            var count = 0;
+            foreach (var element in enumerable)
+            {
+                if (count > 0)
+                    context.Sql.Append(fragment.Separator);
+
+                // The collection's parameter stands for this element while its copy renders, so the template's
+                // ordinary parameter marker binds the element rather than the whole collection.
+                context.BeginElement(fragment.QueryParameter, element);
+                try
+                {
+                    this.RenderFragments(fragment.Template, context);
+                }
+                finally
+                {
+                    context.EndElement();
+                }
+
+                count++;
+            }
+
+            if (count == 0)
+                this.RenderEmptyRepetition(fragment, context);
+        }
+
+        /// <summary>
+        ///     Writes self-contained SQL in place of a repetition that has no elements. No parameter is bound.
+        /// </summary>
+        protected virtual void RenderEmptyRepetition(RepeatingCommandFragment fragment, RenderContext context)
+        {
+            context.Sql.Append(fragment.WhenEmpty ?? "1 = 0");
         }
 
         /// <summary>

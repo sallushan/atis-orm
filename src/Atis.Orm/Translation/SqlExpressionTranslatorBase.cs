@@ -1,3 +1,4 @@
+using Atis.SqlExpressionEngine;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
@@ -297,13 +298,18 @@ namespace Atis.Orm.Translation
         ///     Self-contained SQL emitted in place of the value list when an expandable collection is empty
         ///     (no parameter is bound).
         /// </param>
-        protected void EmitParameter(object value, bool isLiteral, SqlExpression source, bool isExpandable = false, string emptyListTemplate = null)
+        /// <returns>
+        ///     The parameter that was recorded, for the callers that need to refer to it again - a repeated
+        ///     term names it as the collection it repeats over.
+        /// </returns>
+        protected IQueryParameter EmitParameter(object value, bool isLiteral, SqlExpression source, bool isExpandable = false, string emptyListTemplate = null)
         {
             var queryParameter = this.CreateQueryParameter(value, isLiteral, source);
             this.Parameters.Add(queryParameter);
             this.AppendFragment(isExpandable
                 ? (ICommandFragment)new ExpandableParameterCommandFragment(queryParameter, emptyListTemplate)
                 : new ParameterCommandFragment(queryParameter));
+            return queryParameter;
         }
 
         /// <summary>
@@ -434,6 +440,8 @@ namespace Atis.Orm.Translation
                 this.TranslateOptionalPredicate(optionalPredicate);
             else if (node is SqlLikeExpression like)
                 this.TranslateLike(like);
+            else if (node is SqlLikeAnyExpression likeAny)
+                this.TranslateLikeAny(likeAny);
             else if (node is SqlCastExpression cast)
                 this.TranslateCast(cast);
             else if (node is SqlDateAddExpression dateAdd)
@@ -713,6 +721,8 @@ namespace Atis.Orm.Translation
                    nt == SqlExpressionType.LikeStartsWith ||
                    nt == SqlExpressionType.LikeEndsWith ||
                    nt == SqlExpressionType.LikePattern ||
+                   // A parenthesized OR of LIKE terms, so a boolean group however many copies it renders.
+                   nt == SqlExpressionType.LikeAny ||
                    nt == SqlExpressionType.InValues ||
                    // Emitted as `(1 = 1 [AND ...])`, which is already a boolean group in both states.
                    nt == SqlExpressionType.OptionalPredicate ||
@@ -1452,32 +1462,103 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateLike(SqlLikeExpression node)
         {
+            var matchMode = GetMatchMode(node.NodeType);
+
             this.Append("(");
             this.TranslateExpression(node.Expression);
-            switch (node.NodeType)
+            this.AppendLikePrefix(matchMode);
+            this.TranslateExpression(node.Pattern);
+            this.AppendLikeSuffix(matchMode);
+            this.Append(")");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Translates a multi-value LIKE: one <c>LIKE</c> per element of a collection, joined with
+        ///         <c>OR</c>.
+        ///     </para>
+        ///     <para>
+        ///         The term is emitted <em>once</em>, as a template ending up inside a
+        ///         <see cref="RepeatingCommandFragment"/>; the renderer writes one copy per element at
+        ///         execution time. Translating one copy per element instead would need the collection's
+        ///         length, and a compiled query is re-executed with collections of every length - so the count
+        ///         would freeze to whatever the first caller passed.
+        ///     </para>
+        ///     <para>
+        ///         The collection's parameter appears once, inside the template, where it marks the element.
+        ///         The renderer binds it per copy, which is what gives each copy its own placeholder.
+        ///     </para>
+        /// </summary>
+        protected virtual void TranslateLikeAny(SqlLikeAnyExpression node)
+        {
+            if (!(node.Values is SqlParameterExpression valuesParameter))
+                throw new InvalidOperationException(
+                    $"A multi-value LIKE needs its values as a single collection value - normally a captured " +
+                    $"variable - but they translated to '{node.Values.GetType().Name}'. The term is repeated " +
+                    $"once per element at execution time, so the collection has to stay whole through " +
+                    $"translation rather than being spread across separate expressions.");
+
+            this.BeginCapture();
+            this.Append("(");
+            this.TranslateExpression(node.Expression);
+            this.AppendLikePrefix(node.MatchMode);
+            // Emitted like any other parameter: it is the collection in the parameter plan, and the element
+            // under consideration while a copy of the template is being rendered.
+            var valuesQueryParameter = this.EmitParameter(valuesParameter.Value, isLiteral: false, source: valuesParameter);
+            this.AppendLikeSuffix(node.MatchMode);
+            this.Append(")");
+            var template = this.EndCapture();
+
+            // The parentheses wrap the whole disjunction, so however many copies render, the group joins the
+            // surrounding predicate as a single term.
+            this.Append("(");
+            this.AppendFragment(new RepeatingCommandFragment(valuesQueryParameter, template, " OR ", this.EmptyRepetitionTemplate));
+            this.Append(")");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Self-contained SQL emitted when a repeated term has no elements to repeat over. A
+        ///         disjunction of nothing matches nothing, hence <c>1 = 0</c>.
+        ///     </para>
+        ///     <para>
+        ///         Not normally reached from <c>WhereBuilder</c>: an empty collection drops the optional term
+        ///         around it first. It is what keeps the fragment valid on its own.
+        ///     </para>
+        /// </summary>
+        protected virtual string EmptyRepetitionTemplate => "1 = 0";
+
+        // The four LIKE forms differ only in decoration, and the single-value and multi-value paths must
+        // decorate identically - so both go through the two methods below rather than each spelling it out.
+        private static LikeMatchMode GetMatchMode(SqlExpressionType nodeType)
+        {
+            switch (nodeType)
             {
                 case SqlExpressionType.LikeStartsWith:
-                    this.Append(" LIKE ");
-                    this.TranslateExpression(node.Pattern);
-                    this.Append(" + '%')");
-                    break;
+                    return LikeMatchMode.StartsWith;
                 case SqlExpressionType.LikeEndsWith:
-                    this.Append(" LIKE '%' + ");
-                    this.TranslateExpression(node.Pattern);
-                    this.Append(")");
-                    break;
+                    return LikeMatchMode.EndsWith;
                 case SqlExpressionType.LikePattern:
-                    // The caller's pattern is used verbatim, wildcards and all - no decoration.
-                    this.Append(" LIKE ");
-                    this.TranslateExpression(node.Pattern);
-                    this.Append(")");
-                    break;
-                default: // SqlExpressionType.Like (contains)
-                    this.Append(" LIKE '%' + ");
-                    this.TranslateExpression(node.Pattern);
-                    this.Append(" + '%')");
-                    break;
+                    return LikeMatchMode.Pattern;
+                default:
+                    return LikeMatchMode.Contains;
             }
+        }
+
+        /// <summary>Writes the <c>LIKE</c> keyword and whatever wildcard precedes the value.</summary>
+        protected virtual void AppendLikePrefix(LikeMatchMode matchMode)
+        {
+            // Pattern uses the caller's value verbatim, wildcards and all - no decoration either side.
+            this.Append(matchMode == LikeMatchMode.Contains || matchMode == LikeMatchMode.EndsWith
+                            ? " LIKE '%' + "
+                            : " LIKE ");
+        }
+
+        /// <summary>Writes whatever wildcard follows the value.</summary>
+        protected virtual void AppendLikeSuffix(LikeMatchMode matchMode)
+        {
+            if (matchMode == LikeMatchMode.Contains || matchMode == LikeMatchMode.StartsWith)
+                this.Append(" + '%'");
         }
 
         /// <summary>

@@ -209,6 +209,78 @@ namespace Atis.Orm.Translation
 
     /// <summary>
     ///     <para>
+    ///         One piece of SQL emitted once per element of a collection value, with a separator between the
+    ///         copies: <c>(col LIKE '%' + @p0 + '%') OR (col LIKE '%' + @p1 + '%')</c>. The whole term repeats,
+    ///         which is what distinguishes this from <see cref="ExpandableParameterCommandFragment"/> - there
+    ///         only the value list at one position grows.
+    ///     </para>
+    ///     <para>
+    ///         It exists because SQL has no "LIKE any of these" operator, so a multi-value LIKE has to be
+    ///         spelled out as a disjunction whose length follows the collection - and the collection is not
+    ///         knowable when the query is compiled, because one compiled query is re-executed with collections
+    ///         of every length.
+    ///     </para>
+    ///     <para>
+    ///         <strong>Inside <see cref="Template"/>, <see cref="QueryParameter"/> stands for the element
+    ///         being rendered, not the collection.</strong> The renderer binds it per copy, so the template
+    ///         holds one ordinary parameter marker and needs no element-specific fragment type. That is also
+    ///         why the copies get consecutive placeholder names rather than sharing one.
+    ///     </para>
+    /// </summary>
+    public class RepeatingCommandFragment : ICommandFragment
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="RepeatingCommandFragment"/> class.
+        /// </summary>
+        /// <param name="queryParameter">The collection parameter, and the element marker inside the template.</param>
+        /// <param name="template">The SQL emitted once per element.</param>
+        /// <param name="separator">Text written between consecutive copies.</param>
+        /// <param name="whenEmpty">Self-contained SQL emitted when there are no elements at all.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="queryParameter"/> or <paramref name="template"/> is <c>null</c>.</exception>
+        public RepeatingCommandFragment(IQueryParameter queryParameter, IReadOnlyList<ICommandFragment> template, string separator, string whenEmpty)
+        {
+            this.QueryParameter = queryParameter ?? throw new ArgumentNullException(nameof(queryParameter));
+            this.Template = template ?? throw new ArgumentNullException(nameof(template));
+            this.Separator = separator ?? string.Empty;
+            this.WhenEmpty = whenEmpty;
+        }
+
+        /// <summary>
+        ///     The parameter holding the collection. Inside <see cref="Template"/> the same parameter resolves
+        ///     to the single element currently being rendered.
+        /// </summary>
+        public IQueryParameter QueryParameter { get; }
+
+        /// <summary>The SQL emitted once per element, with the element's marker in it.</summary>
+        public IReadOnlyList<ICommandFragment> Template { get; }
+
+        /// <summary>Text written between consecutive copies (<c> OR </c> for a multi-value LIKE).</summary>
+        public string Separator { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         Self-contained SQL emitted when the collection has no elements, so the position is still
+        ///         filled: a disjunction of nothing matches nothing, hence <c>1 = 0</c>.
+        ///     </para>
+        ///     <para>
+        ///         Normally unreachable in the <see cref="WhereBuilder"/> shapes, where an empty collection
+        ///         drops the surrounding optional term before this fragment is ever reached. It is the answer
+        ///         for anywhere else this fragment is used, and it keeps the fragment valid on its own.
+        ///     </para>
+        /// </summary>
+        public string WhenEmpty { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         Always <c>true</c>: how many copies reach the output follows the collection's length, which
+        ///         is only known once a value is bound.
+        ///     </para>
+        /// </summary>
+        public bool RequirePerExecutionRendering => true;
+    }
+
+    /// <summary>
+    ///     <para>
     ///         A predicate term in one of two spellings: the filter itself when its guard has a value at
     ///         execution time, or a standing-true placeholder when it does not. The renderer emits exactly
     ///         one of them - never both - so it needs to know nothing about what either contains.

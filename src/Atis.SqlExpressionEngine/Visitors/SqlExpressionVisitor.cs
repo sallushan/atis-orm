@@ -265,6 +265,14 @@ namespace Atis.SqlExpressionEngine.Visitors
             return node.Update(sqlExpression, pattern);
         }
 
+        /// <summary>Visits a multi-value LIKE: the matched expression and the collection it matches against.</summary>
+        protected virtual internal SqlExpression VisitSqlLikeAny(SqlLikeAnyExpression node)
+        {
+            var sqlExpression = Visit(node.Expression);
+            var values = Visit(node.Values);
+            return node.Update(sqlExpression, values);
+        }
+
         protected virtual internal SqlExpression VisitSqlCollection(SqlCollectionExpression node)
         {
             var items = new List<SqlExpression>();

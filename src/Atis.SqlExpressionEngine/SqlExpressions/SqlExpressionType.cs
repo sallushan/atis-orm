@@ -44,6 +44,11 @@
         LikeEndsWith,
         // A LIKE whose pattern is used verbatim - the caller supplies the wildcards.
         LikePattern,
+        /// <summary>
+        ///     One LIKE per element of a collection, OR-ed together. The decoration lives in a property
+        ///     here, because the node type is spent saying "this repeats".
+        /// </summary>
+        LikeAny,
         Collection,
         UnwrappableDerivedTable,
         DateAdd,

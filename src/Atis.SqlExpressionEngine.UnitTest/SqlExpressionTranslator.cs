@@ -108,6 +108,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateSqlOptionalPredicateExpression(sqlOptionalPredicateExpression);
             }
+            else if (sqlExpression is SqlLikeAnyExpression sqlLikeAnyExpression)
+            {
+                return this.TranslateSqlLikeAnyExpression(sqlLikeAnyExpression);
+            }
             //else if (sqlExpression is SqlKeywordExpression sqlKeywordExpression)
             //{
             //    return this.TranslateSqlKeywordExpression(sqlKeywordExpression);
@@ -514,6 +518,50 @@ namespace Atis.SqlExpressionEngine.UnitTest
             }
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Renders a multi-value LIKE as one term per element, OR-joined - the shape the production
+        ///         renderer produces per execution.
+        ///     </para>
+        ///     <para>
+        ///         This translator inlines values rather than emitting placeholders, so it can show the whole
+        ///         repetition using the collection it was translated with. Production cannot: there the count
+        ///         belongs to the execution, not to the translation.
+        ///     </para>
+        /// </summary>
+        private string TranslateSqlLikeAnyExpression(SqlLikeAnyExpression sqlLikeAnyExpression)
+        {
+            var column = this.Translate(sqlLikeAnyExpression.Expression);
+            var values = (sqlLikeAnyExpression.Values as SqlParameterExpression)?.Value as System.Collections.IEnumerable;
+
+            var terms = new List<string>();
+            if (values != null && !(values is string))
+            {
+                foreach (var value in values)
+                {
+                    var element = SqlParameterExpression.ConvertObjectToString(value);
+                    switch (sqlLikeAnyExpression.MatchMode)
+                    {
+                        case LikeMatchMode.StartsWith:
+                            terms.Add($"({column} like {element} + '%')");
+                            break;
+                        case LikeMatchMode.EndsWith:
+                            terms.Add($"({column} like '%' + {element})");
+                            break;
+                        case LikeMatchMode.Pattern:
+                            terms.Add($"({column} like {element})");
+                            break;
+                        default:
+                            terms.Add($"({column} like '%' + {element} + '%')");
+                            break;
+                    }
+                }
+            }
+
+            // A disjunction of nothing matches nothing, same answer the renderer gives.
+            return terms.Count == 0 ? "(1 = 0)" : $"({string.Join(" or ", terms)})";
+        }
+
         private string TranslateSqlStringFunctionExpression(SqlStringFunctionExpression sqlStringFunctionExpression)
         {
             string arguments = string.Empty;
@@ -828,7 +876,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 nt == SqlExpressionType.LessThan || nt == SqlExpressionType.LessThanOrEqual ||
                 nt == SqlExpressionType.Equal || nt == SqlExpressionType.NotEqual ||
                 nt == SqlExpressionType.Like || nt == SqlExpressionType.LikeStartsWith || nt == SqlExpressionType.LikeEndsWith ||
-                nt == SqlExpressionType.LikePattern ||
+                nt == SqlExpressionType.LikePattern || nt == SqlExpressionType.LikeAny ||
                 nt == SqlExpressionType.InValues ||
                 nt == SqlExpressionType.OptionalPredicate ||
                 nt == SqlExpressionType.Not || nt == SqlExpressionType.Exists

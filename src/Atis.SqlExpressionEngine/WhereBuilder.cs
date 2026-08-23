@@ -26,6 +26,8 @@ namespace Atis.SqlExpressionEngine
     ///         <strong>Terms are only ever joined with <c>AND</c>.</strong> That is what makes an inactive term
     ///         a pure omission - there is no operator-dependent neutral element to pick. Joining an optional
     ///         term with <c>OR</c> is a logic error: an inactive term would make the whole disjunction true.
+    ///         (A single term may hold an <c>OR</c> <em>inside</em> itself - that is what the <c>...Any</c>
+    ///         methods do - because the group is parenthesized and stands or falls as one term.)
     ///     </para>
     ///     <para>
     ///         <strong>"No value" means <c>null</c>, and only <c>null</c>.</strong> An empty string is a value,
@@ -114,6 +116,68 @@ namespace Atis.SqlExpressionEngine
         /// <param name="pattern">The suffix to look for. <c>null</c> deactivates the term.</param>
         /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
         public static bool EndsWith(string column, string pattern) => throw new DirectCallNotSupportedException(Name());
+
+        /// <summary>
+        ///     <para>
+        ///         A "contains any of these" term, omitted when <paramref name="values"/> is <c>null</c>
+        ///         <em>or empty</em>: <c>(column LIKE '%' + @v1 + '%' OR column LIKE '%' + @v2 + '%' ...)</c>,
+        ///         one <c>LIKE</c> per value.
+        ///     </para>
+        ///     <para>
+        ///         <strong>This was <c>LikeMultipleOr</c> in the old library.</strong> Renamed for the same
+        ///         reason <see cref="Contains"/> was, and because the old suffix described how the term is
+        ///         built rather than what it does. The values are plain text, not patterns - use
+        ///         <see cref="LikePatternAny"/> for patterns.
+        ///     </para>
+        ///     <para>
+        ///         The whole term repeats per value, unlike <see cref="In{T}"/> where a comma-separated list
+        ///         fits at one position. How many times is settled per execution, so one compiled query serves
+        ///         collections of every length.
+        ///     </para>
+        /// </summary>
+        /// <param name="column">The column (or any translatable string expression) to match.</param>
+        /// <param name="values">The texts to look for. <c>null</c> or empty deactivates the term.</param>
+        /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
+        public static bool ContainsAny(string column, IEnumerable<string> values) => throw new DirectCallNotSupportedException(Name());
+
+        /// <summary>
+        ///     <para>
+        ///         A "matches any of these patterns" term, omitted when <paramref name="patterns"/> is
+        ///         <c>null</c> or empty: <c>(column LIKE @p1 OR column LIKE @p2 ...)</c>. Each pattern is used
+        ///         verbatim, wildcards included.
+        ///     </para>
+        ///     <para>
+        ///         <strong>This was <c>LikeOnlyMultipleOr</c> in the old library.</strong> Its second overload,
+        ///         taking one comma-delimited string, is not here yet - splitting a value is a separate
+        ///         decision that belongs with the other comma-delimited overloads.
+        ///     </para>
+        /// </summary>
+        /// <param name="column">The column (or any translatable string expression) to match.</param>
+        /// <param name="patterns">The patterns, wildcards included. <c>null</c> or empty deactivates the term.</param>
+        /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
+        public static bool LikePatternAny(string column, IEnumerable<string> patterns) => throw new DirectCallNotSupportedException(Name());
+
+        /// <summary>
+        ///     <para>
+        ///         A "starts with any of these" term, omitted when <paramref name="patterns"/> is <c>null</c>
+        ///         or empty: <c>(column LIKE @p1 + '%' OR column LIKE @p2 + '%' ...)</c>.
+        ///     </para>
+        /// </summary>
+        /// <param name="column">The column (or any translatable string expression) to match.</param>
+        /// <param name="patterns">The prefixes to look for. <c>null</c> or empty deactivates the term.</param>
+        /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
+        public static bool StartsWithAny(string column, IEnumerable<string> patterns) => throw new DirectCallNotSupportedException(Name());
+
+        /// <summary>
+        ///     <para>
+        ///         An "ends with any of these" term, omitted when <paramref name="patterns"/> is <c>null</c>
+        ///         or empty: <c>(column LIKE '%' + @p1 OR column LIKE '%' + @p2 ...)</c>.
+        ///     </para>
+        /// </summary>
+        /// <param name="column">The column (or any translatable string expression) to match.</param>
+        /// <param name="patterns">The suffixes to look for. <c>null</c> or empty deactivates the term.</param>
+        /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
+        public static bool EndsWithAny(string column, IEnumerable<string> patterns) => throw new DirectCallNotSupportedException(Name());
 
         /// <summary>
         ///     <para>
