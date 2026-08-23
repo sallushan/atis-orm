@@ -17,7 +17,8 @@ namespace Atis.Orm.Translation
     ///         Fragments carry positions and structure, never rendering policy: <see cref="ICommandRenderer"/>
     ///         walks them together with the execution-time values to produce the command text and its
     ///         parameter bindings. A provider adds a fragment type by implementing this interface and
-    ///         overriding one method on <see cref="CommandRenderer"/> - no base class changes.
+    ///         overriding <see cref="CommandRenderPass.RenderFragment"/> on its own pass - no base class
+    ///         changes.
     ///     </para>
     /// </summary>
     public interface ICommandFragment
