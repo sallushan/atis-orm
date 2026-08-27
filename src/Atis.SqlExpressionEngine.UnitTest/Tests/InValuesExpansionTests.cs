@@ -96,10 +96,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         [TestMethod]
         public void Multi_value_parameter_outside_a_list_position_stays_a_single_placeholder()
         {
-            // A byte[] is a (non-string) IEnumerable, so its parameter carries MultipleValues = true. Emitted
-            // through the ordinary (non-list) path it must remain one placeholder bound to the whole array:
-            // expansion is opted into per position by the translator, never inferred from the value.
-            var blobParameter = new SqlExpressionFactory().CreateParameter(new byte[] { 1, 2, 3 }, multipleValues: true);
+            // A byte[] is a (non-string) IEnumerable. Emitted through the ordinary (non-list) path it must
+            // remain one placeholder bound to the whole array: expansion is opted into per position by the
+            // translator, never inferred from the value.
+            var blobParameter = new SqlExpressionFactory().CreateParameter(new byte[] { 1, 2, 3 });
 
             var translation = new SqlServerSqlExpressionTranslator().Translate(blobParameter);
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
@@ -129,6 +129,89 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var emptyCtx = compiled.GetExecutionContext(wiring.ValuesByIdentity(new int[0]), useInitialValues: false);
             StringAssert.Contains(emptyCtx.Sql, "IN (SELECT NULL WHERE 1 = 0)");
             Assert.AreEqual(0, emptyCtx.DbParameters.Count);
+        }
+
+        [TestMethod]
+        public void Collection_parameter_expands_even_when_it_was_null_when_the_query_compiled()
+        {
+            // Expansion follows the position, not the value. If it were read off the value, a query that
+            // first compiled while the collection was null would bake in a single placeholder, and the next
+            // execution would bind a whole List<T> to it - which the driver rejects. No compile error, no
+            // sensible runtime error, just a broken query for every caller after the first.
+            var wiring = new Wiring();
+
+            var compiled = wiring.Compiler.Compile(wiring.BuildContainsQuery(null));
+            Assert.IsInstanceOfType(compiled, typeof(ExpandableCompiledQuery), "An IN list is expandable regardless of the value it compiled with.");
+
+            // The compiling execution itself has no values, so it matches nothing.
+            var nullCtx = compiled.GetExecutionContext(null, useInitialValues: true);
+            StringAssert.Contains(nullCtx.Sql, "IN (SELECT NULL WHERE 1 = 0)");
+            Assert.AreEqual(0, nullCtx.DbParameters.Count);
+
+            // A later execution supplying values expands normally against the same compiled query.
+            var ctx = compiled.GetExecutionContext(wiring.ValuesByIdentity(new[] { 1, 2, 3 }), useInitialValues: false);
+            StringAssert.Contains(ctx.Sql, "IN (@p0_1, @p0_2, @p0_3)");
+            CollectionAssert.AreEqual(new object[] { 1, 2, 3 }, ctx.DbParameters.Select(p => p.Value).ToArray());
+        }
+
+        [TestMethod]
+        public void Inline_array_of_variables_rebinds_every_element_on_a_cache_hit()
+        {
+            // new[] { a, b }.Contains(...) - the array is inline but its elements are captured variables.
+            // The array's length is fixed by the expression, so there is nothing to expand; what matters is
+            // that each element stays a parameter of its own. Folding the array into one frozen value would
+            // burn the first execution's a and b into every later execution - wrong rows, no error anywhere.
+            var wiring = new Wiring();
+
+            var compiled = wiring.Compiler.Compile(wiring.BuildInlineArrayQuery(10, 20));
+            var ctx = compiled.GetExecutionContext(wiring.InlineArrayValuesByIdentity(30, 40), useInitialValues: false);
+
+            Assert.AreEqual(2, ctx.DbParameters.Count, "Two array elements -> two parameters.");
+            CollectionAssert.AreEqual(new object[] { 30, 40 }, ctx.DbParameters.Select(p => p.Value).ToArray(),
+                "Both elements must rebind to the cache-hit execution's values.");
+        }
+
+        [TestMethod]
+        public void Inline_array_mixing_a_constant_and_a_variable_freezes_only_the_constant()
+        {
+            // new[] { 10, b } - the two elements are genuinely different things and must translate
+            // differently: 10 is part of the expression (and so of the cache key) and is frozen; b is a
+            // captured variable and rebinds.
+            var wiring = new Wiring();
+
+            var compiled = wiring.Compiler.Compile(wiring.BuildMixedArrayQuery(20));
+            var ctx = compiled.GetExecutionContext(wiring.MixedArrayValuesByIdentity(40), useInitialValues: false);
+
+            Assert.AreEqual(2, ctx.DbParameters.Count);
+            CollectionAssert.AreEqual(new object[] { 10, 40 }, ctx.DbParameters.Select(p => p.Value).ToArray(),
+                "The constant keeps its value; the variable takes this execution's.");
+        }
+
+        [TestMethod]
+        public void Empty_inline_array_is_rejected_where_the_cause_is_visible()
+        {
+            // `IN ()` is not valid SQL anywhere, and an inline array cannot become non-empty later. The
+            // rejection belongs at the converter: without it the failure surfaces deep in a tree walk as
+            // "items is empty", with nothing naming the query that caused it.
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => new string[] { }.Contains(x.Department));
+
+            var error = Assert.ThrowsException<InvalidOperationException>(() => this.RenderWithSqlServer(q.Expression));
+            StringAssert.Contains(error.Message, "IN list needs at least one value");
+        }
+
+        [TestMethod]
+        public void Array_created_by_length_is_rejected_rather_than_translating_its_bound()
+        {
+            // `new string[2]` is a NewArrayBounds node: its children are the bounds, not values. Left to the
+            // ordinary array converter it would emit the bound as a value - IN ('2') - which is wrong SQL
+            // that nothing else would ever catch. Rejected for every bound, not just zero: even translated
+            // correctly it would only ever mean "the column equals the element default".
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => new string[2].Contains(x.Department));
+
+            var error = Assert.ThrowsException<InvalidOperationException>(() => this.RenderWithSqlServer(q.Expression));
+            StringAssert.Contains(error.Message, "creates an array by length");
         }
 
         [TestMethod]
@@ -221,6 +304,21 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 return employees.Where(x => ids.Contains(x.EmployeeId)).Expression;
             }
 
+            // An inline array whose elements are captured variables. Same shape (and same element
+            // identities) across calls, differing only in the values.
+            public Expression BuildInlineArrayQuery(int first, int second)
+            {
+                var employees = new Queryable<TestEntities.Employee>(this.probeProvider);
+                return employees.Where(x => new[] { first, second }.Contains(x.EmployeeId)).Expression;
+            }
+
+            // An inline array holding one constant and one captured variable.
+            public Expression BuildMixedArrayQuery(int second)
+            {
+                var employees = new Queryable<TestEntities.Employee>(this.probeProvider);
+                return employees.Where(x => new[] { 10, second }.Contains(x.EmployeeId)).Expression;
+            }
+
             // A non-expandable query (a scalar variable), so the compiler picks SimpleCompiledQuery.
             public Expression BuildScalarQuery(int id)
             {
@@ -233,6 +331,16 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             public IReadOnlyDictionary<string, object> ValuesByIdentity(int[] ids)
             {
                 return this.extractor.ExtractVariableValuesByIdentity(this.BuildContainsQuery(ids));
+            }
+
+            public IReadOnlyDictionary<string, object> InlineArrayValuesByIdentity(int first, int second)
+            {
+                return this.extractor.ExtractVariableValuesByIdentity(this.BuildInlineArrayQuery(first, second));
+            }
+
+            public IReadOnlyDictionary<string, object> MixedArrayValuesByIdentity(int second)
+            {
+                return this.extractor.ExtractVariableValuesByIdentity(this.BuildMixedArrayQuery(second));
             }
         }
     }

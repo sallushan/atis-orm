@@ -11,6 +11,11 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
     ///     <para>
     ///         This class is used to define a parameter value in SQL queries.
     ///     </para>
+    ///     <para>
+    ///         A parameter does not know whether it expands into a comma-separated list. That follows from
+    ///         where it lands - see <c>TranslateValueList</c> - because the same collection value must stay a
+    ///         single parameter under <c>=</c> (a <c>byte[]</c> blob) and expand under <c>IN</c>.
+    ///     </para>
     /// </summary>
     public class SqlParameterExpression : SqlExpression
     {
@@ -23,7 +28,6 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         ///     </para>
         /// </summary>
         /// <param name="value">The value of the SQL parameter.</param>
-        /// <param name="multipleValues">Flag indicating if the parameter can have multiple values.</param>
         /// <param name="identity">
         ///     Stable identity of the source variable node (see <see cref="Abstractions.IVariableIdentityProvider"/>), used to
         ///     rebind this parameter's value by lookup on a cache hit instead of by traversal position. May be
@@ -32,10 +36,9 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         /// <param name="valueType">
         ///     The declared type of the source the value came from. <c>null</c> when unknown.
         /// </param>
-        public SqlParameterExpression(object value, bool multipleValues, string identity = null, Type valueType = null)
+        public SqlParameterExpression(object value, string identity = null, Type valueType = null)
         {
             this.Value = value;
-            this.MultipleValues = multipleValues;
             this.Identity = identity;
             this.ValueType = valueType;
         }
@@ -56,12 +59,6 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         ///     </para>
         /// </summary>
         public object Value { get; }
-        /// <summary>
-        ///     <para>
-        ///         Gets a value indicating whether the parameter can have multiple values.
-        ///     </para>
-        /// </summary>
-        public bool MultipleValues { get; }
 
         /// <summary>
         ///     <para>

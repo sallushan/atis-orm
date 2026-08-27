@@ -624,7 +624,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
         private string TranslateSqlInValuesExpression(SqlInValuesExpression sqlInValuesExpression)
         {
             var expressionTranslated = this.Translate(sqlInValuesExpression.Expression);
-            var valuesTranslated = string.Join(", ", sqlInValuesExpression.Values.Select(this.Translate));
+            // One node either way: a collection expression joins its elements, a parameter inlines its
+            // whole collection value. This translator emits values inline, so it cannot show the per-element
+            // placeholders the production renderer produces for a parameter.
+            var valuesTranslated = this.Translate(sqlInValuesExpression.Values);
             return $"{expressionTranslated} in ({valuesTranslated})";
         }
 

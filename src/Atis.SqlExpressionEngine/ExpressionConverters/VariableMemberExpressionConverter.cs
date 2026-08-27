@@ -115,19 +115,13 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         public override SqlExpression Convert(SqlExpression[] convertedChildren)
         {
             var value = this.GetVariableValue(this.Expression);
-            var isEnumerable = this.IsEnumerable(value);
             // Stamp the source variable's stable identity so its value can be rebound by lookup (not by
             // traversal position) on a cache hit - the SqlExpression tree may be reshaped (CTE hoisting,
             // subtree copying) so parameter emission order need not match LINQ re-extraction order.
             var identity = this.variableIdentityProvider.GetIdentity(this.Expression);
             // The member's declared type, not the value's runtime type: a `int?` holding 5 boxes to `int`, and
             // the translator needs to know that a later execution of this same cached query could bind null.
-            return this.SqlFactory.CreateParameter(value, multipleValues: isEnumerable, identity: identity, valueType: this.Expression.Type);
-        }
-
-        private bool IsEnumerable(object value)
-        {
-            return this.ReflectionService.IsEnumerable(value);
+            return this.SqlFactory.CreateParameter(value, identity: identity, valueType: this.Expression.Type);
         }
     }
 }

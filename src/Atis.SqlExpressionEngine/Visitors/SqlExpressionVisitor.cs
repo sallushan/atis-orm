@@ -312,12 +312,8 @@ namespace Atis.SqlExpressionEngine.Visitors
         protected virtual internal SqlExpression VisitInValues(SqlInValuesExpression node)
         {
             var expression = Visit(node.Expression);
-            var values = new List<SqlExpression>();
-            foreach (var value in node.Values)
-            {
-                values.Add(Visit(value));
-            }
-            return node.Update(expression, values.ToArray());
+            var values = Visit(node.Values);
+            return node.Update(expression, values);
         }
 
         protected virtual internal SqlExpression VisitOptionalPredicate(SqlOptionalPredicateExpression node)

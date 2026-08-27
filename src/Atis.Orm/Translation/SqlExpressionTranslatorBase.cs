@@ -318,23 +318,49 @@ namespace Atis.Orm.Translation
         ///         list of values (an <c>IN</c> list, a <c>CONCAT_WS</c> value operand, ...).
         ///     </para>
         ///     <para>
-        ///         A multi-value parameter is emitted as a single expandable marker, which the renderer turns
-        ///         into <c>@p0_0, @p0_1, ...</c> using the collection's length at execution time. Anything
-        ///         else is translated normally. Expansion is opted into here, per position, rather than being
-        ///         inferred from the value: <c>byte[]</c> is a collection too, and a blob compared with
-        ///         <c>=</c> must stay one parameter.
+        ///         A parameter here is emitted as a single expandable marker, which the renderer turns into
+        ///         <c>@p0_1, @p0_2, ...</c> using the collection's length at execution time. Expansion is
+        ///         opted into by the <em>position</em>, never inferred from the value: <c>byte[]</c> is a
+        ///         collection too, and a blob compared with <c>=</c> never reaches here, so it stays one
+        ///         parameter. Reading the value instead would settle the placeholder count from whatever the
+        ///         collection happened to hold when the query was first compiled - including <c>null</c>,
+        ///         which then breaks every later execution that does supply values.
+        ///     </para>
+        ///     <para>
+        ///         A collection expression is an inline array, whose length is fixed by the expression itself.
+        ///         Its elements are translated in place and each keeps its own nature: a constant stays a
+        ///         literal, a captured variable stays a parameter that rebinds on a cache hit.
         ///     </para>
         /// </summary>
         /// <param name="node">The expression occupying the list position.</param>
         /// <param name="emptyListTemplate">
-        ///     Self-contained SQL to emit when the collection turns out to be empty (no parameter is bound).
+        ///     Self-contained SQL to emit when the list turns out to be empty (no parameter is bound).
         /// </param>
         protected void TranslateValueList(SqlExpression node, string emptyListTemplate)
         {
-            if (node is SqlParameterExpression parameter && parameter.MultipleValues)
+            if (node is SqlCollectionExpression collection)
+            {
+                var first = true;
+                foreach (var element in collection.SqlExpressions)
+                {
+                    if (!first)
+                        this.Append(", ");
+                    first = false;
+                    this.TranslateExpression(element);
+                }
+                // Backstop. An empty inline list is rejected at conversion, where the offending query can be
+                // named; if one reaches here from some other producer, emit valid SQL rather than `IN ()`.
+                if (first)
+                    this.Append(emptyListTemplate ?? "NULL");
+            }
+            else if (node is SqlParameterExpression parameter)
+            {
                 this.EmitParameter(parameter.Value, isLiteral: false, source: parameter, isExpandable: true, emptyListTemplate: emptyListTemplate);
+            }
             else
+            {
                 this.TranslateExpression(node);
+            }
         }
 
         /// <summary>
@@ -1435,23 +1461,17 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
-        ///         Translates an IN VALUES expression.
+        ///         Translates an IN VALUES expression. The parenthesised list is one value-list position, so
+        ///         the whole of <see cref="SqlInValuesExpression.Values"/> goes to
+        ///         <see cref="TranslateValueList"/> - which knows how to write a runtime collection and an
+        ///         inline array alike.
         ///     </para>
         /// </summary>
         protected virtual void TranslateInValues(SqlInValuesExpression node)
         {
             this.TranslateExpression(node.Expression);
             this.Append(" IN (");
-            var firstValue = true;
-            foreach (var value in node.Values)
-            {
-                if (!firstValue)
-                    this.Append(", ");
-                firstValue = false;
-                // The values of an inline array arrive as separate expressions; a captured collection arrives
-                // as one multi-value parameter, which this expands.
-                this.TranslateValueList(value, this.EmptyValueListTemplate);
-            }
+            this.TranslateValueList(node.Values, this.EmptyValueListTemplate);
             this.Append(")");
         }
 

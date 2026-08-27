@@ -33,8 +33,13 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlCollectionExpression CreateCollection(IEnumerable<SqlExpression> sqlExpressions);
         SqlCastExpression CreateCast(SqlExpression expression, ISqlDataType sqlDataType);
         SqlDatePartExpression CreateDatePart(SqlDatePart datePart, SqlExpression dateExpr);
-        SqlParameterExpression CreateParameter(object value, bool multipleValues, string identity = null, Type valueType = null);
-        SqlInValuesExpression CreateInValuesExpression(SqlExpression expression, SqlExpression[] values);
+        SqlParameterExpression CreateParameter(object value, string identity = null, Type valueType = null);
+        /// <summary>
+        ///     Creates an <c>IN (...)</c> test. <paramref name="values"/> is one node - a parameter holding a
+        ///     runtime collection, or a collection expression for an inline array; see
+        ///     <see cref="SqlInValuesExpression.Values"/>.
+        /// </summary>
+        SqlInValuesExpression CreateInValuesExpression(SqlExpression expression, SqlExpression values);
         SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate, OptionalGuardKind guardKind = OptionalGuardKind.NullOnly);
         SqlNegateExpression CreateNegate(SqlExpression operand);
         SqlNotExpression CreateNot(SqlExpression sqlExpression);
