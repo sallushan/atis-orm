@@ -19,6 +19,10 @@ namespace Atis.Orm.Querying
         private bool disposed;
         private bool currentIsSet;
         private T current;
+        // The connection is opened lazily on the first MoveNext, so an enumerator that is created and
+        // disposed without being enumerated never opened one. Closing regardless would release a claim
+        // this enumerator never took, and drop the connection under whoever does hold it.
+        private bool connectionOpened;
 
         private readonly IDbCommunication db;
         //private readonly ConnectionInfo connectionInfo;
@@ -38,6 +42,9 @@ namespace Atis.Orm.Querying
             if (this.dataReader == null)
             {
                 this.db.OpenConnection();
+                // Set only once the claim is actually taken: if OpenConnection throws there is nothing
+                // to release.
+                this.connectionOpened = true;
                 var result = this.db.ExecuteReader(this.sql, this.dbParameters, CommandType.Text);
                 this.dataReader = result.DataReader;
                 this.dbCommand = result.Command;
@@ -95,7 +102,11 @@ namespace Atis.Orm.Querying
                     this.dbCommand = null;
                 }
 
-                this.db.CloseConnection();
+                if (this.connectionOpened)
+                {
+                    this.connectionOpened = false;
+                    this.db.CloseConnection();
+                }
             }
 
             disposed = true;

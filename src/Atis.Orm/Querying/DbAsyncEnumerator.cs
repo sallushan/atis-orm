@@ -22,6 +22,10 @@ namespace Atis.Orm.Querying
         private bool disposed;
         private bool currentIsSet;
         private T current;
+        // The connection is opened lazily on the first MoveNextAsync, so an enumerator that is created
+        // and disposed without being enumerated never opened one. Closing regardless would release a
+        // claim this enumerator never took, and drop the connection under whoever does hold it.
+        private bool connectionOpened;
         private readonly IDbCommunication db;
 
         public DbAsyncEnumerator(
@@ -46,6 +50,9 @@ namespace Atis.Orm.Querying
             if (this.dataReader == null)
             {
                 await this.db.OpenConnectionAsync(this.cancellationToken).ConfigureAwait(false);
+                // Set only once the claim is actually taken: if OpenConnectionAsync throws there is
+                // nothing to release.
+                this.connectionOpened = true;
                 var result = await this.db.ExecuteReaderAsync(sql, dbParameters, CommandType.Text, this.cancellationToken).ConfigureAwait(false);
                 this.dataReader = result.DataReader;
                 this.dbCommand = result.Command;
@@ -94,7 +101,11 @@ namespace Atis.Orm.Querying
                     this.dbCommand = null;
                 }
 
-                this.db.CloseConnection();
+                if (this.connectionOpened)
+                {
+                    this.connectionOpened = false;
+                    this.db.CloseConnection();
+                }
             }
 
             disposed = true;
@@ -107,6 +118,11 @@ namespace Atis.Orm.Querying
 
         public async ValueTask DisposeAsync()
         {
+            // Dispose(bool) guards on this flag but this method did not, so Dispose() followed by
+            // DisposeAsync() released the connection twice for one claim.
+            if (this.disposed)
+                return;
+
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (this.dataReader != null)
             {
@@ -120,7 +136,11 @@ namespace Atis.Orm.Querying
                 this.dbCommand = null;
             }
 
-            await this.db.CloseConnectionAsync().ConfigureAwait(false);
+            if (this.connectionOpened)
+            {
+                this.connectionOpened = false;
+                await this.db.CloseConnectionAsync().ConfigureAwait(false);
+            }
             this.disposed = true;
             GC.SuppressFinalize(this);
 #else

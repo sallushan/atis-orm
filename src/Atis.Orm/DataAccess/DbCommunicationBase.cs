@@ -4,7 +4,6 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,6 +22,11 @@ namespace Atis.Orm.DataAccess
         // case when this variable will have value is through DataReader enumeration that
         // is done in DbAsyncEnumerator and DbEnumerator.
         private DbConnection _localConnection;
+        // How many callers currently hold _localConnection open. Reference counted because the
+        // field is a single slot with no ownership information of its own: two overlapping
+        // readers, or a command running while a reader is enumerated, share the one connection,
+        // and without a count the first to finish would close it under the others.
+        private int _localConnectionOpenCount;
         private DbTransaction _transaction;
 
         public string ConnectionString { get; set; }
@@ -75,29 +79,64 @@ namespace Atis.Orm.DataAccess
             this._externalConnection = dbConnection;
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Releases one claim on the connection this instance opened for itself. The underlying
+        ///         connection is closed and disposed only when the last claim goes, so a command running
+        ///         while a reader is being enumerated does not close the reader's connection.
+        ///     </para>
+        ///     <para>
+        ///         A connection the caller supplied, or one a transaction owns, is never touched here --
+        ///         this instance did not open it and does not close it.
+        ///     </para>
+        /// </summary>
         public void CloseConnection()
         {
-            if (this._localConnection != null)
-            {
-                this._localConnection.Close();
-                this._localConnection.Dispose();
-                this._localConnection = null;
-            }
+            if (!this.ReleaseLocalConnection())
+                return;
+
+            var connection = this._localConnection;
+            this._localConnection = null;
+            connection.Close();
+            connection.Dispose();
         }
 
+        /// <summary>The asynchronous <see cref="CloseConnection"/>.</summary>
         public async Task CloseConnectionAsync()
         {
-            if (this._localConnection != null)
-            {
+            if (!this.ReleaseLocalConnection())
+                return;
+
+            var connection = this._localConnection;
+            // Cleared before the await so a re-entrant call cannot find a connection that is already
+            // on its way out.
+            this._localConnection = null;
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-                await this._localConnection.CloseAsync().ConfigureAwait(false);
-                await this._localConnection.DisposeAsync().ConfigureAwait(false);
+            await connection.CloseAsync().ConfigureAwait(false);
+            await connection.DisposeAsync().ConfigureAwait(false);
 #else
-                this._localConnection.Close();
-                this._localConnection.Dispose();
+            connection.Close();
+            connection.Dispose();
 #endif
-                this._localConnection = null;
-            }
+        }
+
+        /// <summary>
+        ///     Gives up one claim on <c>_localConnection</c> and reports whether that was the last one, so
+        ///     the caller should now close it.
+        /// </summary>
+        private bool ReleaseLocalConnection()
+        {
+            if (this._localConnection == null)
+                return false;
+
+            if (this._localConnectionOpenCount > 0)
+                return --this._localConnectionOpenCount == 0;
+
+            // A connection still in hand with nobody claiming it means an unbalanced Open/Close
+            // somewhere -- these methods are public on IDbCommunication, so a caller can close what it
+            // never opened. Deliberately not an error: the count cannot go negative, and closing is the
+            // safe reading when no one claims to be holding it.
+            return true;
         }
 
         protected abstract DbCommand CreateCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType);
@@ -110,30 +149,6 @@ namespace Atis.Orm.DataAccess
             dbCommand.Connection = connection;
             dbCommand.Transaction = this._transaction;
             return dbCommand;
-        }
-
-        /// <summary>
-        ///     <para>
-        ///         Guards the methods that own a connection for the length of one command -- they open it,
-        ///         run, and close it again. Those may only start from a clean slate, so a local connection
-        ///         already being open means one such command never finished closing up after itself.
-        ///     </para>
-        ///     <para>
-        ///         In practice that is a data reader this instance opened and that has not been enumerated
-        ///         to the end or disposed: reader enumeration is the one thing that deliberately holds
-        ///         <c>_localConnection</c> open across calls. Running here anyway would close the
-        ///         connection out from under that reader in the <c>finally</c>.
-        ///     </para>
-        /// </summary>
-        private void EnsureNoCommandInFlight([CallerMemberName] string caller = null)
-        {
-            if (this._localConnection != null)
-            {
-                throw new InvalidOperationException(
-                    $"{caller} cannot run because this {nameof(IDbCommunication)} already has a connection of " +
-                    "its own open -- a data reader it returned is still being enumerated. Finish or dispose " +
-                    "that enumeration first, or give the concurrent work its own instance.");
-            }
         }
 
         public virtual DbReaderExecutionResult ExecuteReader(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
@@ -177,8 +192,6 @@ namespace Atis.Orm.DataAccess
 
         public virtual int ExecuteNonQueryCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            this.EnsureNoCommandInFlight();
-
             this.OpenConnection();
             try
             {
@@ -196,8 +209,6 @@ namespace Atis.Orm.DataAccess
 
         public async Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken)
         {
-            this.EnsureNoCommandInFlight();
-
             await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -220,8 +231,6 @@ namespace Atis.Orm.DataAccess
         /// </summary>
         public virtual T ExecuteScalarCommand<T>(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            this.EnsureNoCommandInFlight();
-
             this.OpenConnection();
             try
             {
@@ -239,8 +248,6 @@ namespace Atis.Orm.DataAccess
         /// <summary>The asynchronous <see cref="ExecuteScalarCommand{T}"/>.</summary>
         public virtual async Task<T> ExecuteScalarCommandAsync<T>(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
         {
-            this.EnsureNoCommandInFlight();
-
             await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -274,8 +281,6 @@ namespace Atis.Orm.DataAccess
         /// </exception>
         public virtual IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            this.EnsureNoCommandInFlight();
-
             this.OpenConnection();
             try
             {
@@ -304,8 +309,6 @@ namespace Atis.Orm.DataAccess
         /// <summary>The asynchronous <see cref="ExecuteDictionary"/>.</summary>
         public virtual async Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
         {
-            this.EnsureNoCommandInFlight();
-
             await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -409,37 +412,100 @@ namespace Atis.Orm.DataAccess
             return (T)Convert.ChangeType(value, targetType, CultureInfo.InvariantCulture);
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Makes a connection available and takes a claim on it. Every call must be matched by
+        ///         exactly one <see cref="CloseConnection"/>; the connection stays open until the last
+        ///         claim is released, so overlapping readers and commands share one connection safely.
+        ///     </para>
+        ///     <para>
+        ///         Whether the database then allows two commands to be active on that one connection is
+        ///         the driver's business, not this class's: SQL Server needs
+        ///         <c>MultipleActiveResultSets=True</c> and otherwise fails with its own "there is already
+        ///         an open DataReader" error, while some providers allow it outright and others never do.
+        ///         Nothing here inspects or second-guesses that.
+        ///     </para>
+        /// </summary>
         public void OpenConnection()
         {
-            var conn = (this._transactionConnection ?? this._externalConnection)
-                        ??
-                        this._localConnection;
-            if (conn is null)
+            var shared = this._transactionConnection ?? this._externalConnection;
+            if (shared != null)
             {
-                conn = this.CreateConnection();
-                this._localConnection = conn;
+                // Not ours to own: open it if the caller left it closed, but never count it and never
+                // close it.
+                if (shared.State != ConnectionState.Open)
+                    shared.Open();
+                return;
             }
-            if (conn.State != ConnectionState.Open)
+
+            if (this._localConnection != null)
             {
-                conn.Open();
+                this.PrepareExistingLocalConnection();
+                if (this._localConnection.State != ConnectionState.Open)
+                    this._localConnection.Open();
+                this._localConnectionOpenCount++;
+                return;
             }
+
+            var connection = this.CreateConnection();
+            try
+            {
+                connection.Open();
+            }
+            catch
+            {
+                // Storing a connection that never opened would leave every later call retrying Open()
+                // on the same dead instance.
+                connection.Dispose();
+                throw;
+            }
+            this._localConnection = connection;
+            this._localConnectionOpenCount = 1;
         }
 
-        public Task OpenConnectionAsync(CancellationToken cancellationToken)
+        /// <summary>The asynchronous <see cref="OpenConnection"/>.</summary>
+        public async Task OpenConnectionAsync(CancellationToken cancellationToken)
         {
-            var conn = (this._transactionConnection ?? this._externalConnection)
-                        ??
-                        this._localConnection;
-            if (conn is null)
+            var shared = this._transactionConnection ?? this._externalConnection;
+            if (shared != null)
             {
-                conn = this.CreateConnection();
-                this._localConnection = conn;
+                if (shared.State != ConnectionState.Open)
+                    await shared.OpenAsync(cancellationToken).ConfigureAwait(false);
+                return;
             }
-            if (conn.State != ConnectionState.Open)
+
+            if (this._localConnection != null)
             {
-                return conn.OpenAsync(cancellationToken);
+                this.PrepareExistingLocalConnection();
+                if (this._localConnection.State != ConnectionState.Open)
+                    await this._localConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                this._localConnectionOpenCount++;
+                return;
             }
-            return Task.CompletedTask;
+
+            var connection = this.CreateConnection();
+            try
+            {
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                connection.Dispose();
+                throw;
+            }
+            this._localConnection = connection;
+            this._localConnectionOpenCount = 1;
+        }
+
+        /// <summary>
+        ///     A broken connection cannot be reopened as it stands; closing it first puts it back in a
+        ///     state where <c>Open</c> works. The instance is kept rather than replaced, so any claim
+        ///     already counted against it stays valid.
+        /// </summary>
+        private void PrepareExistingLocalConnection()
+        {
+            if (this._localConnection.State == ConnectionState.Broken)
+                this._localConnection.Close();
         }
 
         bool _transactionStarted = false;

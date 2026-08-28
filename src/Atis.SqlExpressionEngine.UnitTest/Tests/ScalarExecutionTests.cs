@@ -177,11 +177,13 @@ insert into dbo.ScalarTest (Id, Tag) values (1, 'One'), (2, 'Two'), (3, 'Three')
         }
 
         /// <summary>
-        ///     The guard: a reader still being enumerated holds the instance's own connection open, and
-        ///     running here would close it out from under that reader.
+        ///     Running while the instance already holds its own connection open is allowed, and must leave
+        ///     that connection open: the command releases only its own claim on it. This used to be refused
+        ///     outright, because the command's <c>finally</c> would have closed the connection out from
+        ///     under whoever was holding it.
         /// </summary>
         [TestMethod]
-        public void WhileTheInstanceHoldsItsOwnConnection_Throws()
+        public void WhileTheInstanceHoldsItsOwnConnection_RunsAndLeavesItOpen()
         {
             var db = new SqlDbCommunication(ConnectionString);
 
@@ -189,12 +191,11 @@ insert into dbo.ScalarTest (Id, Tag) values (1, 'One'), (2, 'Two'), (3, 'Three')
             db.OpenConnection();
             try
             {
-                var thrown = Assert.ThrowsException<InvalidOperationException>(
-                    () => db.ExecuteScalarCommand<int>("select 1", null, CommandType.Text));
+                Assert.AreEqual(1, db.ExecuteScalarCommand<int>("select 1", null, CommandType.Text));
 
-                StringAssert.Contains(thrown.Message, "ExecuteScalarCommand",
-                    "The message must name the method that was refused.");
-                StringAssert.Contains(thrown.Message, "data reader");
+                // The claim taken above still stands, so a second command still has a connection to run
+                // on. Were it closed, this would fail instead.
+                Assert.AreEqual(2, db.ExecuteScalarCommand<int>("select 2", null, CommandType.Text));
             }
             finally
             {

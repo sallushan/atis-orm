@@ -189,11 +189,13 @@ insert into dbo.DictionaryTest (Id, Tag, Amount) values (1, 'One', 10.50), (2, '
         }
 
         /// <summary>
-        ///     The guard: a reader still being enumerated holds the instance's own connection open, and
-        ///     running here would close it out from under that reader.
+        ///     Running while the instance already holds its own connection open is allowed, and must leave
+        ///     that connection open: the command releases only its own claim on it. This used to be refused
+        ///     outright, because the command's <c>finally</c> would have closed the connection out from
+        ///     under whoever was holding it.
         /// </summary>
         [TestMethod]
-        public void WhileTheInstanceHoldsItsOwnConnection_Throws()
+        public void WhileTheInstanceHoldsItsOwnConnection_RunsAndLeavesItOpen()
         {
             var db = new SqlDbCommunication(ConnectionString);
 
@@ -201,12 +203,11 @@ insert into dbo.DictionaryTest (Id, Tag, Amount) values (1, 'One', 10.50), (2, '
             db.OpenConnection();
             try
             {
-                var thrown = Assert.ThrowsException<InvalidOperationException>(
-                    () => db.ExecuteDictionary("select 1 as One", null, CommandType.Text));
+                Assert.AreEqual(1, db.ExecuteDictionary("select 1 as One", null, CommandType.Text).Count);
 
-                StringAssert.Contains(thrown.Message, "ExecuteDictionary",
-                    "The message must name the method that was refused.");
-                StringAssert.Contains(thrown.Message, "data reader");
+                // The claim taken above still stands, so a second command still has a connection to run
+                // on. Were it closed, this would fail instead.
+                Assert.AreEqual(1, db.ExecuteDictionary("select 2 as Two", null, CommandType.Text).Count);
             }
             finally
             {
