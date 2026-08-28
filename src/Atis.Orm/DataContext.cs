@@ -629,9 +629,6 @@ namespace Atis.Orm
             }
         }
 
-        // NOTE: the four members below are a provisional surface so the DB layer can be exercised end to
-        // end. The shape will be revisited once that layer is finalized.
-
         /// <summary>
         ///     <para>
         ///         Runs <paramref name="work"/> inside a database transaction, committing when it returns
@@ -644,8 +641,51 @@ namespace Atis.Orm
         ///         separately and the outer call would commit it. Use
         ///         <see cref="TransactionWithSavepoint(Action)"/> when you need to catch and carry on.
         ///     </para>
+        ///     <para>
+        ///         The transaction begins at the provider's default isolation level; use the overload taking
+        ///         an <see cref="IsolationLevel"/> to choose one.
+        ///     </para>
         /// </summary>
         public virtual void Transaction(Action work) => this.DbCommunication.Transaction(work);
+
+        /// <inheritdoc cref="Transaction(Action)"/>
+        /// <param name="work">The work to run inside the transaction.</param>
+        /// <param name="isolationLevel">
+        ///     The level to begin at. It applies only to a transaction begun here: on a nested call, and
+        ///     after <see cref="UseTransaction"/>, the surrounding transaction already exists and its level
+        ///     stands.
+        /// </param>
+        public virtual void Transaction(Action work, IsolationLevel isolationLevel)
+            => this.DbCommunication.Transaction(work, isolationLevel);
+
+        /// <summary>
+        ///     Whether work running now is inside a transaction — one begun by
+        ///     <see cref="Transaction(Action)"/> or one handed over by <see cref="UseTransaction"/>.
+        /// </summary>
+        public virtual bool IsInTransaction => this.DbCommunication.IsInTransaction;
+
+        /// <summary>
+        ///     <para>
+        ///         Runs everything from here on inside <paramref name="transaction"/>, which the caller began
+        ///         and continues to own: every command is enlisted in it, and <see cref="Transaction(Action)"/>
+        ///         stops beginning one of its own and simply runs the work. Nothing here commits, rolls back
+        ///         or disposes it.
+        ///     </para>
+        ///     <para>
+        ///         So existing code written as <c>Transaction(() =&gt; ...)</c> keeps working unchanged when a
+        ///         caller supplies a transaction from outside:
+        ///     </para>
+        ///     <code>
+        ///         dbc.UseTransaction(externalTransaction);
+        ///         SomeComplexBusinessMethod();        // its own Transaction(...) call just runs the work
+        ///     </code>
+        ///     <para>
+        ///         Pass <c>null</c> when the caller's transaction ends, after which
+        ///         <see cref="Transaction(Action)"/> begins its own again.
+        ///     </para>
+        /// </summary>
+        public virtual void UseTransaction(DbTransaction transaction)
+            => this.DbCommunication.UseTransaction(transaction);
 
         /// <summary>
         ///     Runs <paramref name="work"/> inside a savepoint of the surrounding transaction. If it
@@ -663,6 +703,16 @@ namespace Atis.Orm
         /// </summary>
         public virtual Task TransactionAsync(Func<Task> work, CancellationToken cancellationToken = default)
             => this.DbCommunication.TransactionAsync(work, cancellationToken);
+
+        /// <inheritdoc cref="TransactionAsync(Func{Task}, CancellationToken)"/>
+        /// <param name="work">The work to run inside the transaction.</param>
+        /// <param name="isolationLevel">
+        ///     The level to begin at; see <see cref="Transaction(Action, IsolationLevel)"/> for when it
+        ///     applies.
+        /// </param>
+        /// <param name="cancellationToken">Cancels the connection open and the begin.</param>
+        public virtual Task TransactionAsync(Func<Task> work, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+            => this.DbCommunication.TransactionAsync(work, isolationLevel, cancellationToken);
 
         /// <summary>The asynchronous <see cref="TransactionWithSavepoint(Action)"/>.</summary>
         /// <exception cref="InvalidOperationException">There is no surrounding transaction.</exception>

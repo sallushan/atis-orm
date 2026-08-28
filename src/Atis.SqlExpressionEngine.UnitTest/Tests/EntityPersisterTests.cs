@@ -235,6 +235,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 finally { this.InTransaction = false; }
             }
 
+            public bool IsInTransaction => this.InTransaction;
+
+            public void Transaction(Action work, IsolationLevel isolationLevel) => this.Transaction(work);
+
+            public Task TransactionAsync(Func<Task> work, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+                => this.TransactionAsync(work, cancellationToken);
+
             public T ExecuteScalarCommand<T>(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType)
             {
                 Assert.IsTrue(this.InTransaction,
@@ -254,6 +261,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             public Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken) => throw new NotSupportedException();
             public int ExecuteNonQueryCommand(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType) => throw new NotSupportedException();
             public Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public void UseTransaction(DbTransaction transaction) => throw new NotSupportedException();
             public void TransactionWithSavepoint(Action work) => throw new NotSupportedException();
             public Task TransactionWithSavepointAsync(Func<Task> work, CancellationToken cancellationToken = default) => throw new NotSupportedException();
             public DbReaderExecutionResult ExecuteReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType) => throw new NotSupportedException();

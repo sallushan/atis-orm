@@ -512,9 +512,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             /// <summary>The ambient transaction, so tests can assert it was cleared.</summary>
             public DbTransaction CurrentTransaction => this.GetCurrentTransaction();
 
-            protected override (DbConnection, DbTransaction, bool) GetTransactionAndConnection()
+            /// <summary>The isolation level the last begin was asked for, if any.</summary>
+            public IsolationLevel? LastIsolationLevel { get; private set; }
+
+            protected override (DbConnection, DbTransaction, bool) GetTransactionAndConnection(IsolationLevel? isolationLevel)
             {
                 this.BeginCount++;
+                this.LastIsolationLevel = isolationLevel;
                 this.Log.Add("begin");
                 this.Transaction1 = new FakeTransaction { FailOnCommit = this.FailCommit };
                 return (null, this.Transaction1, false);
@@ -576,8 +580,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 return Task.CompletedTask;
             }
 
-            protected override Task<(DbConnection, DbTransaction, bool)> GetTransactionAndConnectionAsync(CancellationToken cancellationToken)
-                => Task.FromResult(this.GetTransactionAndConnection());
+            protected override Task<(DbConnection, DbTransaction, bool)> GetTransactionAndConnectionAsync(IsolationLevel? isolationLevel, CancellationToken cancellationToken)
+                => Task.FromResult(this.GetTransactionAndConnection(isolationLevel));
 
             protected override DbConnection CreateConnection()
                 => throw new NotSupportedException("These tests never reach the database.");

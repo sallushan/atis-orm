@@ -143,6 +143,7 @@ namespace Atis.Orm.DataAccess
 
         private DbCommand CreateCommandInternal(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
+            this.EnsureCallerTransactionIsStillUsable();
             var connection = this.GetCurrentConnection()
                  ?? throw new InvalidOperationException("No connection is available; the connection must be opened before creating a command.");
             var dbCommand = this.CreateCommand(commandText, dbParameters, commandType);
@@ -151,6 +152,46 @@ namespace Atis.Orm.DataAccess
             return dbCommand;
         }
 
+        /// <summary>
+        ///     A transaction handed over by <see cref="UseTransaction"/> can be ended by its owner at any
+        ///     time without telling this instance. A <see cref="DbTransaction"/> drops its
+        ///     <see cref="DbTransaction.Connection"/> once that happens, which is the one signal available.
+        ///     Reported rather than quietly cleared: carrying on would run the remaining commands outside
+        ///     any transaction, which looks like success and is the harder failure to notice.
+        /// </summary>
+        private void EnsureCallerTransactionIsStillUsable()
+        {
+            if (this._transactionIsCallerOwned && this._transaction?.Connection is null)
+            {
+                throw new InvalidOperationException(
+                    $"The transaction given to {nameof(UseTransaction)} has been committed, rolled back or " +
+                    $"disposed, so no further command can run inside it. Call {nameof(UseTransaction)}(null) " +
+                    "when the transaction ends, or hand over the new one.");
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Runs <paramref name="commandText"/> and hands back the open reader together with the
+        ///         command behind it, for a caller that wants to stream rows rather than buffer them.
+        ///     </para>
+        ///     <para>
+        ///         <strong>The caller owns all three pieces</strong>, which is the opposite of every other
+        ///         command on <see cref="IDbCommunication"/>: those open a connection, run, and close it
+        ///         again before returning, whereas this one cannot -- the reader is still live when it
+        ///         returns. So the caller must call <see cref="OpenConnection"/> beforehand, and afterwards
+        ///         dispose the reader, dispose the command, and call <see cref="CloseConnection"/> -- one
+        ///         close for the one open. <c>DbEnumerator</c> and <c>DbAsyncEnumerator</c> are the two
+        ///         callers in this library and show the shape.
+        ///     </para>
+        ///     <para>
+        ///         Whether a second command may run while that reader is open is the driver's business, not
+        ///         this class's: SQL Server needs <c>MultipleActiveResultSets=True</c> and otherwise fails
+        ///         with its own "there is already an open DataReader" error, some providers allow it
+        ///         outright, and others never do. The connection itself is safe either way -- it is
+        ///         reference counted, so a command running meanwhile releases only its own claim.
+        ///     </para>
+        /// </summary>
         public virtual DbReaderExecutionResult ExecuteReader(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
             DbCommand dbCommand = null;
@@ -167,6 +208,10 @@ namespace Atis.Orm.DataAccess
             }
         }
 
+        /// <summary>
+        ///     The asynchronous <see cref="ExecuteReader"/>, and the same ownership contract: the caller
+        ///     opens the connection first, and disposes reader, command and connection afterwards.
+        /// </summary>
         public virtual async Task<DbReaderExecutionResult> ExecuteReaderAsync(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
         {
             DbCommand dbCommand = null;
@@ -518,7 +563,116 @@ namespace Atis.Orm.DataAccess
         // keep piling work onto a transaction that is already dead. Checked before commit.
         private bool _transactionPoisoned = false;
 
-        public virtual void Transaction(Action work)
+        // Set when the transaction came from the caller through UseTransaction rather than being begun
+        // here. It is the difference between "there is a transaction" and "there is a transaction we are
+        // responsible for ending", and only the second may be committed or rolled back.
+        private bool _transactionIsCallerOwned = false;
+
+        /// <summary>
+        ///     <para>
+        ///         Runs everything from here on inside <paramref name="transaction"/>, which the caller began
+        ///         and continues to own: every command is enlisted in it, and <see cref="Transaction(Action)"/>
+        ///         stops beginning one of its own and simply runs the work. Nothing here ever commits, rolls
+        ///         back, or disposes it, and the connection it belongs to is neither opened nor closed.
+        ///     </para>
+        ///     <para>
+        ///         The point is that existing code wrapping its work in <see cref="Transaction(Action)"/>
+        ///         keeps working unchanged when a caller supplies a transaction from outside -- it neither
+        ///         has to know nor has to be rewritten. Pass <c>null</c> to stop using the caller's
+        ///         transaction, after which <see cref="Transaction(Action)"/> begins its own again.
+        ///     </para>
+        ///     <para>
+        ///         Without this, a connection that already carries a transaction cannot be used at all: the
+        ///         driver refuses a command that is not enlisted in the pending transaction, and refuses a
+        ///         second <c>BeginTransaction</c> on top of it. Joining it cannot be done automatically
+        ///         because ADO.NET offers no way to ask a connection what transaction it is in -- hence the
+        ///         caller handing it over explicitly.
+        ///     </para>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">
+        ///     A transaction begun by this instance is currently running; <paramref name="transaction"/> has
+        ///     already ended; or it belongs to a different connection than the one this instance was given.
+        /// </exception>
+        public virtual void UseTransaction(DbTransaction transaction)
+        {
+            if (transaction is null)
+            {
+                if (!this._transactionIsCallerOwned)
+                    return;
+
+                this._transaction = null;
+                this._transactionConnection = null;
+                this._transactionStarted = false;
+                this._transactionIsCallerOwned = false;
+                this._savepointCount = 0;
+                this._transactionPoisoned = false;
+                return;
+            }
+
+            if (this._transactionStarted && !this._transactionIsCallerOwned)
+                throw new InvalidOperationException(
+                    $"{nameof(UseTransaction)} cannot be called while a transaction started by this " +
+                    $"{nameof(IDbCommunication)} is running -- the work already done would be left on a " +
+                    "transaction nothing will commit. Call it before entering " +
+                    $"{nameof(Transaction)}, not inside it.");
+
+            var transactionConnection = transaction.Connection
+                ?? throw new InvalidOperationException(
+                    $"The transaction passed to {nameof(UseTransaction)} has already been committed, rolled " +
+                    "back or disposed, so nothing can run inside it.");
+
+            if (this._externalConnection != null && !ReferenceEquals(this._externalConnection, transactionConnection))
+                throw new InvalidOperationException(
+                    $"The transaction passed to {nameof(UseTransaction)} belongs to a different connection " +
+                    $"than the one this {nameof(IDbCommunication)} was constructed with. A command can only " +
+                    "run in a transaction on its own connection.");
+
+            this._transaction = transaction;
+            // Also the connection everything runs on: GetCurrentConnection prefers it, and it is treated as
+            // a connection this instance does not own, so it is never counted, closed or disposed here.
+            this._transactionConnection = transactionConnection;
+            // Makes Transaction() take its nested pass-through branch at any depth, which is exactly the
+            // wanted behaviour: run the work, begin and end nothing.
+            this._transactionStarted = true;
+            this._transactionIsCallerOwned = true;
+            this._savepointCount = 0;
+            this._transactionPoisoned = false;
+        }
+
+        /// <summary>
+        ///     Whether work running now is inside a transaction -- one begun by
+        ///     <see cref="Transaction(Action, IsolationLevel?)"/> or one handed over by
+        ///     <see cref="UseTransaction"/>. Says nothing about which of the two: to a caller deciding
+        ///     whether its work is already covered, they are the same thing.
+        /// </summary>
+        public virtual bool IsInTransaction => this._transactionStarted;
+
+        /// <summary>
+        ///     <para>
+        ///         Runs <paramref name="work"/> inside a transaction, committing when it returns and rolling
+        ///         back when it throws. A nested call joins the transaction already in progress and neither
+        ///         commits nor rolls back on its own -- only the outermost call does.
+        ///     </para>
+        ///     <para>
+        ///         The transaction begins at the provider's default isolation level; use the overload taking
+        ///         an <see cref="IsolationLevel"/> to choose one.
+        ///     </para>
+        /// </summary>
+        public virtual void Transaction(Action work) => this.RunTransaction(work, null);
+
+        /// <inheritdoc cref="Transaction(Action)"/>
+        /// <param name="work">The work to run inside the transaction.</param>
+        /// <param name="isolationLevel">
+        ///     The level to begin at. It applies only to a transaction begun here: on a nested call, and
+        ///     after <see cref="UseTransaction"/>, the surrounding transaction already exists and its level
+        ///     stands -- passing one there changes nothing rather than failing, so that business code
+        ///     written as <c>Transaction(work, level)</c> keeps running unchanged when a caller supplies a
+        ///     transaction from outside.
+        /// </param>
+        public virtual void Transaction(Action work, IsolationLevel isolationLevel)
+            => this.RunTransaction(work, isolationLevel);
+
+        private void RunTransaction(Action work, IsolationLevel? isolationLevel)
         {
             if (work is null)
                 throw new ArgumentNullException(nameof(work));
@@ -534,7 +688,7 @@ namespace Atis.Orm.DataAccess
             try
             {
                 // conn will be null in-case of _externalConnection is set
-                var (conn, tx, wasClosed) = this.GetTransactionAndConnection();
+                var (conn, tx, wasClosed) = this.GetTransactionAndConnection(isolationLevel);
                 this._transactionConnection = conn;
                 this._transaction = tx;
                 try
@@ -598,7 +752,7 @@ namespace Atis.Orm.DataAccess
 
         /// <summary>
         ///     <para>
-        ///         The asynchronous <see cref="Transaction(Action)"/>. Shares
+        ///         The asynchronous <see cref="Transaction(Action, IsolationLevel?)"/>. Shares
         ///         <c>_transactionStarted</c> with the synchronous version, so mixing the two nests
         ///         correctly rather than starting a second transaction.
         ///     </para>
@@ -610,7 +764,20 @@ namespace Atis.Orm.DataAccess
         ///         to one unit of work.
         ///     </para>
         /// </summary>
-        public virtual async Task TransactionAsync(Func<Task> work, CancellationToken cancellationToken = default)
+        public virtual Task TransactionAsync(Func<Task> work, CancellationToken cancellationToken = default)
+            => this.RunTransactionAsync(work, null, cancellationToken);
+
+        /// <inheritdoc cref="TransactionAsync(Func{Task}, CancellationToken)"/>
+        /// <param name="work">The work to run inside the transaction.</param>
+        /// <param name="isolationLevel">
+        ///     The level to begin at; see <see cref="Transaction(Action, IsolationLevel)"/> for when it
+        ///     applies.
+        /// </param>
+        /// <param name="cancellationToken">Cancels the connection open and the begin.</param>
+        public virtual Task TransactionAsync(Func<Task> work, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+            => this.RunTransactionAsync(work, isolationLevel, cancellationToken);
+
+        private async Task RunTransactionAsync(Func<Task> work, IsolationLevel? isolationLevel, CancellationToken cancellationToken)
         {
             if (work is null)
                 throw new ArgumentNullException(nameof(work));
@@ -626,7 +793,7 @@ namespace Atis.Orm.DataAccess
             try
             {
                 // conn will be null in-case of _externalConnection is set
-                var (conn, tx, wasClosed) = await this.GetTransactionAndConnectionAsync(cancellationToken).ConfigureAwait(false);
+                var (conn, tx, wasClosed) = await this.GetTransactionAndConnectionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
                 this._transactionConnection = conn;
                 this._transaction = tx;
                 try
@@ -726,6 +893,9 @@ namespace Atis.Orm.DataAccess
             if (this._transactionPoisoned)
                 throw new InvalidOperationException(
                     "The transaction can no longer be used because rolling back to an earlier savepoint failed.");
+            // The reference below survives its owner ending the transaction, so this has to be asked
+            // separately -- otherwise the savepoint fails somewhere further down with a worse message.
+            this.EnsureCallerTransactionIsStillUsable();
 
             var tx = this._transaction
                      ?? throw new InvalidOperationException(
@@ -782,6 +952,9 @@ namespace Atis.Orm.DataAccess
             if (this._transactionPoisoned)
                 throw new InvalidOperationException(
                     "The transaction can no longer be used because rolling back to an earlier savepoint failed.");
+            // The reference below survives its owner ending the transaction, so this has to be asked
+            // separately -- otherwise the savepoint fails somewhere further down with a worse message.
+            this.EnsureCallerTransactionIsStillUsable();
 
             var tx = this._transaction
                      ?? throw new InvalidOperationException(
@@ -874,7 +1047,7 @@ namespace Atis.Orm.DataAccess
         }
 
         // TODO: see if we can create a readonly struct for this tuple to avoid heap allocation.
-        protected virtual (DbConnection, DbTransaction, bool) GetTransactionAndConnection()
+        protected virtual (DbConnection, DbTransaction, bool) GetTransactionAndConnection(IsolationLevel? isolationLevel)
         {
             if (this._externalConnection != null)
             {
@@ -888,7 +1061,7 @@ namespace Atis.Orm.DataAccess
                 }
                 try
                 {
-                    transaction1 = this._externalConnection.BeginTransaction();
+                    transaction1 = BeginTransaction(this._externalConnection, isolationLevel);
                 }
                 catch (Exception ex)
                 {
@@ -916,7 +1089,7 @@ namespace Atis.Orm.DataAccess
             {
                 transactionConnection = this.CreateConnection();
                 transactionConnection.Open();
-                transaction = transactionConnection.BeginTransaction();
+                transaction = BeginTransaction(transactionConnection, isolationLevel);
             }
             catch
             {
@@ -928,13 +1101,23 @@ namespace Atis.Orm.DataAccess
             return (transactionConnection, transaction, false);
         }
 
+        /// <summary>
+        ///     <c>BeginTransaction()</c> and <c>BeginTransaction(IsolationLevel)</c> are separate overloads
+        ///     rather than one with a default, and there is no value meaning "the provider's own default" --
+        ///     <see cref="IsolationLevel.Unspecified"/> is a level a provider may reject, not an absence.
+        ///     So the choice has to be made by calling one or the other.
+        /// </summary>
+        private static DbTransaction BeginTransaction(DbConnection connection, IsolationLevel? isolationLevel)
+            => isolationLevel.HasValue
+                    ? connection.BeginTransaction(isolationLevel.Value)
+                    : connection.BeginTransaction();
+
         protected virtual void CommitTransaction(DbTransaction tx)
         {
             if (tx is null)
                 throw new ArgumentNullException(nameof(tx));
 
             tx.Commit();
-            // TODO: savepoint
         }
 
         protected virtual void RollbackTransaction(DbTransaction tx)
@@ -949,7 +1132,7 @@ namespace Atis.Orm.DataAccess
         ///     The asynchronous <see cref="GetTransactionAndConnection"/>. Only the connection open is
         ///     genuinely asynchronous on every target; see <see cref="BeginTransactionAsync"/>.
         /// </summary>
-        protected virtual async Task<(DbConnection, DbTransaction, bool)> GetTransactionAndConnectionAsync(CancellationToken cancellationToken)
+        protected virtual async Task<(DbConnection, DbTransaction, bool)> GetTransactionAndConnectionAsync(IsolationLevel? isolationLevel, CancellationToken cancellationToken)
         {
             if (this._externalConnection != null)
             {
@@ -963,7 +1146,7 @@ namespace Atis.Orm.DataAccess
                 }
                 try
                 {
-                    transaction1 = await BeginTransactionAsync(this._externalConnection, cancellationToken).ConfigureAwait(false);
+                    transaction1 = await BeginTransactionAsync(this._externalConnection, isolationLevel, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -995,7 +1178,7 @@ namespace Atis.Orm.DataAccess
             {
                 transactionConnection = this.CreateConnection();
                 await transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
-                transaction = await BeginTransactionAsync(transactionConnection, cancellationToken).ConfigureAwait(false);
+                transaction = await BeginTransactionAsync(transactionConnection, isolationLevel, cancellationToken).ConfigureAwait(false);
             }
             catch
             {
@@ -1012,13 +1195,15 @@ namespace Atis.Orm.DataAccess
         ///     the begin is synchronous -- which costs nothing in practice, since the statement is not sent
         ///     to the server until the first command runs under it.
         /// </summary>
-        private static async Task<DbTransaction> BeginTransactionAsync(DbConnection connection, CancellationToken cancellationToken)
+        private static async Task<DbTransaction> BeginTransactionAsync(DbConnection connection, IsolationLevel? isolationLevel, CancellationToken cancellationToken)
         {
 #if NET6_0_OR_GREATER
-            return await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            return isolationLevel.HasValue
+                    ? await connection.BeginTransactionAsync(isolationLevel.Value, cancellationToken).ConfigureAwait(false)
+                    : await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 #else
             await Task.CompletedTask.ConfigureAwait(false);
-            return connection.BeginTransaction();
+            return BeginTransaction(connection, isolationLevel);
 #endif
         }
 

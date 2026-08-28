@@ -31,11 +31,23 @@ namespace Atis.Orm.DataAccess
         Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
         int ExecuteNonQueryCommand(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
         Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
+        bool IsInTransaction { get; }
+        void UseTransaction(DbTransaction transaction);
         void Transaction(Action work);
+        void Transaction(Action work, IsolationLevel isolationLevel);
         Task TransactionAsync(Func<Task> work, CancellationToken cancellationToken = default);
+        Task TransactionAsync(Func<Task> work, IsolationLevel isolationLevel, CancellationToken cancellationToken = default);
         void TransactionWithSavepoint(Action work);
         Task TransactionWithSavepointAsync(Func<Task> work, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     Unlike every other command here, the caller owns what comes back: call
+        ///     <see cref="OpenConnection"/> first, and afterwards dispose the reader, dispose the command and
+        ///     call <see cref="CloseConnection"/>. See the implementation for the full contract.
+        /// </summary>
         DbReaderExecutionResult ExecuteReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
+
+        /// <summary>The asynchronous <see cref="ExecuteReader"/>, same ownership contract.</summary>
         Task<DbReaderExecutionResult> ExecuteReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
     }
 }
