@@ -4,6 +4,7 @@ using System.Collections.Generic;
 
 using Atis.Orm.Abstractions;
 using Atis.SqlExpressionEngine;
+using Atis.SqlExpressionEngine.SqlExpressions;
 
 namespace Atis.Orm.Translation
 {
@@ -111,15 +112,34 @@ namespace Atis.Orm.Translation
         /// </summary>
         /// <param name="queryParameter">The parameter this marker stands in for.</param>
         /// <param name="emptyListTemplate">Self-contained SQL emitted when the collection is empty.</param>
+        /// <param name="valueDelimiter">
+        ///     Set when the value is one delimited string rather than a collection; see
+        ///     <see cref="ValueDelimiter"/>.
+        /// </param>
         /// <exception cref="ArgumentNullException"><paramref name="queryParameter"/> is <c>null</c>.</exception>
-        public ExpandableParameterCommandFragment(IQueryParameter queryParameter, string emptyListTemplate)
+        public ExpandableParameterCommandFragment(IQueryParameter queryParameter, string emptyListTemplate, string valueDelimiter = null)
         {
             this.QueryParameter = queryParameter ?? throw new ArgumentNullException(nameof(queryParameter));
             this.EmptyListTemplate = emptyListTemplate;
+            this.ValueDelimiter = valueDelimiter;
         }
 
         /// <summary>The parameter this marker stands in for.</summary>
         public IQueryParameter QueryParameter { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         When set, the bound value is one delimited string (<c>"HR,IT"</c>) that stands for the whole
+        ///         list, and this is the text between entries. <c>null</c> - the usual case - means the value
+        ///         is already a collection.
+        ///     </para>
+        ///     <para>
+        ///         Decided by the translator from the expression, never inferred from the value: a string is
+        ///         an ordinary single value nearly everywhere it appears, so reading one as a list has to be
+        ///         asked for.
+        ///     </para>
+        /// </summary>
+        public string ValueDelimiter { get; }
 
         /// <summary>
         ///     <para>
@@ -237,14 +257,26 @@ namespace Atis.Orm.Translation
         /// <param name="template">The SQL emitted once per element.</param>
         /// <param name="separator">Text written between consecutive copies.</param>
         /// <param name="whenEmpty">Self-contained SQL emitted when there are no elements at all.</param>
+        /// <param name="valueDelimiter">
+        ///     Set when the value is one delimited string rather than a collection; see
+        ///     <see cref="ExpandableParameterCommandFragment.ValueDelimiter"/>.
+        /// </param>
         /// <exception cref="ArgumentNullException"><paramref name="queryParameter"/> or <paramref name="template"/> is <c>null</c>.</exception>
-        public RepeatingCommandFragment(IQueryParameter queryParameter, IReadOnlyList<ICommandFragment> template, string separator, string whenEmpty)
+        public RepeatingCommandFragment(IQueryParameter queryParameter, IReadOnlyList<ICommandFragment> template, string separator, string whenEmpty, string valueDelimiter = null)
         {
             this.QueryParameter = queryParameter ?? throw new ArgumentNullException(nameof(queryParameter));
             this.Template = template ?? throw new ArgumentNullException(nameof(template));
             this.Separator = separator ?? string.Empty;
             this.WhenEmpty = whenEmpty;
+            this.ValueDelimiter = valueDelimiter;
         }
+
+        /// <summary>
+        ///     When set, the bound value is one delimited string standing for the whole collection, and this is
+        ///     the text between entries. Each entry still becomes its own copy of the template, so the
+        ///     rendered SQL is identical to the one a real collection produces.
+        /// </summary>
+        public string ValueDelimiter { get; }
 
         /// <summary>
         ///     The parameter holding the collection. Inside <see cref="Template"/> the same parameter resolves
@@ -306,14 +338,28 @@ namespace Atis.Orm.Translation
         /// <param name="guardKind">What counts as "no value" for the guard.</param>
         /// <param name="whenAbsent">Emitted when the guard has no value - a term that is always true.</param>
         /// <param name="whenPresent">The filter itself, emitted when the guard has a value.</param>
+        /// <param name="valueDelimiter">
+        ///     Set when the guard's value is one delimited string rather than a collection; see
+        ///     <see cref="ValueDelimiter"/>.
+        /// </param>
         /// <exception cref="ArgumentNullException">Any fragment list is <c>null</c>.</exception>
-        public OptionalPredicateCommandFragment(IQueryParameter queryParameter, OptionalGuardKind guardKind, IReadOnlyList<ICommandFragment> whenAbsent, IReadOnlyList<ICommandFragment> whenPresent)
+        public OptionalPredicateCommandFragment(IQueryParameter queryParameter, OptionalGuardKind guardKind, IReadOnlyList<ICommandFragment> whenAbsent, IReadOnlyList<ICommandFragment> whenPresent, string valueDelimiter = null)
         {
             this.QueryParameter = queryParameter ?? throw new ArgumentNullException(nameof(queryParameter));
             this.GuardKind = guardKind;
             this.WhenAbsent = whenAbsent ?? throw new ArgumentNullException(nameof(whenAbsent));
             this.WhenPresent = whenPresent ?? throw new ArgumentNullException(nameof(whenPresent));
+            this.ValueDelimiter = valueDelimiter;
         }
+
+        /// <summary>
+        ///     <para>
+        ///         When set, the guard's value is one delimited string standing for a list of values, and this
+        ///         is the text between entries. It is what lets <see cref="IsAbsent"/> tell a string that
+        ///         holds no values (<c>""</c>, <c>" "</c>, <c>","</c>) from one that holds some.
+        ///     </para>
+        /// </summary>
+        public string ValueDelimiter { get; }
 
         /// <summary>The parameter whose value decides which branch is emitted.</summary>
         public IQueryParameter QueryParameter { get; }
@@ -343,8 +389,15 @@ namespace Atis.Orm.Translation
             if (guardValue is null || guardValue is DBNull)
                 return true;
 
-            return this.GuardKind == OptionalGuardKind.NullOrEmptyCollection
-                   && guardValue is IEnumerable collection
+            if (this.GuardKind != OptionalGuardKind.NullOrEmptyCollection)
+                return false;
+
+            // A delimited string holds a list, so "empty" is about what it splits into, not about the string
+            // itself: "," and " " name no values and drop the term, exactly as an empty collection does.
+            if (this.ValueDelimiter != null)
+                return SqlDelimitedValuesExpression.Split(guardValue, this.ValueDelimiter).Count == 0;
+
+            return guardValue is IEnumerable collection
                    && !(guardValue is string)
                    && !collection.GetEnumerator().MoveNext();
         }

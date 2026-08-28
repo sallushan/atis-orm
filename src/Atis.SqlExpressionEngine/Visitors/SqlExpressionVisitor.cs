@@ -316,6 +316,13 @@ namespace Atis.SqlExpressionEngine.Visitors
             return node.Update(expression, values);
         }
 
+        /// <summary>Visits a delimited value list: the single string holding every value.</summary>
+        protected virtual internal SqlExpression VisitSqlDelimitedValues(SqlDelimitedValuesExpression node)
+        {
+            var values = Visit(node.Values);
+            return node.Update(values);
+        }
+
         protected virtual internal SqlExpression VisitOptionalPredicate(SqlOptionalPredicateExpression node)
         {
             var guard = Visit(node.Guard);

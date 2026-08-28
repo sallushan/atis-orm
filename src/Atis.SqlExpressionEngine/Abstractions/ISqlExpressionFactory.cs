@@ -40,6 +40,11 @@ namespace Atis.SqlExpressionEngine.Abstractions
         ///     <see cref="SqlInValuesExpression.Values"/>.
         /// </summary>
         SqlInValuesExpression CreateInValuesExpression(SqlExpression expression, SqlExpression values);
+        /// <summary>
+        ///     Creates a value list written as one delimited string, for a value-list position. The string is
+        ///     split when the query is rendered, so <paramref name="delimiter"/> is the only part fixed here.
+        /// </summary>
+        SqlDelimitedValuesExpression CreateDelimitedValues(SqlExpression values, string delimiter);
         SqlOptionalPredicateExpression CreateOptionalPredicateExpression(SqlExpression guard, SqlExpression predicate, OptionalGuardKind guardKind = OptionalGuardKind.NullOnly);
         SqlNegateExpression CreateNegate(SqlExpression operand);
         SqlNotExpression CreateNot(SqlExpression sqlExpression);

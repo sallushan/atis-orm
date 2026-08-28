@@ -104,6 +104,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateSqlInValuesExpression(sqlInValuesExpression);
             }
+            else if (sqlExpression is SqlDelimitedValuesExpression sqlDelimitedValuesExpression)
+            {
+                return this.TranslateSqlDelimitedValuesExpression(sqlDelimitedValuesExpression);
+            }
             else if (sqlExpression is SqlOptionalPredicateExpression sqlOptionalPredicateExpression)
             {
                 return this.TranslateSqlOptionalPredicateExpression(sqlOptionalPredicateExpression);
@@ -532,7 +536,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         private string TranslateSqlLikeAnyExpression(SqlLikeAnyExpression sqlLikeAnyExpression)
         {
             var column = this.Translate(sqlLikeAnyExpression.Expression);
-            var values = (sqlLikeAnyExpression.Values as SqlParameterExpression)?.Value as System.Collections.IEnumerable;
+            var values = GetTranslationTimeValues(sqlLikeAnyExpression.Values);
 
             var terms = new List<string>();
             if (values != null && !(values is string))
@@ -560,6 +564,42 @@ namespace Atis.SqlExpressionEngine.UnitTest
 
             // A disjunction of nothing matches nothing, same answer the renderer gives.
             return terms.Count == 0 ? "(1 = 0)" : $"({string.Join(" or ", terms)})";
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The elements of a value list, read from the value the query was <em>translated</em> with -
+        ///         a collection as it stands, a delimited string split the way the renderer would split it.
+        ///     </para>
+        ///     <para>
+        ///         Only this translator can do that: production settles the count per execution. It is the same
+        ///         asymmetry the multi-value LIKE already has, and it is what lets a translation test show the
+        ///         whole expanded shape.
+        ///     </para>
+        /// </summary>
+        private static System.Collections.IEnumerable GetTranslationTimeValues(SqlExpression values)
+        {
+            if (values is SqlDelimitedValuesExpression delimited)
+            {
+                var delimitedValue = (delimited.Values as SqlParameterExpression)?.Value
+                                     ?? (delimited.Values as SqlLiteralExpression)?.LiteralValue;
+                return SqlDelimitedValuesExpression.Split(delimitedValue, delimited.Delimiter);
+            }
+
+            return (values as SqlParameterExpression)?.Value as System.Collections.IEnumerable;
+        }
+
+        /// <summary>
+        ///     Inlines a delimited string as the value list it stands for, so the expected SQL of a test shows
+        ///     the values rather than the string that names them.
+        /// </summary>
+        private string TranslateSqlDelimitedValuesExpression(SqlDelimitedValuesExpression sqlDelimitedValuesExpression)
+        {
+            var values = GetTranslationTimeValues(sqlDelimitedValuesExpression);
+            var elements = new List<string>();
+            foreach (var value in values)
+                elements.Add(SqlParameterExpression.ConvertObjectToString(value));
+            return string.Join(",", elements);
         }
 
         private string TranslateSqlStringFunctionExpression(SqlStringFunctionExpression sqlStringFunctionExpression)

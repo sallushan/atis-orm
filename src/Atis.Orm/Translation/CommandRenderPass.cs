@@ -5,6 +5,7 @@ using System.Data.Common;
 using System.Text;
 
 using Atis.Orm.Abstractions;
+using Atis.SqlExpressionEngine.SqlExpressions;
 
 namespace Atis.Orm.Translation
 {
@@ -158,6 +159,8 @@ namespace Atis.Orm.Translation
         protected virtual void RenderExpandableParameterFragment(ExpandableParameterCommandFragment fragment)
         {
             var value = this.ResolveValue(fragment.QueryParameter);
+            if (fragment.ValueDelimiter != null)
+                value = SqlDelimitedValuesExpression.Split(value, fragment.ValueDelimiter);
             if (value is IEnumerable enumerable && !(value is string))
             {
                 var elementParameters = this.dbParameterFactory.CreateDbParameters(this.dbParameters.Count, fragment.QueryParameter, enumerable);
@@ -211,6 +214,10 @@ namespace Atis.Orm.Translation
         protected virtual void RenderRepeatingFragment(RepeatingCommandFragment fragment)
         {
             var value = this.ResolveValue(fragment.QueryParameter);
+            // Splitting happens here rather than in ResolveValue, because inside the template the same
+            // parameter resolves to a single element - which is a string, and must not be split again.
+            if (fragment.ValueDelimiter != null)
+                value = SqlDelimitedValuesExpression.Split(value, fragment.ValueDelimiter);
             if (value is null || value is DBNull)
             {
                 this.RenderEmptyRepetition(fragment);

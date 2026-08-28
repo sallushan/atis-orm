@@ -233,6 +233,70 @@ namespace Atis.SqlExpressionEngine
         /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
         public static bool DateRange(DateTime? column, DateTime? from, DateTime? to) => throw new DirectCallNotSupportedException(Name());
 
+        /// <summary>
+        ///     <para>
+        ///         Reads one delimited string as a list of values, for the methods here that take a collection:
+        ///     </para>
+        ///     <code>
+        ///         q.Where(x =&gt; WhereBuilder.In(x.Department, WhereBuilder.Delimited(p.Departments))
+        ///                    &amp;&amp; WhereBuilder.ContainsAny(x.Name, WhereBuilder.Delimited(p.Terms, "\n")))
+        ///     </code>
+        ///     <para>
+        ///         Search screens hand a list over as a single string far more often than as a real collection -
+        ///         one text box, one query-string value, one stored setting. This is <em>where</em> the old
+        ///         library's comma-delimited overloads went: rather than a second overload of every collection
+        ///         method, the delimited-ness belongs to the <em>value</em>, so one marker serves all of them and
+        ///         the call site says plainly that a split is happening.
+        ///     </para>
+        ///     <para>
+        ///         <strong>Entries are trimmed, and empty entries are dropped.</strong> <c>"HR, IT"</c> is two
+        ///         values, and so is <c>"HR,,IT,"</c>. A string with nothing left after that - <c>""</c>,
+        ///         <c>" "</c>, <c>","</c> - holds no values, so the term is omitted exactly as a <c>null</c> or
+        ///         empty collection omits it. The old library split the same way but never re-checked, and built
+        ///         <c>IN ()</c> for an empty string.
+        ///     </para>
+        ///     <para>
+        ///         The split happens per <em>execution</em>, when the query is rendered - never during
+        ///         translation. One compiled query therefore serves strings holding any number of values.
+        ///     </para>
+        ///     <para>
+        ///         Use <see cref="Delimited(string, string)"/> for a separator other than a comma.
+        ///     </para>
+        /// </summary>
+        /// <param name="values">The comma-delimited list. <c>null</c> deactivates the term it is used in.</param>
+        /// <returns>Never returns; this is a marker method.</returns>
+        /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
+        public static IEnumerable<string> Delimited(string values) => throw new DirectCallNotSupportedException(Name());
+
+        /// <summary>
+        ///     <para>
+        ///         <see cref="Delimited(string)"/> with a separator other than a comma. The separator is a
+        ///         <em>string</em>, so it can be more than one character - a line break, <c>" | "</c>, whatever
+        ///         the source of the list uses.
+        ///     </para>
+        ///     <para>
+        ///         <strong>For a value per line, pass <c>"\n"</c> rather than <c>"\r\n"</c>.</strong> Entries
+        ///         are trimmed of surrounding whitespace, and a carriage return is whitespace - so splitting on
+        ///         <c>"\n"</c> reads Windows and Unix line endings alike, while splitting on <c>"\r\n"</c>
+        ///         silently fails to split text that arrives with bare newlines.
+        ///     </para>
+        ///     <para>
+        ///         <paramref name="delimiter"/> must be written as a literal string. It is baked into the
+        ///         compiled query, so it belongs to the query's <em>shape</em> rather than to its values, and a
+        ///         delimiter read from a variable would be invisible to the compiled-query cache - the first
+        ///         caller's separator would then be applied to every later execution.
+        ///     </para>
+        ///     <para>
+        ///         This is a separate overload rather than an optional argument because C# forbids optional
+        ///         arguments inside an expression tree, and every call here is written inside one.
+        ///     </para>
+        /// </summary>
+        /// <param name="values">The delimited list. <c>null</c> deactivates the term it is used in.</param>
+        /// <param name="delimiter">The text between values, written as a literal. Must not be empty.</param>
+        /// <returns>Never returns; this is a marker method.</returns>
+        /// <exception cref="DirectCallNotSupportedException">Always, when called directly.</exception>
+        public static IEnumerable<string> Delimited(string values, string delimiter) => throw new DirectCallNotSupportedException(Name());
+
         private static string Name([CallerMemberName] string memberName = null) => $"{nameof(WhereBuilder)}.{memberName}";
     }
 }

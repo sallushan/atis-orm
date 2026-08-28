@@ -56,6 +56,11 @@
         Cast,
         DatePart,
         InValues,
+        /// <summary>
+        ///     A value list written as one delimited string. Occupies a value-list position and is read as
+        ///     many values by the renderer; it has no SQL of its own.
+        /// </summary>
+        DelimitedValues,
         OptionalPredicate,
         Negate,
         Not,

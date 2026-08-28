@@ -298,18 +298,50 @@ namespace Atis.Orm.Translation
         ///     Self-contained SQL emitted in place of the value list when an expandable collection is empty
         ///     (no parameter is bound).
         /// </param>
+        /// <param name="valueDelimiter">
+        ///     Set when the value is one delimited string standing for the whole list, so the renderer splits
+        ///     it before expanding. Read from the expression, never from the value.
+        /// </param>
         /// <returns>
         ///     The parameter that was recorded, for the callers that need to refer to it again - a repeated
         ///     term names it as the collection it repeats over.
         /// </returns>
-        protected IQueryParameter EmitParameter(object value, bool isLiteral, SqlExpression source, bool isExpandable = false, string emptyListTemplate = null)
+        protected IQueryParameter EmitParameter(object value, bool isLiteral, SqlExpression source, bool isExpandable = false, string emptyListTemplate = null, string valueDelimiter = null)
         {
             var queryParameter = this.CreateQueryParameter(value, isLiteral, source);
             this.Parameters.Add(queryParameter);
             this.AppendFragment(isExpandable
-                ? (ICommandFragment)new ExpandableParameterCommandFragment(queryParameter, emptyListTemplate)
+                ? (ICommandFragment)new ExpandableParameterCommandFragment(queryParameter, emptyListTemplate, valueDelimiter)
                 : new ParameterCommandFragment(queryParameter));
             return queryParameter;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Reads a node that carries a value - a captured variable or an inline constant - as the pair
+        ///         the parameter machinery needs. Returns <c>false</c> for anything else, leaving the caller to
+        ///         raise the error that fits its position.
+        ///     </para>
+        /// </summary>
+        protected static bool TryReadValueNode(SqlExpression node, out object value, out bool isLiteral)
+        {
+            if (node is SqlParameterExpression parameter)
+            {
+                value = parameter.Value;
+                isLiteral = false;
+                return true;
+            }
+
+            if (node is SqlLiteralExpression literal)
+            {
+                value = literal.LiteralValue;
+                isLiteral = true;
+                return true;
+            }
+
+            value = null;
+            isLiteral = false;
+            return false;
         }
 
         /// <summary>
@@ -352,6 +384,17 @@ namespace Atis.Orm.Translation
                 // named; if one reaches here from some other producer, emit valid SQL rather than `IN ()`.
                 if (first)
                     this.Append(emptyListTemplate ?? "NULL");
+            }
+            else if (node is SqlDelimitedValuesExpression delimited)
+            {
+                // One value that stands for many. It is emitted as a single expandable marker like any other
+                // collection; the renderer splits the string first, so the SQL is the same either way.
+                if (!TryReadValueNode(delimited.Values, out var delimitedValue, out var delimitedIsLiteral))
+                    throw new InvalidOperationException(
+                        $"A delimited value list needs a value - a captured variable or a constant string - " +
+                        $"but it translated to '{delimited.Values.GetType().Name}'.");
+
+                this.EmitParameter(delimitedValue, delimitedIsLiteral, source: delimited.Values, isExpandable: true, emptyListTemplate: emptyListTemplate, valueDelimiter: delimited.Delimiter);
             }
             else if (node is SqlParameterExpression parameter)
             {
@@ -462,6 +505,8 @@ namespace Atis.Orm.Translation
                 this.TranslateNegate(negate);
             else if (node is SqlInValuesExpression inValues)
                 this.TranslateInValues(inValues);
+            else if (node is SqlDelimitedValuesExpression delimitedValues)
+                this.TranslateDelimitedValues(delimitedValues);
             else if (node is SqlOptionalPredicateExpression optionalPredicate)
                 this.TranslateOptionalPredicate(optionalPredicate);
             else if (node is SqlLikeExpression like)
@@ -1373,27 +1418,17 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateOptionalPredicate(SqlOptionalPredicateExpression node)
         {
-            object guardValue;
-            bool guardIsLiteral;
-            if (node.Guard is SqlParameterExpression guardParameterExpression)
-            {
-                guardValue = guardParameterExpression.Value;
-                guardIsLiteral = false;
-            }
-            else if (node.Guard is SqlLiteralExpression guardLiteralExpression)
-            {
-                // An inline constant rather than a variable: legal, but frozen at translation, so the term is
-                // permanently on or off for this compiled query. That is the caller's choice to make.
-                guardValue = guardLiteralExpression.LiteralValue;
-                guardIsLiteral = true;
-            }
-            else
-            {
+            // A delimited guard is still one value; the delimiter travels with it so the fragment can tell a
+            // string naming no values from one naming some. An inline constant guard is legal but frozen at
+            // translation, so the term is permanently on or off for this compiled query - the caller's choice.
+            var delimitedGuard = node.Guard as SqlDelimitedValuesExpression;
+            var guardNode = delimitedGuard?.Values ?? node.Guard;
+
+            if (!TryReadValueNode(guardNode, out var guardValue, out var guardIsLiteral))
                 throw new InvalidOperationException(
                     $"An optional predicate's guard must be a value (a captured variable or a constant), but it " +
-                    $"translated to '{node.Guard.GetType().Name}'. A column cannot act as a guard: whether a term " +
+                    $"translated to '{guardNode.GetType().Name}'. A column cannot act as a guard: whether a term " +
                     $"appears in the statement is decided once per execution, before any row is read.");
-            }
 
             // One optional term inside another's predicate has no meaning - it would say "apply this filter
             // only when some unrelated value was also supplied" - and no sensible query reaches it: the only
@@ -1406,7 +1441,7 @@ namespace Atis.Orm.Translation
                     "AND and sit beside each other; nesting one inside another's predicate has no meaning. " +
                     "This usually means a WhereBuilder call was passed where a column was expected.");
 
-            var guard = this.CreateQueryParameter(guardValue, guardIsLiteral, node.Guard);
+            var guard = this.CreateQueryParameter(guardValue, guardIsLiteral, guardNode);
 
             // The two branches are alternatives, not a prefix plus a suffix: the renderer emits exactly one of
             // them and never joins them, so no operator is split across the pair for it to reassemble.
@@ -1431,7 +1466,7 @@ namespace Atis.Orm.Translation
             // The parentheses wrap the choice rather than sitting inside each branch: whichever branch wins is
             // one predicate term, and the caller joins terms with AND / OR around this group.
             this.Append("(");
-            this.AppendFragment(new OptionalPredicateCommandFragment(guard, node.GuardKind, whenAbsentFragments, whenPresentFragments));
+            this.AppendFragment(new OptionalPredicateCommandFragment(guard, node.GuardKind, whenAbsentFragments, whenPresentFragments, delimitedGuard?.Delimiter));
             this.Append(")");
         }
 
@@ -1477,6 +1512,22 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
+        ///         A delimited value list reached somewhere other than a value-list position. There is no SQL
+        ///         for it: it is one value read as many, and only the positions that accept a list of values
+        ///         know how to do that - the list inside <c>IN (...)</c>, a multi-value <c>LIKE</c>, and the
+        ///         guard of the optional term around either.
+        ///     </para>
+        /// </summary>
+        protected virtual void TranslateDelimitedValues(SqlDelimitedValuesExpression node)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(WhereBuilder)}.{nameof(WhereBuilder.Delimited)} can only be used where a list of " +
+                $"values is expected - the values of In, NotIn, or one of the ...Any methods. Elsewhere it is " +
+                $"just a string, and comparing against it directly is what the ordinary methods already do.");
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Translates a LIKE expression.
         ///     </para>
         /// </summary>
@@ -1511,10 +1562,15 @@ namespace Atis.Orm.Translation
         /// </summary>
         protected virtual void TranslateLikeAny(SqlLikeAnyExpression node)
         {
-            if (!(node.Values is SqlParameterExpression valuesParameter))
+            // A delimited string is the same collection written differently: one value here, split into
+            // elements by the renderer, so everything below is untouched but the delimiter it carries.
+            var delimited = node.Values as SqlDelimitedValuesExpression;
+            var valuesNode = delimited?.Values ?? node.Values;
+
+            if (!(valuesNode is SqlParameterExpression valuesParameter))
                 throw new InvalidOperationException(
                     $"A multi-value LIKE needs its values as a single collection value - normally a captured " +
-                    $"variable - but they translated to '{node.Values.GetType().Name}'. The term is repeated " +
+                    $"variable - but they translated to '{valuesNode.GetType().Name}'. The term is repeated " +
                     $"once per element at execution time, so the collection has to stay whole through " +
                     $"translation rather than being spread across separate expressions.");
 
@@ -1532,7 +1588,7 @@ namespace Atis.Orm.Translation
             // The parentheses wrap the whole disjunction, so however many copies render, the group joins the
             // surrounding predicate as a single term.
             this.Append("(");
-            this.AppendFragment(new RepeatingCommandFragment(valuesQueryParameter, template, " OR ", this.EmptyRepetitionTemplate));
+            this.AppendFragment(new RepeatingCommandFragment(valuesQueryParameter, template, " OR ", this.EmptyRepetitionTemplate, delimited?.Delimiter));
             this.Append(")");
         }
 

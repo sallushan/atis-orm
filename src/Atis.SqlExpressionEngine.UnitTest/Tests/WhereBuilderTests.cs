@@ -296,6 +296,204 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.IsFalse(empty.Sql.Contains("t1.Department IN"), "An empty collection drops the term.");
         }
 
+        #region Delimited value lists
+
+        [TestMethod]
+        public void Delimited_expands_one_string_into_a_placeholder_per_value()
+        {
+            var departments = "HR,IT,Finance";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments)));
+
+            var translation = this.TranslateWithSqlServer(q.Expression);
+            var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
+
+            // The rendered SQL is indistinguishable from the one a real collection produces - the string is
+            // read as a list only at the point where a list is expected.
+            StringAssert.Contains(rendered.Sql, "t1.Department IN (");
+            Assert.AreEqual(3, rendered.DbParameters.Count, "Three values means three bound parameters.");
+            CollectionAssert.AreEqual(
+                new object[] { "HR", "IT", "Finance" },
+                rendered.DbParameters.Select(p => p.Value).ToArray());
+        }
+
+        [TestMethod]
+        public void A_delimited_string_is_re_split_per_execution_rather_than_frozen_at_compile()
+        {
+            // The whole reason splitting is deferred to render time. Splitting in the preprocessor would settle
+            // the placeholder count from whichever string the first caller passed, and the cache is keyed on
+            // the original expression - so every later execution would silently bind the wrong number of values.
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildInDelimitedQuery("HR,IT"));
+
+            var three = compiled.GetExecutionContext(wiring.InDelimitedValuesByIdentity("HR,IT,Finance"), useInitialValues: false);
+            Assert.AreEqual(3, three.DbParameters.Count, "A longer string binds more values, not the compiled count.");
+            CollectionAssert.AreEqual(new object[] { "HR", "IT", "Finance" }, three.DbParameters.Select(p => p.Value).ToArray());
+
+            var one = compiled.GetExecutionContext(wiring.InDelimitedValuesByIdentity("Legal"), useInitialValues: false);
+            Assert.AreEqual(1, one.DbParameters.Count, "And a shorter one binds fewer.");
+            Assert.AreEqual("Legal", one.DbParameters[0].Value);
+        }
+
+        [TestMethod]
+        public void Delimited_trims_entries_and_drops_the_empty_ones()
+        {
+            // A list typed into a search box is full of incidental spaces, and a trailing separator is normal.
+            // The old library split the same way but never re-checked emptiness, so "" built IN ().
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildInDelimitedQuery("HR"));
+
+            var messy = compiled.GetExecutionContext(wiring.InDelimitedValuesByIdentity(" HR , IT ,,Finance,"), useInitialValues: false);
+
+            Assert.AreEqual(3, messy.DbParameters.Count, "Empty entries name no value, so they bind none.");
+            CollectionAssert.AreEqual(new object[] { "HR", "IT", "Finance" }, messy.DbParameters.Select(p => p.Value).ToArray());
+        }
+
+        [TestMethod]
+        public void A_delimited_string_naming_no_values_drops_the_term()
+        {
+            // "Empty" is about what the string splits into, not about the string. This is the one place the
+            // rule differs from Equal, where "" is a value: here "" names no values, exactly as an empty
+            // collection does, so the term is omitted rather than emitting IN ().
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildInDelimitedQuery("HR"));
+
+            foreach (var nothing in new[] { "", " ", ",", " , , " })
+            {
+                var dropped = compiled.GetExecutionContext(wiring.InDelimitedValuesByIdentity(nothing), useInitialValues: false);
+                Assert.IsFalse(dropped.Sql.Contains("t1.Department IN"), $"'{nothing}' names no values, so the term goes.");
+                Assert.AreEqual(0, dropped.DbParameters.Count, $"'{nothing}' binds nothing.");
+            }
+
+            var nullString = compiled.GetExecutionContext(wiring.InDelimitedValuesByIdentity(null), useInitialValues: false);
+            Assert.IsFalse(nullString.Sql.Contains("t1.Department IN"), "A null string drops the term too.");
+        }
+
+        [TestMethod]
+        public void A_custom_delimiter_is_honoured()
+        {
+            var departments = "HR;IT";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments, ";")));
+
+            var translation = this.TranslateWithSqlServer(q.Expression);
+            var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
+
+            Assert.AreEqual(2, rendered.DbParameters.Count);
+            CollectionAssert.AreEqual(new object[] { "HR", "IT" }, rendered.DbParameters.Select(p => p.Value).ToArray());
+        }
+
+        [TestMethod]
+        public void A_delimiter_can_be_more_than_one_character()
+        {
+            // The separator is a string, not a char, because a list is very often a value per line or comes
+            // apart on something like " | ". A char could not express either.
+            var departments = "HR | IT | Finance";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments, " | ")));
+
+            var translation = this.TranslateWithSqlServer(q.Expression);
+            var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
+
+            CollectionAssert.AreEqual(new object[] { "HR", "IT", "Finance" }, rendered.DbParameters.Select(p => p.Value).ToArray());
+        }
+
+        [TestMethod]
+        public void A_newline_delimiter_reads_both_Windows_and_Unix_line_endings()
+        {
+            // A value per line is the common case for a textarea, and the text can arrive with either line
+            // ending. Splitting on "\n" handles both, because the carriage return left on the end of an entry
+            // is whitespace and gets trimmed - which is why the guidance is to pass "\n", never "\r\n".
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildInPerLineQuery("HR"));
+
+            var windows = compiled.GetExecutionContext(wiring.InPerLineValuesByIdentity("HR\r\nIT\r\nFinance"), useInitialValues: false);
+            CollectionAssert.AreEqual(new object[] { "HR", "IT", "Finance" }, windows.DbParameters.Select(p => p.Value).ToArray());
+
+            var unix = compiled.GetExecutionContext(wiring.InPerLineValuesByIdentity("HR\nIT\nFinance"), useInitialValues: false);
+            CollectionAssert.AreEqual(new object[] { "HR", "IT", "Finance" }, unix.DbParameters.Select(p => p.Value).ToArray());
+
+            // A trailing newline is what a textarea leaves behind, and it must not become a fourth value.
+            var trailing = compiled.GetExecutionContext(wiring.InPerLineValuesByIdentity("HR\r\nIT\r\n"), useInitialValues: false);
+            Assert.AreEqual(2, trailing.DbParameters.Count, "The trailing line break names no value.");
+        }
+
+        [TestMethod]
+        public void An_empty_delimiter_is_rejected()
+        {
+            // Splitting on nothing returns the whole string as one value, which looks like it worked.
+            var departments = "HR,IT";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments, "")));
+
+            var ex = Assert.ThrowsException<InvalidOperationException>(() => this.TranslateWithSqlServer(q.Expression));
+
+            StringAssert.Contains(ex.Message, "must not be empty");
+        }
+
+        [TestMethod]
+        public void A_delimited_string_drives_a_repeated_term_as_well_as_a_value_list()
+        {
+            // The ...Any family repeats the whole predicate per value instead of growing one list, so it reads
+            // the string through a different fragment. One marker has to serve both, or callers would need to
+            // remember which methods accept a delimited string.
+            var wiring = new Wiring();
+            var compiled = wiring.Compiler.Compile(wiring.BuildContainsAnyDelimitedQuery("IT"));
+
+            var two = compiled.GetExecutionContext(wiring.ContainsAnyDelimitedValuesByIdentity("Jo,Mi"), useInitialValues: false);
+            Assert.AreEqual(2, two.DbParameters.Count, "Two values means two LIKE terms.");
+            StringAssert.Contains(two.Sql, " OR ", "The copies are joined with OR.");
+
+            var dropped = compiled.GetExecutionContext(wiring.ContainsAnyDelimitedValuesByIdentity(" , "), useInitialValues: false);
+            Assert.IsFalse(dropped.Sql.Contains("t1.Department LIKE"), "A string naming no values drops the term.");
+            Assert.AreEqual(0, dropped.DbParameters.Count);
+        }
+
+        [TestMethod]
+        public void A_delimiter_that_is_not_written_as_a_literal_is_rejected()
+        {
+            // The delimiter is baked into the compiled query, so it belongs to the query's shape. Read from a
+            // variable it would be invisible to the cache key, and the first caller's separator would be
+            // applied to every later execution - wrong values, valid SQL, nothing to notice.
+            var delimiter = ";";
+            var departments = "HR;IT";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments, delimiter)));
+
+            var ex = Assert.ThrowsException<InvalidOperationException>(() => this.TranslateWithSqlServer(q.Expression));
+
+            StringAssert.Contains(ex.Message, "written as a literal string");
+        }
+
+        [TestMethod]
+        public void Delimited_translates_as_the_value_list_it_stands_for()
+        {
+            // The unit-test translator inlines values, so it can show the whole expanded list from the string
+            // it was translated with. Production cannot - there the count belongs to the execution - and that
+            // asymmetry is the same one the multi-value LIKE already has.
+            var departments = "HR,IT";
+            var employees = new Queryable<Employee>(this.queryProvider);
+            var q = employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments)));
+
+            string expectedResult = @"
+select	a_1.RowId as RowId, a_1.EmployeeId as EmployeeId, a_1.Name as Name, a_1.Department as Department, a_1.ManagerId as ManagerId
+	from	Employee as a_1
+	where	(1 = 1 and a_1.Department in ('HR','IT'))
+";
+
+            Test("Delimited IN Test", q.Expression, expectedResult);
+        }
+
+        [TestMethod]
+        public void Calling_Delimited_directly_throws()
+        {
+            var ex = Assert.ThrowsException<DirectCallNotSupportedException>(() => WhereBuilder.Delimited("a,b"));
+
+            Assert.AreEqual($"{nameof(WhereBuilder)}.{nameof(WhereBuilder.Delimited)}", ex.MethodName);
+        }
+
+        #endregion
+
         [TestMethod]
         public void DateRange_shifts_its_upper_bound_in_SQL_and_drops_each_bound_independently()
         {
@@ -454,6 +652,40 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.AreEqual(25, all.Count, "With no values the term is omitted, so nothing is filtered out.");
         }
 
+        [TestMethod]
+        public async Task Delimited_term_re_splits_and_drops_against_a_real_database()
+        {
+            // Asserts ROWS, not SQL, from one query shape executed with strings holding two, three and no
+            // values. A string split into the wrong number of values still produces perfectly valid SQL, so
+            // only the rows show it.
+            var setup = new TestDatabaseSetup("Server=.;Integrated Security=true;Encrypt=True;TrustServerCertificate=True");
+            await setup.SetupAsync();
+
+            using var db = new OrmDbContext();
+
+            // Two prefixes: John and Joshua, Michael and Michelle.
+            var prefixes = "Jo,Mi";
+            var two = await db.CreateQuery<TestEntities.Employee>()
+                              .Where(x => WhereBuilder.StartsWithAny(x.FirstName, WhereBuilder.Delimited(prefixes)))
+                              .ToListAsync();
+            Assert.AreEqual(4, two.Count, "Four seeded employees start with Jo or Mi.");
+
+            // Same shape, cache hit, a longer string - and spaces around the entries, which a typed-in list
+            // always has. The compiled query must grow a third term rather than replay the first execution's two.
+            prefixes = "Jo, Mi, Ke";
+            var three = await db.CreateQuery<TestEntities.Employee>()
+                                .Where(x => WhereBuilder.StartsWithAny(x.FirstName, WhereBuilder.Delimited(prefixes)))
+                                .ToListAsync();
+            Assert.AreEqual(5, three.Count, "Kevin joins them, and the spaces are not part of the values.");
+
+            // A string that names no values drops the term, exactly as a null or empty collection does.
+            prefixes = " , ";
+            var all = await db.CreateQuery<TestEntities.Employee>()
+                              .Where(x => WhereBuilder.StartsWithAny(x.FirstName, WhereBuilder.Delimited(prefixes)))
+                              .ToListAsync();
+            Assert.AreEqual(25, all.Count, "With no values the term is omitted, so nothing is filtered out.");
+        }
+
         // Wires the ORM pipeline (SQL Server dialect) without a database, so the compile -> cache-hit rebind
         // path can be driven directly. Mirrors InValuesExpansionTests.Wiring.
         private sealed class Wiring
@@ -529,6 +761,24 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                                          && WhereBuilder.Equal(x.EmployeeId, employeeId)).Expression;
             }
 
+            public Expression BuildInDelimitedQuery(string departments)
+            {
+                var employees = new Queryable<Employee>(this.probeProvider);
+                return employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments))).Expression;
+            }
+
+            public Expression BuildInPerLineQuery(string departments)
+            {
+                var employees = new Queryable<Employee>(this.probeProvider);
+                return employees.Where(x => WhereBuilder.In(x.Department, WhereBuilder.Delimited(departments, "\n"))).Expression;
+            }
+
+            public Expression BuildContainsAnyDelimitedQuery(string values)
+            {
+                var employees = new Queryable<Employee>(this.probeProvider);
+                return employees.Where(x => WhereBuilder.ContainsAny(x.Department, WhereBuilder.Delimited(values))).Expression;
+            }
+
             public Expression BuildDateRangeQuery(DateTime? from, DateTime? to)
             {
                 var students = new Queryable<Student>(this.probeProvider);
@@ -551,6 +801,15 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             public IReadOnlyDictionary<string, object> ContainsAnyAndEqualValuesByIdentity(string[] values, string employeeId)
                 => this.extractor.ExtractVariableValuesByIdentity(this.BuildContainsAnyAndEqualQuery(values, employeeId));
+
+            public IReadOnlyDictionary<string, object> InDelimitedValuesByIdentity(string departments)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildInDelimitedQuery(departments));
+
+            public IReadOnlyDictionary<string, object> InPerLineValuesByIdentity(string departments)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildInPerLineQuery(departments));
+
+            public IReadOnlyDictionary<string, object> ContainsAnyDelimitedValuesByIdentity(string values)
+                => this.extractor.ExtractVariableValuesByIdentity(this.BuildContainsAnyDelimitedQuery(values));
 
             public IReadOnlyDictionary<string, object> DateRangeValuesByIdentity(DateTime? from, DateTime? to)
                 => this.extractor.ExtractVariableValuesByIdentity(this.BuildDateRangeQuery(from, to));

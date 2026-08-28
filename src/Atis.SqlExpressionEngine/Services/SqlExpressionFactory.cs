@@ -354,6 +354,11 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlLikeAnyExpression(stringExpression, values, matchMode);
         }
 
+        public SqlDelimitedValuesExpression CreateDelimitedValues(SqlExpression values, string delimiter)
+        {
+            return new SqlDelimitedValuesExpression(values, delimiter);
+        }
+
         public SqlDateAddExpression CreateDateAdd(SqlDatePart datePart, SqlExpression interval, SqlExpression dateExpression)
         {
             return new SqlDateAddExpression(datePart, interval, dateExpression);

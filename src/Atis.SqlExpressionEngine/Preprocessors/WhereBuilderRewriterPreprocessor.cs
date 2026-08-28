@@ -104,6 +104,11 @@ namespace Atis.SqlExpressionEngine.Preprocessors
                 case nameof(WhereBuilder.DateRange):
                     return RewriteDateRange(arguments[0], arguments[1], arguments[2]);
 
+                // Not a predicate but a value: it lands in the collection argument of one of the methods
+                // above, which sees it already rewritten because arguments are visited first.
+                case nameof(WhereBuilder.Delimited):
+                    return RewriteDelimited(arguments[0], arguments.Count > 1 ? arguments[1] : null);
+
                 default:
                     throw new NotSupportedException(
                         $"'{nameof(WhereBuilder)}.{methodCall.Method.Name}' is not supported yet.");
@@ -117,6 +122,44 @@ namespace Atis.SqlExpressionEngine.Preprocessors
         // caller's own node instance, so the collection rebinds by identity on a cache hit.
         private static Expression OptionalLikeAny(Expression column, Expression values, LikeMatchMode matchMode)
             => Optional(values, new LikeAnyExpression(column, values, matchMode), OptionalGuardKind.NullOrEmptyCollection);
+
+        /// <summary>
+        ///     <para>
+        ///         Wraps a delimited string so the value-list positions downstream know to read it as many
+        ///         values. Nothing is split here: this preprocessor never reads a value, and the number of
+        ///         values a string holds is a property of the value.
+        ///     </para>
+        ///     <para>
+        ///         The delimiter must be a literal in the source. It is fixed into the compiled query, so it
+        ///         belongs to the query's shape - and the cache is keyed on the original expression, where a
+        ///         constant is part of the key but a captured variable's <em>value</em> is not. Reading it from
+        ///         a variable would let the second caller's delimiter be ignored in favour of the first's.
+        ///     </para>
+        /// </summary>
+        private static Expression RewriteDelimited(Expression values, Expression delimiter)
+        {
+            // The single-argument overload means a comma; the two-argument one has to spell it out. There is no
+            // optional argument to fall back on here - C# forbids those inside an expression tree, which is
+            // where every one of these calls is written.
+            if (delimiter is null)
+                return new DelimitedValuesExpression(values, ",");
+
+            if (!(delimiter is ConstantExpression constant) || !(constant.Value is string delimiterText))
+                throw new InvalidOperationException(
+                    $"The delimiter passed to {nameof(WhereBuilder)}.{nameof(WhereBuilder.Delimited)} must be " +
+                    $"written as a literal string, but was '{delimiter}'. It is baked into the compiled " +
+                    $"query, so a delimiter read from a variable would be applied to every later execution of " +
+                    $"that query no matter what those callers pass.");
+
+            // Splitting on nothing would return the whole string as one value, which looks like it worked.
+            if (delimiterText.Length == 0)
+                throw new InvalidOperationException(
+                    $"The delimiter passed to {nameof(WhereBuilder)}.{nameof(WhereBuilder.Delimited)} must not " +
+                    $"be empty. An empty separator does not divide the string, so the whole of it would be " +
+                    $"treated as a single value.");
+
+            return new DelimitedValuesExpression(values, delimiterText);
+        }
 
         /// <summary>
         ///     <para>
