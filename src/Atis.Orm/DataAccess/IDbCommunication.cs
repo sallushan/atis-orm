@@ -7,18 +7,6 @@ using System.Threading.Tasks;
 
 namespace Atis.Orm.DataAccess
 {
-    public readonly struct DbReaderExecutionResult
-    {
-        public DbDataReader DataReader { get; }
-        public DbCommand Command { get; }
-
-        public DbReaderExecutionResult(DbDataReader dataReader, DbCommand command)
-        {
-            DataReader = dataReader ?? throw new ArgumentNullException(nameof(dataReader));
-            Command = command ?? throw new ArgumentNullException(nameof(command));
-        }
-    }
-    
     public interface IDbCommunication
     {
         void OpenConnection();
@@ -41,13 +29,14 @@ namespace Atis.Orm.DataAccess
         Task TransactionWithSavepointAsync(Func<Task> work, CancellationToken cancellationToken = default);
 
         /// <summary>
-        ///     Unlike every other command here, the caller owns what comes back: call
-        ///     <see cref="OpenConnection"/> first, and afterwards dispose the reader, dispose the command and
-        ///     call <see cref="CloseConnection"/>. See the implementation for the full contract.
+        ///     Runs <paramref name="sql"/> and hands back the result set as a live session that maps each
+        ///     row with <paramref name="elementFactory"/>, for a caller that wants to stream rows rather
+        ///     than buffer them. Dispose the session when done -- that is the caller's whole obligation.
+        ///     See the implementation for the full contract.
         /// </summary>
-        DbReaderExecutionResult ExecuteReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType text);
+        IDbReaderSession OpenReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, Func<IDataReader, object> elementFactory);
 
-        /// <summary>The asynchronous <see cref="ExecuteReader"/>, same ownership contract.</summary>
-        Task<DbReaderExecutionResult> ExecuteReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken);
+        /// <summary>The asynchronous <see cref="OpenReader"/>, same ownership contract.</summary>
+        Task<IDbReaderSession> OpenReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, Func<IDataReader, object> elementFactory, CancellationToken cancellationToken);
     }
 }

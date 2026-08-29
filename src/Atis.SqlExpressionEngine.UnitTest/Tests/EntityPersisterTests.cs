@@ -264,8 +264,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             public void UseTransaction(DbTransaction transaction) => throw new NotSupportedException();
             public void TransactionWithSavepoint(Action work) => throw new NotSupportedException();
             public Task TransactionWithSavepointAsync(Func<Task> work, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-            public DbReaderExecutionResult ExecuteReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType) => throw new NotSupportedException();
-            public Task<DbReaderExecutionResult> ExecuteReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken) => throw new NotSupportedException();
+            public IDbReaderSession OpenReader(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, Func<IDataReader, object> elementFactory) => throw new NotSupportedException();
+            public Task<IDbReaderSession> OpenReaderAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType commandType, Func<IDataReader, object> elementFactory, CancellationToken cancellationToken) => throw new NotSupportedException();
         }
 
         /// <summary>

@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
-using System.Linq;
 // ReSharper disable InvertIf
 
 using Atis.Orm.DataAccess;
@@ -11,21 +10,15 @@ namespace Atis.Orm.Querying
 {
     public class DbEnumerator<T> : IEnumerator<T>
     {
-        private DbDataReader dataReader;
-        private DbCommand dbCommand;
         private readonly Func<IDataReader, object> elementFactory;
         private readonly string sql;
         private readonly IEnumerable<DbParameter> dbParameters;
-        private bool disposed;
-        private bool currentIsSet;
-        private T current;
-        // The connection is opened lazily on the first MoveNext, so an enumerator that is created and
-        // disposed without being enumerated never opened one. Closing regardless would release a claim
-        // this enumerator never took, and drop the connection under whoever does hold it.
-        private bool connectionOpened;
-
         private readonly IDbCommunication db;
-        //private readonly ConnectionInfo connectionInfo;
+        // The one thing this enumerator owns. Opened lazily on the first MoveNext, so null means nothing
+        // was ever opened and there is correspondingly nothing to release -- an enumerator created and
+        // disposed without being enumerated must not give up a connection claim it never took.
+        private IDbReaderSession session;
+        private bool disposed;
 
         public DbEnumerator(string sql, IEnumerable<DbParameter> dbParameters, Func<IDataReader, object> elementFactory, IDbCommunication db)
         {
@@ -38,21 +31,13 @@ namespace Atis.Orm.Querying
         public bool MoveNext()
         {
             ThrowIfDisposed();
-            
-            if (this.dataReader == null)
+
+            if (this.session == null)
             {
-                this.db.OpenConnection();
-                // Set only once the claim is actually taken: if OpenConnection throws there is nothing
-                // to release.
-                this.connectionOpened = true;
-                var result = this.db.ExecuteReader(this.sql, this.dbParameters, CommandType.Text);
-                this.dataReader = result.DataReader;
-                this.dbCommand = result.Command;
+                this.session = this.db.OpenReader(this.sql, this.dbParameters, CommandType.Text, this.elementFactory);
             }
-            
-            var hasData = this.dataReader.Read();
-            this.currentIsSet = false;
-            return hasData;
+
+            return this.session.Read();
         }
 
         public void Reset()
@@ -60,61 +45,29 @@ namespace Atis.Orm.Querying
             throw new NotSupportedException("Reset is not supported on DbDataReaderEnumerator");
         }
 
+        // The session builds the row and remembers it, so this is only the cast onto T.
         public T Current
         {
             get
             {
                 ThrowIfDisposed();
-                
-                if (!currentIsSet)
-                {
-                    current = (T)elementFactory(dataReader);
-                    currentIsSet = true;
-                }
-                return current;
+                return (T)this.session.Current;
             }
         }
 
         object IEnumerator.Current => Current;
 
+        // No finalizer: the session holds the only unmanaged resources here and releases them itself.
         public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
         {
             if (this.disposed)
                 return;
+            // Set first, so a re-entrant or second call cannot release the session twice.
+            this.disposed = true;
 
-            if (disposing)
-            {
-                if (this.dataReader != null)
-                {
-                    this.dataReader.Dispose();
-                    this.dataReader = null;
-                }
-
-                if (this.dbCommand != null)
-                {
-                    this.dbCommand.Dispose();
-                    this.dbCommand = null;
-                }
-
-                if (this.connectionOpened)
-                {
-                    this.connectionOpened = false;
-                    this.db.CloseConnection();
-                }
-            }
-
-            disposed = true;
-        }
-
-        ~DbEnumerator()
-        {
-            Dispose(false);
+            var readerSession = this.session;
+            this.session = null;
+            readerSession?.Dispose();
         }
 
         protected void ThrowIfDisposed()

@@ -19,8 +19,8 @@ namespace Atis.Orm.DataAccess
         // opens and closes the connection immediately if there is no _externalConnection
         // or _transactionConnection.
         // Ideally speaking _localConnection should remain null almost all the time. Only
-        // case when this variable will have value is through DataReader enumeration that
-        // is done in DbAsyncEnumerator and DbEnumerator.
+        // case when this variable will have value is while an IDbReaderSession handed out by
+        // OpenReader is still being read.
         private DbConnection _localConnection;
         // How many callers currently hold _localConnection open. Reference counted because the
         // field is a single slot with no ownership information of its own: two overlapping
@@ -172,54 +172,74 @@ namespace Atis.Orm.DataAccess
 
         /// <summary>
         ///     <para>
-        ///         Runs <paramref name="commandText"/> and hands back the open reader together with the
-        ///         command behind it, for a caller that wants to stream rows rather than buffer them.
+        ///         Runs <paramref name="commandText"/> and hands back the result set as a live session that
+        ///         maps each row with <paramref name="elementFactory"/>, for a caller that wants to stream
+        ///         rows rather than buffer them.
         ///     </para>
         ///     <para>
-        ///         <strong>The caller owns all three pieces</strong>, which is the opposite of every other
-        ///         command on <see cref="IDbCommunication"/>: those open a connection, run, and close it
-        ///         again before returning, whereas this one cannot -- the reader is still live when it
-        ///         returns. So the caller must call <see cref="OpenConnection"/> beforehand, and afterwards
-        ///         dispose the reader, dispose the command, and call <see cref="CloseConnection"/> -- one
-        ///         close for the one open. <c>DbEnumerator</c> and <c>DbAsyncEnumerator</c> are the two
-        ///         callers in this library and show the shape.
+        ///         The connection, the command and the reader are opened here and owned by the session, so
+        ///         <strong>the caller's whole obligation is to dispose it</strong> -- once, in any of the
+        ///         spellings <see cref="IDbReaderSession"/> offers. Nothing has to be opened beforehand and
+        ///         nothing has to be closed afterwards. If anything fails on the way in, the pieces already
+        ///         opened are released before the exception leaves, so a failed call hands back nothing and
+        ///         leaves nothing behind.
         ///     </para>
         ///     <para>
-        ///         Whether a second command may run while that reader is open is the driver's business, not
-        ///         this class's: SQL Server needs <c>MultipleActiveResultSets=True</c> and otherwise fails
-        ///         with its own "there is already an open DataReader" error, some providers allow it
-        ///         outright, and others never do. The connection itself is safe either way -- it is
-        ///         reference counted, so a command running meanwhile releases only its own claim.
+        ///         The row shape is the caller's, exactly as it is for <see cref="ExecuteDictionary"/> --
+        ///         that one just has its factory built in. The reader is passed to
+        ///         <paramref name="elementFactory"/> and is not otherwise reachable; a caller wanting it
+        ///         raw passes an identity factory and takes responsibility for reading it in step with the
+        ///         session.
+        ///     </para>
+        ///     <para>
+        ///         This is the one command here whose work outlives the call -- every other one buffers its
+        ///         result and returns with the connection already closed. Whether a second command may run
+        ///         while a session is open is the driver's business, not this class's: SQL Server needs
+        ///         <c>MultipleActiveResultSets=True</c> and otherwise fails with its own "there is already
+        ///         an open DataReader" error, some providers allow it outright, and others never do. The
+        ///         connection itself is safe either way -- it is reference counted, so a command running
+        ///         meanwhile releases only its own claim.
         ///     </para>
         /// </summary>
-        public virtual DbReaderExecutionResult ExecuteReader(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
+        public virtual IDbReaderSession OpenReader(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, Func<IDataReader, object> elementFactory)
         {
+            // Before the connection is opened, so a missing factory costs nothing to recover from.
+            if (elementFactory is null)
+                throw new ArgumentNullException(nameof(elementFactory));
+
+            this.OpenConnection();
             DbCommand dbCommand = null;
             try
             {
                 dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
                 var dataReader = dbCommand.ExecuteReader(CommandBehavior.SequentialAccess);
-                return new DbReaderExecutionResult(dataReader, dbCommand);
+                return new DbReaderSession(dataReader, dbCommand, this, elementFactory);
             }
             catch
             {
                 dbCommand?.Dispose();
+                // No session was handed back, so nothing else will ever release this claim.
+                this.CloseConnection();
                 throw;
             }
         }
 
         /// <summary>
-        ///     The asynchronous <see cref="ExecuteReader"/>, and the same ownership contract: the caller
-        ///     opens the connection first, and disposes reader, command and connection afterwards.
+        ///     The asynchronous <see cref="OpenReader"/>, and the same ownership contract: everything the
+        ///     session needs is opened here, and disposing the session releases all of it.
         /// </summary>
-        public virtual async Task<DbReaderExecutionResult> ExecuteReaderAsync(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
+        public virtual async Task<IDbReaderSession> OpenReaderAsync(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, Func<IDataReader, object> elementFactory, CancellationToken cancellationToken)
         {
+            if (elementFactory is null)
+                throw new ArgumentNullException(nameof(elementFactory));
+
+            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             DbCommand dbCommand = null;
             try
             {
                 dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
                 var dataReader = await dbCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-                return new DbReaderExecutionResult(dataReader, dbCommand);
+                return new DbReaderSession(dataReader, dbCommand, this, elementFactory);
             }
             catch
             {
@@ -231,6 +251,7 @@ namespace Atis.Orm.DataAccess
 #else
                 dbCommand?.Dispose();
 #endif
+                await this.CloseConnectionAsync().ConfigureAwait(false);
                 throw;
             }
         }
@@ -317,8 +338,8 @@ namespace Atis.Orm.DataAccess
         ///         empty list, never <c>null</c>.
         ///     </para>
         ///     <para>
-        ///         Everything is read before the method returns, so unlike <see cref="ExecuteReader"/> the
-        ///         caller owns nothing afterwards -- no reader, no command, no connection.
+        ///         Everything is read before the method returns, so unlike <see cref="OpenReader"/> there
+        ///         is nothing for the caller to dispose -- no reader, no command, no connection.
         ///     </para>
         /// </summary>
         /// <exception cref="InvalidOperationException">
@@ -330,7 +351,7 @@ namespace Atis.Orm.DataAccess
             try
             {
                 using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
-                // Not SequentialAccess: ExecuteReader streams and benefits from it, this buffers the whole
+                // Not SequentialAccess: OpenReader streams and benefits from it, this buffers the whole
                 // result set anyway, so the constraint would only buy a way to break later.
                 using (var reader = command.ExecuteReader(CommandBehavior.Default))
                 {
