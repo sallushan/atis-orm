@@ -15,6 +15,7 @@ namespace Atis.Orm.DataAccess
     {
         private readonly IDbCommunication db;
         private readonly Func<IDataReader, object> elementFactory;
+        private readonly ConcurrencyDetector concurrencyDetector;
         private DbDataReader reader;
         private DbCommand command;
         private bool disposed;
@@ -33,32 +34,69 @@ namespace Atis.Orm.DataAccess
         ///     Maps the row the reader is positioned on to the object <see cref="Current"/> returns.
         /// </param>
         public DbReaderSession(DbDataReader reader, DbCommand command, IDbCommunication db, Func<IDataReader, object> elementFactory)
+            : this(reader, command, db, elementFactory, null)
+        {
+        }
+
+        /// <inheritdoc cref="DbReaderSession(DbDataReader, DbCommand, IDbCommunication, Func{IDataReader, object})"/>
+        /// <param name="reader">The open reader, positioned before the first row.</param>
+        /// <param name="command">The command it came from, which has to outlive it.</param>
+        /// <param name="db">The instance whose connection claim this session holds.</param>
+        /// <param name="elementFactory">
+        ///     Maps the row the reader is positioned on to the object <see cref="Current"/> returns.
+        /// </param>
+        /// <param name="concurrencyDetector">
+        ///     <paramref name="db"/>'s own detector, so that reading a row here and running a command there
+        ///     are seen as what they are -- two operations on one connection -- and a second flow touching
+        ///     either is reported rather than left to corrupt the reader. <c>null</c> leaves the session
+        ///     unchecked, which is what a caller constructing one by hand gets unless it passes one.
+        /// </param>
+        public DbReaderSession(DbDataReader reader, DbCommand command, IDbCommunication db, Func<IDataReader, object> elementFactory, ConcurrencyDetector concurrencyDetector)
         {
             this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
             this.command = command ?? throw new ArgumentNullException(nameof(command));
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             this.elementFactory = elementFactory ?? throw new ArgumentNullException(nameof(elementFactory));
+            this.concurrencyDetector = concurrencyDetector;
+        }
+
+        /// <summary>
+        ///     Marks the start of one operation on the connection this session is reading over. Cheap
+        ///     enough to sit on the per-row path, and <c>default</c> -- guarding nothing -- when the session
+        ///     was built without a detector.
+        /// </summary>
+        private ConcurrencyDetectorCriticalSection EnterCriticalSection()
+        {
+            return this.concurrencyDetector is null
+                    ? default
+                    : this.concurrencyDetector.EnterCriticalSection();
         }
 
         /// <inheritdoc/>
         public bool Read()
         {
-            this.ThrowIfDisposed();
-            var hasRow = this.reader.Read();
-            // Whatever was built for the previous row is stale now, whether or not there is a new one.
-            this.currentIsSet = false;
-            this.current = null;
-            return hasRow;
+            using (this.EnterCriticalSection())
+            {
+                this.ThrowIfDisposed();
+                var hasRow = this.reader.Read();
+                // Whatever was built for the previous row is stale now, whether or not there is a new one.
+                this.currentIsSet = false;
+                this.current = null;
+                return hasRow;
+            }
         }
 
         /// <inheritdoc/>
         public async Task<bool> ReadAsync(CancellationToken cancellationToken)
         {
-            this.ThrowIfDisposed();
-            var hasRow = await this.reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-            this.currentIsSet = false;
-            this.current = null;
-            return hasRow;
+            using (this.EnterCriticalSection())
+            {
+                this.ThrowIfDisposed();
+                var hasRow = await this.reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+                this.currentIsSet = false;
+                this.current = null;
+                return hasRow;
+            }
         }
 
         /// <inheritdoc/>
@@ -66,16 +104,21 @@ namespace Atis.Orm.DataAccess
         {
             get
             {
-                this.ThrowIfDisposed();
-
-                if (!this.currentIsSet)
+                // Guarded as well as Read, and not only for symmetry: this is where the row is actually
+                // pulled off the reader, so it is a second window in which another flow can arrive.
+                using (this.EnterCriticalSection())
                 {
-                    // The reader goes to the factory and no further: it is positioned on this row for the
-                    // duration of the call and is not reachable from anywhere else on this class.
-                    this.current = this.elementFactory(this.reader);
-                    this.currentIsSet = true;
+                    this.ThrowIfDisposed();
+
+                    if (!this.currentIsSet)
+                    {
+                        // The reader goes to the factory and no further: it is positioned on this row for
+                        // the duration of the call and is not reachable from anywhere else on this class.
+                        this.current = this.elementFactory(this.reader);
+                        this.currentIsSet = true;
+                    }
+                    return this.current;
                 }
-                return this.current;
             }
         }
 

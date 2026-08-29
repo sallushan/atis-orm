@@ -28,9 +28,48 @@ namespace Atis.Orm.DataAccess
         // and without a count the first to finish would close it under the others.
         private int _localConnectionOpenCount;
         private DbTransaction _transaction;
+        private readonly ConcurrencyDetector _concurrencyDetector = new ConcurrencyDetector();
 
         public string ConnectionString { get; set; }
         public int? CommandTimeout { get; set; }
+
+        /// <summary>
+        ///     <para>
+        ///         Whether every public operation checks that no other flow of execution is already running
+        ///         one on this instance, and throws if there is. On by default: an instance holds a single
+        ///         connection, a single transaction and a single reference count, so concurrent use is a
+        ///         bug in the calling code, and reporting it where it happens is worth far more than the
+        ///         interlocked compare and the execution-context lookup it costs per operation.
+        ///     </para>
+        ///     <para>
+        ///         Turn it off only after measuring that those cost something that matters, and only for
+        ///         code already known not to share an instance across flows -- with the checks gone, misuse
+        ///         is undefined behaviour rather than an exception.
+        ///     </para>
+        /// </summary>
+        public bool ThreadSafetyChecksEnabled { get; set; } = true;
+
+        /// <summary>
+        ///     Marks the start of one operation on this instance; dispose the result when it ends. A
+        ///     derived class adding an operation of its own should wrap it the same way -- see
+        ///     <see cref="ConcurrencyDetector"/> for what is and is not rejected. Nesting is free, so
+        ///     wrapping an operation that calls another one costs nothing and hides nothing.
+        /// </summary>
+        protected ConcurrencyDetectorCriticalSection EnterCriticalSection()
+        {
+            return this.ThreadSafetyChecksEnabled
+                    ? this._concurrencyDetector.EnterCriticalSection()
+                    : default;
+        }
+
+        /// <summary>
+        ///     The detector a session handed out by <see cref="OpenReader"/> guards its reads with, or
+        ///     <c>null</c> when the checks are off. It has to be this instance's own: reading a row and
+        ///     running a command are operations on the one connection, and only a shared detector sees them
+        ///     as overlapping.
+        /// </summary>
+        private ConcurrencyDetector SessionConcurrencyDetector
+            => this.ThreadSafetyChecksEnabled ? this._concurrencyDetector : null;
 
         public DbCommunicationBase(string connString)
         {
@@ -92,32 +131,38 @@ namespace Atis.Orm.DataAccess
         /// </summary>
         public void CloseConnection()
         {
-            if (!this.ReleaseLocalConnection())
-                return;
+            using (this.EnterCriticalSection())
+            {
+                if (!this.ReleaseLocalConnection())
+                    return;
 
-            var connection = this._localConnection;
-            this._localConnection = null;
-            connection.Close();
-            connection.Dispose();
+                var connection = this._localConnection;
+                this._localConnection = null;
+                connection.Close();
+                connection.Dispose();
+            }
         }
 
         /// <summary>The asynchronous <see cref="CloseConnection"/>.</summary>
         public async Task CloseConnectionAsync()
         {
-            if (!this.ReleaseLocalConnection())
-                return;
+            using (this.EnterCriticalSection())
+            {
+                if (!this.ReleaseLocalConnection())
+                    return;
 
-            var connection = this._localConnection;
-            // Cleared before the await so a re-entrant call cannot find a connection that is already
-            // on its way out.
-            this._localConnection = null;
+                var connection = this._localConnection;
+                // Cleared before the await so a re-entrant call cannot find a connection that is already
+                // on its way out.
+                this._localConnection = null;
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-            await connection.CloseAsync().ConfigureAwait(false);
-            await connection.DisposeAsync().ConfigureAwait(false);
+                await connection.CloseAsync().ConfigureAwait(false);
+                await connection.DisposeAsync().ConfigureAwait(false);
 #else
-            connection.Close();
-            connection.Dispose();
+                connection.Close();
+                connection.Dispose();
 #endif
+            }
         }
 
         /// <summary>
@@ -207,20 +252,28 @@ namespace Atis.Orm.DataAccess
             if (elementFactory is null)
                 throw new ArgumentNullException(nameof(elementFactory));
 
-            this.OpenConnection();
-            DbCommand dbCommand = null;
-            try
+            using (this.EnterCriticalSection())
             {
-                dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
-                var dataReader = dbCommand.ExecuteReader(CommandBehavior.SequentialAccess);
-                return new DbReaderSession(dataReader, dbCommand, this, elementFactory);
-            }
-            catch
-            {
-                dbCommand?.Dispose();
-                // No session was handed back, so nothing else will ever release this claim.
-                this.CloseConnection();
-                throw;
+                this.OpenConnection();
+                DbCommand dbCommand = null;
+                try
+                {
+                    dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
+                    var dataReader = dbCommand.ExecuteReader(CommandBehavior.SequentialAccess);
+                    // The session guards its own reads with the same detector: this section ends when the
+                    // session is handed back, and each read on it is an operation in its own right. That is
+                    // the only shape that works -- a section held for the life of the session would have to
+                    // be released by whichever flow disposes it, and would reject the commands the caller
+                    // is entitled to run alongside it.
+                    return new DbReaderSession(dataReader, dbCommand, this, elementFactory, this.SessionConcurrencyDetector);
+                }
+                catch
+                {
+                    dbCommand?.Dispose();
+                    // No session was handed back, so nothing else will ever release this claim.
+                    this.CloseConnection();
+                    throw;
+                }
             }
         }
 
@@ -233,61 +286,69 @@ namespace Atis.Orm.DataAccess
             if (elementFactory is null)
                 throw new ArgumentNullException(nameof(elementFactory));
 
-            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            DbCommand dbCommand = null;
-            try
+            using (this.EnterCriticalSection())
             {
-                dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
-                var dataReader = await dbCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-                return new DbReaderSession(dataReader, dbCommand, this, elementFactory);
-            }
-            catch
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-                if (dbCommand != null)
+                await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                DbCommand dbCommand = null;
+                try
                 {
-                    await dbCommand.DisposeAsync().ConfigureAwait(false);
+                    dbCommand = this.CreateCommandInternal(commandText, dbParameters, commandType);
+                    var dataReader = await dbCommand.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+                    return new DbReaderSession(dataReader, dbCommand, this, elementFactory, this.SessionConcurrencyDetector);
                 }
+                catch
+                {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+                    if (dbCommand != null)
+                    {
+                        await dbCommand.DisposeAsync().ConfigureAwait(false);
+                    }
 #else
-                dbCommand?.Dispose();
+                    dbCommand?.Dispose();
 #endif
-                await this.CloseConnectionAsync().ConfigureAwait(false);
-                throw;
+                    await this.CloseConnectionAsync().ConfigureAwait(false);
+                    throw;
+                }
             }
         }
 
         public virtual int ExecuteNonQueryCommand(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            this.OpenConnection();
-            try
+            using (this.EnterCriticalSection())
             {
-                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                this.OpenConnection();
+                try
                 {
-                    return command.ExecuteNonQuery();
+                    using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                    {
+                        return command.ExecuteNonQuery();
+                    }
                 }
-            }
-            finally
-            {
-                this.CloseConnection();
+                finally
+                {
+                    this.CloseConnection();
+                }
             }
         }
 
 
         public async Task<int> ExecuteNonQueryCommandAsync(string sql, IEnumerable<DbParameter> dbParameters, CommandType text, CancellationToken cancellationToken)
         {
-            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using (this.EnterCriticalSection())
             {
-                using (var command = this.CreateCommandInternal(sql, dbParameters, text))
+                await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    using (var command = this.CreateCommandInternal(sql, dbParameters, text))
+                    {
+                        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    await this.CloseConnectionAsync().ConfigureAwait(false);
                 }
             }
-            finally
-            {
-                await this.CloseConnectionAsync().ConfigureAwait(false);
-            }
-
         }
 
         /// <summary>
@@ -297,34 +358,40 @@ namespace Atis.Orm.DataAccess
         /// </summary>
         public virtual T ExecuteScalarCommand<T>(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            this.OpenConnection();
-            try
+            using (this.EnterCriticalSection())
             {
-                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                this.OpenConnection();
+                try
                 {
-                    return ConvertScalarResult<T>(command.ExecuteScalar());
+                    using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                    {
+                        return ConvertScalarResult<T>(command.ExecuteScalar());
+                    }
                 }
-            }
-            finally
-            {
-                this.CloseConnection();
+                finally
+                {
+                    this.CloseConnection();
+                }
             }
         }
 
         /// <summary>The asynchronous <see cref="ExecuteScalarCommand{T}"/>.</summary>
         public virtual async Task<T> ExecuteScalarCommandAsync<T>(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
         {
-            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using (this.EnterCriticalSection())
             {
-                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    return ConvertScalarResult<T>(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+                    using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                    {
+                        return ConvertScalarResult<T>(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+                    }
                 }
-            }
-            finally
-            {
-                await this.CloseConnectionAsync().ConfigureAwait(false);
+                finally
+                {
+                    await this.CloseConnectionAsync().ConfigureAwait(false);
+                }
             }
         }
 
@@ -347,67 +414,73 @@ namespace Atis.Orm.DataAccess
         /// </exception>
         public virtual IReadOnlyList<IReadOnlyDictionary<string, object>> ExecuteDictionary(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType)
         {
-            this.OpenConnection();
-            try
+            using (this.EnterCriticalSection())
             {
-                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
-                // Not SequentialAccess: OpenReader streams and benefits from it, this buffers the whole
-                // result set anyway, so the constraint would only buy a way to break later.
-                using (var reader = command.ExecuteReader(CommandBehavior.Default))
+                this.OpenConnection();
+                try
                 {
-                    // Read the seam once rather than once per row -- an override is free to compute it.
-                    var keyComparer = this.DictionaryKeyComparer ?? StringComparer.OrdinalIgnoreCase;
-                    var columnNames = GetColumnNames(reader, keyComparer);
-                    var rows = new List<IReadOnlyDictionary<string, object>>();
-                    while (reader.Read())
+                    using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                    // Not SequentialAccess: OpenReader streams and benefits from it, this buffers the whole
+                    // result set anyway, so the constraint would only buy a way to break later.
+                    using (var reader = command.ExecuteReader(CommandBehavior.Default))
                     {
-                        rows.Add(ReadRow(reader, columnNames, keyComparer));
+                        // Read the seam once rather than once per row -- an override is free to compute it.
+                        var keyComparer = this.DictionaryKeyComparer ?? StringComparer.OrdinalIgnoreCase;
+                        var columnNames = GetColumnNames(reader, keyComparer);
+                        var rows = new List<IReadOnlyDictionary<string, object>>();
+                        while (reader.Read())
+                        {
+                            rows.Add(ReadRow(reader, columnNames, keyComparer));
+                        }
+                        return rows;
                     }
-                    return rows;
                 }
-            }
-            finally
-            {
-                this.CloseConnection();
+                finally
+                {
+                    this.CloseConnection();
+                }
             }
         }
 
         /// <summary>The asynchronous <see cref="ExecuteDictionary"/>.</summary>
         public virtual async Task<IReadOnlyList<IReadOnlyDictionary<string, object>>> ExecuteDictionaryAsync(string commandText, IEnumerable<DbParameter> dbParameters, CommandType commandType, CancellationToken cancellationToken)
         {
-            await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using (this.EnterCriticalSection())
             {
-                using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
+                await this.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    // The reader cannot go in a `using` here: where the framework has DisposeAsync it is
-                    // the one to call, so the disposal has to be spelled out in a finally.
-                    var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
-                    try
+                    using (var command = this.CreateCommandInternal(commandText, dbParameters, commandType))
                     {
-                        // Read the seam once rather than once per row -- an override is free to compute it.
-                        var keyComparer = this.DictionaryKeyComparer ?? StringComparer.OrdinalIgnoreCase;
-                        var columnNames = GetColumnNames(reader, keyComparer);
-                        var rows = new List<IReadOnlyDictionary<string, object>>();
-                        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                        // The reader cannot go in a `using` here: where the framework has DisposeAsync it is
+                        // the one to call, so the disposal has to be spelled out in a finally.
+                        var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
+                        try
                         {
-                            rows.Add(ReadRow(reader, columnNames, keyComparer));
+                            // Read the seam once rather than once per row -- an override is free to compute it.
+                            var keyComparer = this.DictionaryKeyComparer ?? StringComparer.OrdinalIgnoreCase;
+                            var columnNames = GetColumnNames(reader, keyComparer);
+                            var rows = new List<IReadOnlyDictionary<string, object>>();
+                            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                            {
+                                rows.Add(ReadRow(reader, columnNames, keyComparer));
+                            }
+                            return rows;
                         }
-                        return rows;
-                    }
-                    finally
-                    {
+                        finally
+                        {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-                        await reader.DisposeAsync().ConfigureAwait(false);
+                            await reader.DisposeAsync().ConfigureAwait(false);
 #else
-                        reader.Dispose();
+                            reader.Dispose();
 #endif
+                        }
                     }
                 }
-            }
-            finally
-            {
-                await this.CloseConnectionAsync().ConfigureAwait(false);
+                finally
+                {
+                    await this.CloseConnectionAsync().ConfigureAwait(false);
+                }
             }
         }
 
@@ -494,73 +567,79 @@ namespace Atis.Orm.DataAccess
         /// </summary>
         public void OpenConnection()
         {
-            var shared = this._transactionConnection ?? this._externalConnection;
-            if (shared != null)
+            using (this.EnterCriticalSection())
             {
-                // Not ours to own: open it if the caller left it closed, but never count it and never
-                // close it.
-                if (shared.State != ConnectionState.Open)
-                    shared.Open();
-                return;
-            }
+                var shared = this._transactionConnection ?? this._externalConnection;
+                if (shared != null)
+                {
+                    // Not ours to own: open it if the caller left it closed, but never count it and never
+                    // close it.
+                    if (shared.State != ConnectionState.Open)
+                        shared.Open();
+                    return;
+                }
 
-            if (this._localConnection != null)
-            {
-                this.PrepareExistingLocalConnection();
-                if (this._localConnection.State != ConnectionState.Open)
-                    this._localConnection.Open();
-                this._localConnectionOpenCount++;
-                return;
-            }
+                if (this._localConnection != null)
+                {
+                    this.PrepareExistingLocalConnection();
+                    if (this._localConnection.State != ConnectionState.Open)
+                        this._localConnection.Open();
+                    this._localConnectionOpenCount++;
+                    return;
+                }
 
-            var connection = this.CreateConnection();
-            try
-            {
-                connection.Open();
+                var connection = this.CreateConnection();
+                try
+                {
+                    connection.Open();
+                }
+                catch
+                {
+                    // Storing a connection that never opened would leave every later call retrying Open()
+                    // on the same dead instance.
+                    connection.Dispose();
+                    throw;
+                }
+                this._localConnection = connection;
+                this._localConnectionOpenCount = 1;
             }
-            catch
-            {
-                // Storing a connection that never opened would leave every later call retrying Open()
-                // on the same dead instance.
-                connection.Dispose();
-                throw;
-            }
-            this._localConnection = connection;
-            this._localConnectionOpenCount = 1;
         }
 
         /// <summary>The asynchronous <see cref="OpenConnection"/>.</summary>
         public async Task OpenConnectionAsync(CancellationToken cancellationToken)
         {
-            var shared = this._transactionConnection ?? this._externalConnection;
-            if (shared != null)
+            using (this.EnterCriticalSection())
             {
-                if (shared.State != ConnectionState.Open)
-                    await shared.OpenAsync(cancellationToken).ConfigureAwait(false);
-                return;
-            }
+                var shared = this._transactionConnection ?? this._externalConnection;
+                if (shared != null)
+                {
+                    if (shared.State != ConnectionState.Open)
+                        await shared.OpenAsync(cancellationToken).ConfigureAwait(false);
+                    return;
+                }
 
-            if (this._localConnection != null)
-            {
-                this.PrepareExistingLocalConnection();
-                if (this._localConnection.State != ConnectionState.Open)
-                    await this._localConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
-                this._localConnectionOpenCount++;
-                return;
-            }
+                if (this._localConnection != null)
+                {
+                    this.PrepareExistingLocalConnection();
+                    if (this._localConnection.State != ConnectionState.Open)
+                        await this._localConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                    this._localConnectionOpenCount++;
+                    return;
+                }
 
-            var connection = this.CreateConnection();
-            try
-            {
-                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                var connection = this.CreateConnection();
+                try
+                {
+                    await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    connection.Dispose();
+                    throw;
+                }
+                this._localConnection = connection;
+                this._localConnectionOpenCount = 1;
             }
-            catch
-            {
-                connection.Dispose();
-                throw;
-            }
-            this._localConnection = connection;
-            this._localConnectionOpenCount = 1;
         }
 
         /// <summary>
@@ -615,6 +694,14 @@ namespace Atis.Orm.DataAccess
         ///     already ended; or it belongs to a different connection than the one this instance was given.
         /// </exception>
         public virtual void UseTransaction(DbTransaction transaction)
+        {
+            using (this.EnterCriticalSection())
+            {
+                this.UseTransactionCore(transaction);
+            }
+        }
+
+        private void UseTransactionCore(DbTransaction transaction)
         {
             if (transaction is null)
             {
@@ -698,6 +785,17 @@ namespace Atis.Orm.DataAccess
             if (work is null)
                 throw new ArgumentNullException(nameof(work));
 
+            // Held for the whole of `work`, not just the begin and the commit: everything inside runs on
+            // the one transaction, so a second flow starting anything meanwhile is the very thing being
+            // rejected. Commands inside `work` nest within this section and pass freely.
+            using (this.EnterCriticalSection())
+            {
+                this.RunTransactionCore(work, isolationLevel);
+            }
+        }
+
+        private void RunTransactionCore(Action work, IsolationLevel? isolationLevel)
+        {
             if (this._transactionStarted)
             {
                 work();
@@ -803,6 +901,17 @@ namespace Atis.Orm.DataAccess
             if (work is null)
                 throw new ArgumentNullException(nameof(work));
 
+            // See RunTransaction: the section covers the whole of `work`. It is entered here rather than
+            // in the caller so that it is entered inside this async method, whose execution context is the
+            // one `work` inherits -- and so the one that lets the commands inside it nest.
+            using (this.EnterCriticalSection())
+            {
+                await this.RunTransactionCoreAsync(work, isolationLevel, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private async Task RunTransactionCoreAsync(Func<Task> work, IsolationLevel? isolationLevel, CancellationToken cancellationToken)
+        {
             if (this._transactionStarted)
             {
                 await work().ConfigureAwait(false);
@@ -908,6 +1017,15 @@ namespace Atis.Orm.DataAccess
         {
             if (work is null)
                 throw new ArgumentNullException(nameof(work));
+
+            using (this.EnterCriticalSection())
+            {
+                this.RunSavepoint(work);
+            }
+        }
+
+        private void RunSavepoint(Action work)
+        {
             if (!this._transactionStarted)
                 throw new InvalidOperationException(
                     $"{nameof(TransactionWithSavepoint)} cannot be called without an outer transaction.");
@@ -967,6 +1085,15 @@ namespace Atis.Orm.DataAccess
         {
             if (work is null)
                 throw new ArgumentNullException(nameof(work));
+
+            using (this.EnterCriticalSection())
+            {
+                await this.RunSavepointAsync(work, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private async Task RunSavepointAsync(Func<Task> work, CancellationToken cancellationToken)
+        {
             if (!this._transactionStarted)
                 throw new InvalidOperationException(
                     $"{nameof(TransactionWithSavepointAsync)} cannot be called without an outer transaction.");
