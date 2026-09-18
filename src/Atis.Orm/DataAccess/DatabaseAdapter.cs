@@ -104,6 +104,16 @@ namespace Atis.Orm.DataAccess
             return enumerable;
         }
 
+        public IDbReaderSession OpenReader(string query, IEnumerable<DbParameter> dbParameters, Func<IDataReader, object> elementFactory)
+        {
+            return this.dbCommunication.OpenReader(query, dbParameters, CommandType.Text, elementFactory);
+        }
+
+        public Task<IDbReaderSession> OpenReaderAsync(string query, IEnumerable<DbParameter> dbParameters, Func<IDataReader, object> elementFactory, CancellationToken cancellationToken = default)
+        {
+            return this.dbCommunication.OpenReaderAsync(query, dbParameters, CommandType.Text, elementFactory, cancellationToken);
+        }
+
         public int ExecuteNonQuery(string query, IEnumerable<DbParameter> dbParameters)
         {
             return this.dbCommunication.ExecuteNonQueryCommand(query, dbParameters, CommandType.Text);

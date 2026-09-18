@@ -55,5 +55,26 @@ namespace Atis.Orm.DataAccess
         ///     </para>
         /// </summary>
         object Current { get; }
+
+        /// <summary>
+        ///     <para>
+        ///         Marks the start of one operation carried out directly against this session's reader,
+        ///         rather than through <see cref="Read"/> or <see cref="Current"/>. Dispose the returned
+        ///         value to end it.
+        ///     </para>
+        ///     <para>
+        ///         There is one such caller: a column read as a stream, where the bytes are pulled off the
+        ///         reader by whoever holds the stream, long after the element factory returned it. Those
+        ///         reads are operations on this connection exactly as <see cref="Read"/> is, and without
+        ///         this they would be the one part of the reader protocol a second flow could overlap
+        ///         unnoticed -- the window being as long as the caller takes to consume the column, which
+        ///         for the values this exists for is the longest window in the whole API.
+        ///     </para>
+        ///     <para>
+        ///         The returned value guards nothing when the session was opened with the concurrency
+        ///         checks off, so it is always safe to wrap work in it.
+        ///     </para>
+        /// </summary>
+        ConcurrencyDetectorCriticalSection EnterCriticalSection();
     }
 }

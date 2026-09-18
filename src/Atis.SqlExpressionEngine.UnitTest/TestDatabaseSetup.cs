@@ -179,6 +179,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 CreateProjectAssignmentTable(connection);
                 CreateEmployeeSkillTable(connection);
                 CreateAuditLogTable(connection);
+                CreateDocumentTable(connection);
             }
         }
 
@@ -194,6 +195,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 await CreateProjectAssignmentTableAsync(connection);
                 await CreateEmployeeSkillTableAsync(connection);
                 await CreateAuditLogTableAsync(connection);
+                await CreateDocumentTableAsync(connection);
             }
         }
 
@@ -436,6 +438,37 @@ namespace Atis.SqlExpressionEngine.UnitTest
                         CONSTRAINT [FK_AuditLog_Employee] FOREIGN KEY ([ChangedByEmployeeId]) REFERENCES [dbo].[Employee]([EmployeeId])
                     )");
                 Console.WriteLine("Table AuditLog created.");
+            }
+        }
+
+        // The only table here with a large-object column. It exists for the streaming terminals, which
+        // cannot be exercised against any of the others: every column above is small enough that a
+        // streamed read and a materialized one are indistinguishable.
+        private const string DocumentTableSql = @"
+                    CREATE TABLE [dbo].[Document] (
+                        [DocumentId] INT IDENTITY(1,1) PRIMARY KEY,
+                        [Name] NVARCHAR(200) NOT NULL,
+                        [Content] VARBINARY(MAX) NULL,
+                        [ContentLength] BIGINT NULL,
+                        [Body] NVARCHAR(MAX) NULL,
+                        [BodyLength] BIGINT NULL
+                    )";
+
+        private void CreateDocumentTable(SqlConnection connection)
+        {
+            if (!TableExists(connection, "Document"))
+            {
+                ExecuteNonQuery(connection, DocumentTableSql);
+                Console.WriteLine("Table Document created.");
+            }
+        }
+
+        private async Task CreateDocumentTableAsync(SqlConnection connection)
+        {
+            if (!await TableExistsAsync(connection, "Document"))
+            {
+                await ExecuteNonQueryAsync(connection, DocumentTableSql);
+                Console.WriteLine("Table Document created.");
             }
         }
 

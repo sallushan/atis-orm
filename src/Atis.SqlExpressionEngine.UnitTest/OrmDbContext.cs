@@ -52,6 +52,12 @@ namespace Atis.SqlExpressionEngine.UnitTest
         // IQueryableFactory (in-memory queryables) and exercise its entity cache behavior.
         public IOrmModel GetOrmModel() => this.Model;
 
+        // Exposes the connection/command layer so a test can seed rows with raw SQL. Needed for the
+        // large-object columns the streaming tests read: the fluent insert cannot write a byte[] member
+        // today (the engine's member-assignment converter treats any non-string IEnumerable as a
+        // sub-query), and that is a separate problem from what those tests are asserting.
+        public IDbCommunication GetDbCommunication() => this.DbCommunication;
+
         internal static int _onModelCreatingCallCount = 0;
         protected override void OnModelCreating(ModelBuilder mb)
         {

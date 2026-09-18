@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
 namespace Atis.Orm.Querying
 {
     public class QueryExecutor : IQueryExecutor
@@ -57,6 +58,28 @@ namespace Atis.Orm.Querying
             {
                 return this.dbAdapter.ExecuteAsync<TResult>(executionContext.Sql, executionContext.DbParameters, this.WrapWithNavigationInitializer(executionContext.ElementFactory), cancellationToken);
             }
+        }
+
+        /// <inheritdoc/>
+        public virtual IDbReaderSession OpenReader(Expression expression, Func<IDataReader, object> elementFactory)
+        {
+            if (elementFactory is null)
+                throw new ArgumentNullException(nameof(elementFactory));
+
+            var executionContext = this.GetExecutionContext(expression);
+            // No navigation initializer: the caller's factory does not build an entity, so there are no
+            // navigation properties to initialize and nothing for the wrapper to do but add a delegate.
+            return this.dbAdapter.OpenReader(executionContext.Sql, executionContext.DbParameters, elementFactory);
+        }
+
+        /// <inheritdoc/>
+        public virtual Task<IDbReaderSession> OpenReaderAsync(Expression expression, Func<IDataReader, object> elementFactory, CancellationToken cancellationToken)
+        {
+            if (elementFactory is null)
+                throw new ArgumentNullException(nameof(elementFactory));
+
+            var executionContext = this.GetExecutionContext(expression);
+            return this.dbAdapter.OpenReaderAsync(executionContext.Sql, executionContext.DbParameters, elementFactory, cancellationToken);
         }
 
         /// <summary>

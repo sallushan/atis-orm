@@ -98,4 +98,23 @@ namespace Atis.SqlExpressionEngine.UnitTest.TestEntities
         public DateTime ChangedDate { get; set; }
         public int? ChangedByEmployeeId { get; set; }
     }
+
+    /// <summary>
+    ///     A stored file: the one entity here with columns large enough to be worth streaming rather than
+    ///     materializing. <see cref="ContentLength"/> and <see cref="BodyLength"/> are the size columns the
+    ///     streaming terminals can be pointed at — written by whoever stores the value, exactly as a real
+    ///     schema would, since a database streaming a value does not report its size up front.
+    /// </summary>
+    [DbTable]
+    public class Document
+    {
+        [PrimaryKey]
+        [DbIdentityColumn]
+        public int DocumentId { get; set; }
+        public string Name { get; set; }
+        public byte[] Content { get; set; }
+        public long? ContentLength { get; set; }
+        public string Body { get; set; }
+        public long? BodyLength { get; set; }
+    }
 }

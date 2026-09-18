@@ -28,6 +28,22 @@ namespace Atis.Orm.Querying
 
         /// <summary>
         ///     <para>
+        ///         The provider a streaming terminal needs, demanded at the terminal for the same reason
+        ///         <see cref="RequireAsync"/> is: a provider that cannot hand out a reader session must
+        ///         still serve every other query written against it.
+        ///     </para>
+        /// </summary>
+        public static IReaderSessionProvider RequireReaderSession(this IQueryProvider provider)
+        {
+            if (provider is null)
+                throw new ArgumentNullException(nameof(provider));
+
+            return provider as IReaderSessionProvider
+                ?? throw new InvalidOperationException("The query provider does not support streaming a column from an open reader.");
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Reads an asynchronous result sequence to the end. Every asynchronous terminal that
         ///         returns a materialized collection ends this way, so the enumerator's disposal — which
         ///         is what releases the reader and the connection span behind it — is written once here

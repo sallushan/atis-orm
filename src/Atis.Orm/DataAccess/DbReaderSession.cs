@@ -65,7 +65,7 @@ namespace Atis.Orm.DataAccess
         ///     enough to sit on the per-row path, and <c>default</c> -- guarding nothing -- when the session
         ///     was built without a detector.
         /// </summary>
-        private ConcurrencyDetectorCriticalSection EnterCriticalSection()
+        public ConcurrencyDetectorCriticalSection EnterCriticalSection()
         {
             return this.concurrencyDetector is null
                     ? default

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
 using Atis.Orm.Querying;
 namespace Atis.Orm
 {
@@ -247,6 +248,132 @@ namespace Atis.Orm
             var call = Expression.Call(null, firstOrDefaultMethod, query.Expression);
 
             return query.Provider.RequireAsync().ExecuteAsync<Task<T>>(call, cancellationToken);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Reads one binary column of one row as a stream, so that a value too large to want in
+        ///         memory -- a document, an image, a backup -- crosses the connection in pieces as it is
+        ///         consumed. Everything else the ORM returns is a finished object with the connection
+        ///         already given back; this is the exception, and the reason it is a separate terminal
+        ///         rather than something the ordinary query path does on its own.
+        ///     </para>
+        ///     <para>
+        ///         <strong>Dispose what comes back.</strong> It owns the reader, the command and a claim on
+        ///         the connection until it is disposed. It is also only valid until then, which is why the
+        ///         value cannot simply be a property on a materialized entity.
+        ///     </para>
+        ///     <para>
+        ///         <strong>Returns <c>null</c> when there is nothing to read</strong> -- whether the query
+        ///         matched no row or the column in that row is null. The two are one situation to a caller
+        ///         holding a handle on a value, and a caller that must tell them apart should ask with an
+        ///         ordinary query, which does not touch the large column at all.
+        ///     </para>
+        ///     <para>
+        ///         Only the first row is fetched; the statement is limited rather than the result trimmed,
+        ///         so the query stays as cheap as the caller wrote it. Anything the query can express --
+        ///         joins, sub-queries, a predicate over a related table -- is available here, because this
+        ///         differs from a normal query only in how the row is read.
+        ///     </para>
+        /// </summary>
+        /// <param name="query">The query naming the row, for example <c>dbc.Documents.Where(x =&gt; x.Id == id)</c>.</param>
+        /// <param name="field">The column to stream, as <c>x =&gt; x.Content</c>.</param>
+        /// <param name="size">
+        ///     Optional. A column holding the value's size in bytes, which becomes
+        ///     <see cref="DbFieldStream.Length"/>. Worth passing when the schema has one: a database
+        ///     streaming a value does not say up front how long it is, so without this the length is simply
+        ///     not known until the stream ends.
+        /// </param>
+        /// <param name="progress">Optional. Receives the running total of bytes read.</param>
+        public static DbFieldStream StreamField<T>(
+            this IQueryable<T> query,
+            Expression<Func<T, byte[]>> field,
+            Expression<Func<T, long?>> size = null,
+            IProgress<long> progress = null)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (field is null)
+                throw new ArgumentNullException(nameof(field));
+
+            var expression = FieldStreamSupport.BuildQuery(query, field, size);
+            var elementFactory = FieldStreamSupport.CreateReaderFactory(size != null, binary: true);
+            var session = query.Provider.RequireReaderSession().OpenReader(expression, elementFactory);
+
+            return FieldStreamSupport.ReadStream(session, progress);
+        }
+
+        /// <inheritdoc cref="StreamField{T}(IQueryable{T}, Expression{Func{T, byte[]}}, Expression{Func{T, long?}}, IProgress{long})"/>
+        public static async Task<DbFieldStream> StreamFieldAsync<T>(
+            this IQueryable<T> query,
+            Expression<Func<T, byte[]>> field,
+            Expression<Func<T, long?>> size = null,
+            IProgress<long> progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (field is null)
+                throw new ArgumentNullException(nameof(field));
+
+            var expression = FieldStreamSupport.BuildQuery(query, field, size);
+            var elementFactory = FieldStreamSupport.CreateReaderFactory(size != null, binary: true);
+            var session = await query.Provider.RequireReaderSession()
+                                     .OpenReaderAsync(expression, elementFactory, cancellationToken)
+                                     .ConfigureAwait(false);
+
+            return await FieldStreamSupport.ReadStreamAsync(session, progress, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        ///     The character-column counterpart of
+        ///     <see cref="StreamField{T}(IQueryable{T}, Expression{Func{T, byte[]}}, Expression{Func{T, long?}}, IProgress{long})"/>,
+        ///     returning a <see cref="System.IO.TextReader"/> instead of a stream. Same ownership, same
+        ///     <c>null</c> result, same single row. A separate name rather than an overload, because two
+        ///     methods that differ only in what they return are two methods.
+        /// </summary>
+        /// <param name="query">The query naming the row.</param>
+        /// <param name="field">The column to stream, as <c>x =&gt; x.Body</c>.</param>
+        /// <param name="size">Optional. A column holding the value's length, which becomes <see cref="DbFieldTextReader.Length"/>.</param>
+        /// <param name="progress">Optional. Receives the running total of characters read.</param>
+        public static DbFieldTextReader StreamTextField<T>(
+            this IQueryable<T> query,
+            Expression<Func<T, string>> field,
+            Expression<Func<T, long?>> size = null,
+            IProgress<long> progress = null)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (field is null)
+                throw new ArgumentNullException(nameof(field));
+
+            var expression = FieldStreamSupport.BuildQuery(query, field, size);
+            var elementFactory = FieldStreamSupport.CreateReaderFactory(size != null, binary: false);
+            var session = query.Provider.RequireReaderSession().OpenReader(expression, elementFactory);
+
+            return FieldStreamSupport.ReadTextReader(session, progress);
+        }
+
+        /// <inheritdoc cref="StreamTextField{T}(IQueryable{T}, Expression{Func{T, string}}, Expression{Func{T, long?}}, IProgress{long})"/>
+        public static async Task<DbFieldTextReader> StreamTextFieldAsync<T>(
+            this IQueryable<T> query,
+            Expression<Func<T, string>> field,
+            Expression<Func<T, long?>> size = null,
+            IProgress<long> progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (query is null)
+                throw new ArgumentNullException(nameof(query));
+            if (field is null)
+                throw new ArgumentNullException(nameof(field));
+
+            var expression = FieldStreamSupport.BuildQuery(query, field, size);
+            var elementFactory = FieldStreamSupport.CreateReaderFactory(size != null, binary: false);
+            var session = await query.Provider.RequireReaderSession()
+                                     .OpenReaderAsync(expression, elementFactory, cancellationToken)
+                                     .ConfigureAwait(false);
+
+            return await FieldStreamSupport.ReadTextReaderAsync(session, progress, cancellationToken).ConfigureAwait(false);
         }
     }
 }

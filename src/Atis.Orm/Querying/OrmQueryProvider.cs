@@ -1,16 +1,19 @@
 ﻿using Atis.SqlExpressionEngine.Abstractions;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.DataAccess;
 namespace Atis.Orm.Querying
 {
-    public class OrmQueryProvider : IAsyncQueryProvider
+    public class OrmQueryProvider : IAsyncQueryProvider, IReaderSessionProvider
     {
         private static MethodInfo openCreateQueryMethod;
         private static MethodInfo OpenCreateQueryMethod
@@ -78,6 +81,18 @@ namespace Atis.Orm.Querying
         public virtual TResult ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
         {
             return this.queryExecutor.ExecuteAsync<TResult>(expression, cancellationToken);
+        }
+
+        /// <inheritdoc/>
+        public virtual IDbReaderSession OpenReader(Expression expression, Func<IDataReader, object> elementFactory)
+        {
+            return this.queryExecutor.OpenReader(expression, elementFactory);
+        }
+
+        /// <inheritdoc/>
+        public virtual Task<IDbReaderSession> OpenReaderAsync(Expression expression, Func<IDataReader, object> elementFactory, CancellationToken cancellationToken)
+        {
+            return this.queryExecutor.OpenReaderAsync(expression, elementFactory, cancellationToken);
         }
     }
 }
