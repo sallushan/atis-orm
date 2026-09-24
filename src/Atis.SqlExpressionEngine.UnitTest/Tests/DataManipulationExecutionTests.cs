@@ -75,6 +75,29 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Insert_fluent_api_writes_a_null_byte_array_member()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                byte[] content = null;
+
+                db.InsertEntity<TestEntities.Document>()
+                  .Value(x => x.Name, () => "Insert_Fluent_NullByteArray")
+                  .Value(x => x.Content, () => content)
+                  .Execute();
+
+                var inserted = db.CreateQuery<TestEntities.Document>()
+                                 .Where(x => x.Name == "Insert_Fluent_NullByteArray")
+                                 .Select(x => x.Content)
+                                 .ToList();
+
+                Assert.AreEqual(1, inserted.Count);
+                Assert.IsNull(inserted[0]);
+            });
+        }
+
+        [TestMethod]
         public async Task Insert_fluent_api_execute_async_reports_the_affected_row_count()
         {
             var db = new OrmDbContext();

@@ -1,10 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data;
 using System.Data.Common;
 using System.Text;
 
 using Atis.Orm.Abstractions;
+using Atis.SqlExpressionEngine.SqlExpressions;
 namespace Atis.Orm.SqlServer
 {
     /// <summary>
@@ -36,7 +38,17 @@ namespace Atis.Orm.SqlServer
         public DbParameter CreateDbParameter(int parameterIndex, IQueryParameter queryParameter, object parameterValue)
         {
             var parameterName = this._parameterNameGenerator.GenerateParameterName(parameterIndex);
-            return this.CreateDbParameter(parameterName, parameterValue);
+            var dbParameter = this.CreateDbParameter(parameterName, parameterValue);
+
+            // A NULL with nothing to type it goes out as nvarchar, and SQL Server refuses to convert
+            // nvarchar to varbinary -- so a null byte[] could not be written to a binary column. Every
+            // other type converts from that nvarchar NULL, which is why only this one is typed.
+            if (parameterValue is null &&
+                (queryParameter?.SqlParameterExpression as SqlParameterExpression)?.ValueType == typeof(byte[]))
+            {
+                dbParameter.DbType = DbType.Binary;
+            }
+            return dbParameter;
         }
 
         public IReadOnlyList<DbParameter> CreateDbParameters(int parameterIndex, IQueryParameter queryParameter, IEnumerable parameterValue)
