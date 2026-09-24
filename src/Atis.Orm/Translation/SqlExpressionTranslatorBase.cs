@@ -74,6 +74,21 @@ namespace Atis.Orm.Translation
         // Guards the public entry point against re-entry - see Translate.
         private bool isTranslating;
 
+        private readonly ISqlNaming naming;
+
+        /// <summary>Constructs a translator that spells names the default way (see <see cref="SqlNaming"/>).</summary>
+        public SqlExpressionTranslatorBase()
+            : this(null)
+        {
+        }
+
+        /// <summary>Constructs a translator that spells table and column names through <paramref name="naming"/>.</summary>
+        /// <param name="naming">The provider's naming. <c>null</c> means the default <see cref="SqlNaming"/>.</param>
+        public SqlExpressionTranslatorBase(ISqlNaming naming)
+        {
+            this.naming = naming ?? new SqlNaming();
+        }
+
         /// <summary>
         ///     <para>
         ///         Translates a SQL expression tree to a SQL string with parameters.
@@ -875,7 +890,7 @@ namespace Atis.Orm.Translation
                     throw new NotSupportedException($"Output source '{node.Source}' is not supported by {this.GetType().Name}.");
             }
             this.Append(".");
-            this.Append(node.ColumnName);
+            this.Append(this.GetColumnName(node.ColumnName));
         }
 
         /// <summary>
@@ -887,7 +902,7 @@ namespace Atis.Orm.Translation
         {
             this.Append(this.GetAlias(node.DataSourceAlias));
             this.Append(".");
-            this.Append(node.ColumnName);
+            this.Append(this.GetColumnName(node.ColumnName));
         }
 
         /// <summary>
@@ -903,13 +918,27 @@ namespace Atis.Orm.Translation
         /// <summary>
         ///     <para>
         ///         The name a table is written by. Every site that names a table — this one, the INSERT
-        ///         destination, the INSERT ... SELECT destination — goes through here, so a dialect that
-        ///         quotes or brackets identifiers overrides once and all of them follow.
+        ///         destination, the INSERT ... SELECT destination — goes through here.
+        ///     </para>
+        ///     <para>
+        ///         It asks <see cref="ISqlNaming"/>, which the ORM also uses for statements it writes
+        ///         outside this translator. A dialect that quotes or brackets identifiers should change
+        ///         the naming service rather than override this, or those statements would spell the table
+        ///         differently.
         ///     </para>
         /// </summary>
         protected virtual string GetQualifiedTableName(SqlTable table)
         {
-            return SqlTableNaming.GetQualifiedName(table);
+            return this.naming.GetQualifiedTableName(table);
+        }
+
+        /// <summary>
+        ///     The name a column is written by, for every site that names one. Goes through
+        ///     <see cref="ISqlNaming"/> for the same reason <see cref="GetQualifiedTableName"/> does.
+        /// </summary>
+        protected virtual string GetColumnName(string columnName)
+        {
+            return this.naming.GetColumnName(columnName);
         }
 
         /// <summary>
@@ -1769,7 +1798,7 @@ namespace Atis.Orm.Translation
             {
                 if (i > 0)
                     this.Append(",\r\n\t");
-                this.Append(node.Columns[i]);
+                this.Append(this.GetColumnName(node.Columns[i]));
                 this.Append(" = ");
                 this.TranslateExpression(node.Values[i]);
             }
@@ -1801,7 +1830,7 @@ namespace Atis.Orm.Translation
             this.Append("INSERT INTO ");
             this.Append(this.GetQualifiedTableName(node.Table));
             this.Append(" (");
-            this.Append(string.Join(", ", node.Columns));
+            this.Append(string.Join(", ", node.Columns.Select(this.GetColumnName)));
             this.Append(")\r\n");
 
             if (node.Outputs.Count > 0)
@@ -1857,7 +1886,7 @@ namespace Atis.Orm.Translation
                 select new { selectCol.Alias, tableCol.DatabaseColumnName }
             ).ToDictionary(x => x.Alias, x => x.DatabaseColumnName);
 
-            var columns = string.Join(", ", selectColumns.Select(c => propertyWithDbColumnMap[c.Alias]));
+            var columns = string.Join(", ", selectColumns.Select(c => this.GetColumnName(propertyWithDbColumnMap[c.Alias])));
             this.Append("INSERT INTO ");
             this.Append(this.GetQualifiedTableName(node.SqlTable));
             this.Append("(");

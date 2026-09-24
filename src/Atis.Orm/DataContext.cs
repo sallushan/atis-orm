@@ -349,6 +349,103 @@ namespace Atis.Orm
 
         /// <summary>
         ///     <para>
+        ///         <see cref="SaveEntity{T}(T)"/> for an entity with large columns: those columns are written
+        ///         in chunks of <paramref name="chunkSizeBytes"/> after the rest of the row, so no single
+        ///         command carries the whole value and runs into the command timeout, and
+        ///         <paramref name="onProgress"/> hears after every chunk.
+        ///     </para>
+        ///     <para>
+        ///         A column is written in chunks when <paramref name="streams"/> supplies a stream for it,
+        ///         or when it is a <c>byte[]</c> or <c>string</c> whose value is larger than one chunk. A
+        ///         streamed source is read one chunk at a time and never held in memory whole; an in-memory
+        ///         value is already in memory, and gains only the smaller commands and the progress.
+        ///     </para>
+        ///     <para>
+        ///         The row and all its chunks are written in one transaction, so a failure part way through
+        ///         leaves nothing behind. A delete has nothing to stream and is a plain
+        ///         <see cref="SaveEntity{T}(T)"/>.
+        ///     </para>
+        /// </summary>
+        /// <param name="entity">The entity to write, derived from <see cref="Record"/>.</param>
+        /// <param name="onProgress">Called after every chunk. May be <c>null</c>.</param>
+        /// <param name="streams">
+        ///     Maps columns to caller-owned sources, for example
+        ///     <c>map =&gt; map.Stream(x =&gt; x.Content, fileStream)</c>. The sources are read to their end
+        ///     and not disposed. May be <c>null</c>.
+        /// </param>
+        /// <param name="chunkSizeBytes">
+        ///     The size of each chunk, and the size above which an in-memory value is chunked. A text
+        ///     chunk is half this many characters.
+        /// </param>
+        /// <exception cref="ConcurrencyViolationException">The write matched no row.</exception>
+        public virtual int SaveWithProgress<T>(
+            T entity,
+            Action<ColumnWriteProgress> onProgress,
+            Action<StreamColumnMap<T>> streams = null,
+            int chunkSizeBytes = StreamedColumnWrite.DefaultChunkSizeBytes)
+        {
+            var state = GetRecordState(entity);
+            switch (state)
+            {
+                case RecordState.Unchanged:
+                    return 0;
+                case RecordState.Added:
+                    return Verify<T>(this.EntityPersister.Insert(entity, CreateStreamedWrite(onProgress, streams, chunkSizeBytes)), "inserted");
+                case RecordState.Updated:
+                    return Verify<T>(
+                        this.EntityPersister.Update(entity, optimisticConcurrency: true, CreateStreamedWrite(onProgress, streams, chunkSizeBytes)),
+                        "updated");
+                case RecordState.Deleted:
+                    return Verify<T>(this.EntityPersister.Delete(entity, optimisticConcurrency: true), "deleted");
+                default:
+                    throw new InvalidOperationException($"'{state}' is not a record state {nameof(SaveWithProgress)} knows how to act on.");
+            }
+        }
+
+        /// <summary>The asynchronous <see cref="SaveWithProgress{T}(T, Action{ColumnWriteProgress}, Action{StreamColumnMap{T}}, int)"/>.</summary>
+        /// <exception cref="ConcurrencyViolationException">The write matched no row.</exception>
+        public virtual async Task<int> SaveWithProgressAsync<T>(
+            T entity,
+            Action<ColumnWriteProgress> onProgress,
+            Action<StreamColumnMap<T>> streams = null,
+            int chunkSizeBytes = StreamedColumnWrite.DefaultChunkSizeBytes,
+            CancellationToken cancellationToken = default)
+        {
+            var state = GetRecordState(entity);
+            switch (state)
+            {
+                case RecordState.Unchanged:
+                    return 0;
+                case RecordState.Added:
+                    return Verify<T>(
+                        await this.EntityPersister.InsertAsync(entity, CreateStreamedWrite(onProgress, streams, chunkSizeBytes), cancellationToken)
+                                  .ConfigureAwait(false),
+                        "inserted");
+                case RecordState.Updated:
+                    return Verify<T>(
+                        await this.EntityPersister.UpdateAsync(
+                                      entity, optimisticConcurrency: true, CreateStreamedWrite(onProgress, streams, chunkSizeBytes), cancellationToken)
+                                  .ConfigureAwait(false),
+                        "updated");
+                case RecordState.Deleted:
+                    return Verify<T>(
+                        await this.EntityPersister.DeleteAsync(entity, optimisticConcurrency: true, cancellationToken).ConfigureAwait(false),
+                        "deleted");
+                default:
+                    throw new InvalidOperationException($"'{state}' is not a record state {nameof(SaveWithProgressAsync)} knows how to act on.");
+            }
+        }
+
+        private static StreamedColumnWrite CreateStreamedWrite<T>(
+            Action<ColumnWriteProgress> onProgress, Action<StreamColumnMap<T>> streams, int chunkSizeBytes)
+        {
+            var map = new StreamColumnMap<T>();
+            streams?.Invoke(map);
+            return new StreamedColumnWrite(chunkSizeBytes, onProgress, map.Sources);
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Returns the entity whose primary-key columns match <paramref name="key"/>, or <c>null</c>
         ///         when no matching row exists.
         ///     </para>

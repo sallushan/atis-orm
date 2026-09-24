@@ -112,9 +112,23 @@ namespace Atis.Orm.DataManipulation
         protected virtual bool SupportsOutput => false;
 
         /// <inheritdoc />
-        public int Insert<T>(T entity)
+        public int Insert<T>(T entity) => this.InsertCore(entity, streamedMembers: null);
+
+        /// <inheritdoc />
+        public Task<int> InsertAsync<T>(T entity, CancellationToken cancellationToken = default)
+            => this.InsertCoreAsync(entity, streamedMembers: null, cancellationToken);
+
+        /// <inheritdoc />
+        public int Update<T>(T entity, bool optimisticConcurrency)
+            => this.UpdateCore(entity, optimisticConcurrency, streamedMembers: null);
+
+        /// <inheritdoc />
+        public Task<int> UpdateAsync<T>(T entity, bool optimisticConcurrency, CancellationToken cancellationToken = default)
+            => this.UpdateCoreAsync(entity, optimisticConcurrency, streamedMembers: null, cancellationToken);
+
+        private int InsertCore<T>(T entity, ICollection<MemberInfo> streamedMembers)
         {
-            var values = this.BuildInsertValues(entity, out var generatedMembers);
+            var values = this.BuildInsertValues(entity, streamedMembers, out var generatedMembers);
             if (generatedMembers.Count == 0)
                 return this.queryProvider.Execute<int>(InsertEntityMethodCallFactory.CreateAffectedRowsCall<T>(values));
             if (!this.SupportsOutput)
@@ -129,10 +143,9 @@ namespace Atis.Orm.DataManipulation
             return this.ApplyGeneratedValues(entity, generatedMembers, this.ExecuteDictionary(outputCall), "insert");
         }
 
-        /// <inheritdoc />
-        public async Task<int> InsertAsync<T>(T entity, CancellationToken cancellationToken = default)
+        private async Task<int> InsertCoreAsync<T>(T entity, ICollection<MemberInfo> streamedMembers, CancellationToken cancellationToken)
         {
-            var values = this.BuildInsertValues(entity, out var generatedMembers);
+            var values = this.BuildInsertValues(entity, streamedMembers, out var generatedMembers);
             if (generatedMembers.Count == 0)
             {
                 return await this.ExecuteAffectedRowsAsync(
@@ -153,10 +166,9 @@ namespace Atis.Orm.DataManipulation
             return this.ApplyGeneratedValues(entity, generatedMembers, insertedRows, "insert");
         }
 
-        /// <inheritdoc />
-        public int Update<T>(T entity, bool optimisticConcurrency)
+        private int UpdateCore<T>(T entity, bool optimisticConcurrency, ICollection<MemberInfo> streamedMembers)
         {
-            var setters = this.BuildUpdateSetters(entity, optimisticConcurrency, out var keys, out var generatedMembers);
+            var setters = this.BuildUpdateSetters(entity, optimisticConcurrency, streamedMembers, out var keys, out var generatedMembers);
             if (generatedMembers.Count == 0)
                 return this.queryProvider.Execute<int>(UpdateEntityMethodCallFactory.CreateAffectedRowsCall<T>(setters, keys));
             if (!this.SupportsOutput)
@@ -169,10 +181,10 @@ namespace Atis.Orm.DataManipulation
             return this.ApplyGeneratedValues(entity, generatedMembers, this.ExecuteDictionary(outputCall), "update");
         }
 
-        /// <inheritdoc />
-        public async Task<int> UpdateAsync<T>(T entity, bool optimisticConcurrency, CancellationToken cancellationToken = default)
+        private async Task<int> UpdateCoreAsync<T>(
+            T entity, bool optimisticConcurrency, ICollection<MemberInfo> streamedMembers, CancellationToken cancellationToken)
         {
-            var setters = this.BuildUpdateSetters(entity, optimisticConcurrency, out var keys, out var generatedMembers);
+            var setters = this.BuildUpdateSetters(entity, optimisticConcurrency, streamedMembers, out var keys, out var generatedMembers);
             if (generatedMembers.Count == 0)
             {
                 return await this.ExecuteAffectedRowsAsync(
@@ -203,6 +215,490 @@ namespace Atis.Orm.DataManipulation
             => this.ExecuteAffectedRowsAsync(
                 DeleteEntityMethodCallFactory.CreateAffectedRowsCall<T>(this.BuildDeleteKeys(entity, optimisticConcurrency)),
                 cancellationToken);
+
+        // ---------------------------------------------------------------------------------------
+        // Streamed column writes
+        // ---------------------------------------------------------------------------------------
+
+        /// <summary>
+        ///     <para>
+        ///         Whether this provider can append a chunk to a column's current value, which is what
+        ///         <see cref="Insert{T}(T, StreamedColumnWrite)"/> and
+        ///         <see cref="Update{T}(T, bool, StreamedColumnWrite)"/> need.
+        ///     </para>
+        ///     <para>
+        ///         <c>false</c> here because appending has no common SQL spelling: SQL Server has
+        ///         <c>.WRITE</c>, other databases have their own, or none. A provider that sets this to
+        ///         <c>true</c> overrides the four chunk methods below.
+        ///     </para>
+        /// </summary>
+        protected virtual bool SupportsStreamedColumnWrite => false;
+
+        /// <summary>
+        ///     Appends <paramref name="chunk"/> to the current value of the binary column
+        ///     <paramref name="target"/> names, and returns the number of rows affected. The column always
+        ///     holds a value to append to, never <c>NULL</c>: the insert or update before the first chunk
+        ///     writes it as empty.
+        /// </summary>
+        protected virtual int WriteBinaryChunk(IDbCommunication communication, ColumnChunkTarget target, byte[] chunk)
+            => throw this.StreamedColumnWriteNotSupported();
+
+        /// <summary>The asynchronous <see cref="WriteBinaryChunk"/>.</summary>
+        protected virtual Task<int> WriteBinaryChunkAsync(
+            IDbCommunication communication, ColumnChunkTarget target, byte[] chunk, CancellationToken cancellationToken)
+            => throw this.StreamedColumnWriteNotSupported();
+
+        /// <summary>The text column counterpart of <see cref="WriteBinaryChunk"/>.</summary>
+        protected virtual int WriteTextChunk(IDbCommunication communication, ColumnChunkTarget target, string chunk)
+            => throw this.StreamedColumnWriteNotSupported();
+
+        /// <summary>The asynchronous <see cref="WriteTextChunk"/>.</summary>
+        protected virtual Task<int> WriteTextChunkAsync(
+            IDbCommunication communication, ColumnChunkTarget target, string chunk, CancellationToken cancellationToken)
+            => throw this.StreamedColumnWriteNotSupported();
+
+        private NotSupportedException StreamedColumnWriteNotSupported()
+            => new NotSupportedException($"'{this.GetType().Name}' cannot write a column in chunks.");
+
+        /// <inheritdoc />
+        public int Insert<T>(T entity, StreamedColumnWrite streaming)
+        {
+            var columns = this.PlanStreamedColumns(entity, streaming, isUpdate: false);
+            if (columns.Count == 0)
+                return this.Insert(entity);
+
+            var communication = this.RequireStreamedColumnWrite<T>();
+            var rowsAffected = 0;
+            communication.Transaction(() =>
+            {
+                var originals = this.SwapInPlaceholders(entity, columns);
+                try
+                {
+                    rowsAffected = this.InsertCore(entity, StreamedMembers(columns));
+                }
+                finally
+                {
+                    this.RestoreOriginals(entity, columns, originals);
+                }
+                if (rowsAffected == 0)
+                    return;
+
+                this.WriteStreamedColumns(communication, entity, columns, streaming);
+                this.ReadBackAfterStreaming(entity, "insert");
+            });
+            return rowsAffected;
+        }
+
+        /// <inheritdoc />
+        public async Task<int> InsertAsync<T>(T entity, StreamedColumnWrite streaming, CancellationToken cancellationToken = default)
+        {
+            var columns = this.PlanStreamedColumns(entity, streaming, isUpdate: false);
+            if (columns.Count == 0)
+                return await this.InsertAsync(entity, cancellationToken).ConfigureAwait(false);
+
+            var communication = this.RequireStreamedColumnWrite<T>();
+            var rowsAffected = 0;
+            await communication.TransactionAsync(async () =>
+            {
+                var originals = this.SwapInPlaceholders(entity, columns);
+                try
+                {
+                    // we have replaced entity's large / stream mapped columns with empty values above SwapInPlaceHolders
+                    // and we are now inserting
+                    rowsAffected = await this.InsertCoreAsync(entity, StreamedMembers(columns), cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    // put the caller's values back, even if the insert failed; the chunks
+                    // below read from the sources captured in PlanStreamedColumns, not from the entity
+                    this.RestoreOriginals(entity, columns, originals);
+                }
+                if (rowsAffected == 0)
+                    // nothing was written, so there is no row to append chunks to; return 0
+                    // and let the caller report it (SaveWithProgress's Verify throws)
+                    return;
+
+                await this.WriteStreamedColumnsAsync(communication, entity, columns, streaming, cancellationToken).ConfigureAwait(false);
+                await this.ReadBackAfterStreamingAsync(entity, "insert", cancellationToken).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
+            return rowsAffected;
+        }
+
+        /// <inheritdoc />
+        public int Update<T>(T entity, bool optimisticConcurrency, StreamedColumnWrite streaming)
+        {
+            var columns = this.PlanStreamedColumns(entity, streaming, isUpdate: true);
+            if (columns.Count == 0)
+                return this.Update(entity, optimisticConcurrency);
+
+            var communication = this.RequireStreamedColumnWrite<T>();
+            var rowsAffected = 0;
+            communication.Transaction(() =>
+            {
+                var originals = this.SwapInPlaceholders(entity, columns);
+                try
+                {
+                    rowsAffected = this.UpdateCore(entity, optimisticConcurrency, StreamedMembers(columns));
+                }
+                finally
+                {
+                    this.RestoreOriginals(entity, columns, originals);
+                }
+                // Nothing matched — under optimistic concurrency, the row changed since it was read. The
+                // chunks are not written, so the caller sees the same zero a plain update reports.
+                if (rowsAffected == 0)
+                    return;
+
+                this.WriteStreamedColumns(communication, entity, columns, streaming);
+                this.ReadBackAfterStreaming(entity, "update");
+            });
+            return rowsAffected;
+        }
+
+        /// <inheritdoc />
+        public async Task<int> UpdateAsync<T>(
+            T entity, bool optimisticConcurrency, StreamedColumnWrite streaming, CancellationToken cancellationToken = default)
+        {
+            var columns = this.PlanStreamedColumns(entity, streaming, isUpdate: true);
+            if (columns.Count == 0)
+                return await this.UpdateAsync(entity, optimisticConcurrency, cancellationToken).ConfigureAwait(false);
+
+            var communication = this.RequireStreamedColumnWrite<T>();
+            var rowsAffected = 0;
+            await communication.TransactionAsync(async () =>
+            {
+                var originals = this.SwapInPlaceholders(entity, columns);
+                try
+                {
+                    rowsAffected = await this.UpdateCoreAsync(entity, optimisticConcurrency, StreamedMembers(columns), cancellationToken)
+                                             .ConfigureAwait(false);
+                }
+                finally
+                {
+                    this.RestoreOriginals(entity, columns, originals);
+                }
+                if (rowsAffected == 0)
+                    return;
+
+                await this.WriteStreamedColumnsAsync(communication, entity, columns, streaming, cancellationToken).ConfigureAwait(false);
+                await this.ReadBackAfterStreamingAsync(entity, "update", cancellationToken).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
+            return rowsAffected;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Decides which of the columns this write touches are streamed: each one the caller
+        ///         supplied a source for, and each <c>byte[]</c> or <c>string</c> whose value is larger
+        ///         than one chunk. Everything else goes in the statement as usual.
+        ///     </para>
+        ///     <para>
+        ///         An in-memory value is captured here, before its member is swapped for the placeholder,
+        ///         so the chunks come from the value the caller saved even though the member is restored
+        ///         before they are written.
+        ///     </para>
+        /// </summary>
+        private IReadOnlyList<StreamedColumn> PlanStreamedColumns<T>(T entity, StreamedColumnWrite streaming, bool isUpdate)
+        {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+            if (streaming is null)
+                throw new ArgumentNullException(nameof(streaming));
+
+            var map = this.GetWriteMap(typeof(T));
+            var writeColumns = isUpdate ? map.UpdateColumns : map.InsertColumns;
+
+            foreach (var source in streaming.Sources)
+            {
+                var column = writeColumns.FirstOrDefault(x => x.ModelPropertyName == source.Key.Name);
+                if (column is null)
+                {
+                    throw new InvalidOperationException(
+                        $"'{typeof(T).Name}.{source.Key.Name}' is given a stream, but it is not a column that " +
+                        $"{(isUpdate ? "an update" : "an insert")} of '{typeof(T).Name}' writes.");
+                }
+
+                var expectedType = source.Value.IsText ? typeof(string) : typeof(byte[]);
+                if (column.ClrType != expectedType)
+                {
+                    throw new InvalidOperationException(
+                        $"'{typeof(T).Name}.{column.ModelPropertyName}' is a '{column.ClrType.Name}' member, so it cannot be " +
+                        $"written from a {(source.Value.IsText ? "text" : "binary")} source. A binary source writes a byte[] " +
+                        "member and a text source writes a string member.");
+                }
+            }
+
+            var entityMetadata = this.model.GetRequiredEntity(typeof(T));
+            var columns = new List<StreamedColumn>();
+            foreach (var column in writeColumns)
+            {
+                var source = streaming.Sources.Where(x => x.Key.Name == column.ModelPropertyName)
+                                              .Select(x => x.Value)
+                                              .FirstOrDefault();
+                if (source is null)
+                {
+                    var value = this.reflectionService.GetPropertyOrFieldValue(entity, column.Property);
+                    if (value is byte[] bytes && bytes.Length > streaming.ChunkSizeBytes)
+                        source = ColumnWriteSource.FromBytes(bytes);
+                    else if (value is string text && text.Length * 2L > streaming.ChunkSizeBytes)
+                        source = ColumnWriteSource.FromText(text);
+                }
+                if (source is null)
+                    continue;
+
+                if (!this.reflectionService.IsWriteableMember(column.Property))
+                {
+                    throw new InvalidOperationException(
+                        $"'{typeof(T).Name}.{column.ModelPropertyName}' is written in chunks, which needs its member to hold an " +
+                        "empty placeholder while the rest of the row is written, but it has no setter.");
+                }
+
+                var tableColumn = entityMetadata.SqlColumns.First(x => x.ModelPropertyName == column.ModelPropertyName);
+                columns.Add(new StreamedColumn(column, tableColumn.DatabaseColumnName, source));
+            }
+
+            // Every chunk after the first statement finds the row again by its key.
+            if (columns.Count > 0 && map.KeyMembers.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"'{typeof(T).Name}' has no primary key column, so its columns cannot be written in chunks: each chunk " +
+                    $"has to find the row again. Mark its key with {nameof(PrimaryKeyAttribute)} or configure it in OnModelCreating.");
+            }
+            return columns;
+        }
+
+        private IDbCommunication RequireStreamedColumnWrite<T>()
+        {
+            if (!this.SupportsStreamedColumnWrite)
+            {
+                throw new NotSupportedException(
+                    $"'{typeof(T).Name}' has columns to write in chunks, but '{this.GetType().Name}' does not support " +
+                    $"appending to a column ({nameof(SupportsStreamedColumnWrite)} is false).");
+            }
+            return this.dbCommunication ?? throw new InvalidOperationException(
+                $"'{typeof(T).Name}' has columns to write in chunks, but this persister was constructed without an " +
+                $"{nameof(IDbCommunication)}, which is what runs the chunks and holds them in one transaction with the row.");
+        }
+
+        private static ICollection<MemberInfo> StreamedMembers(IReadOnlyList<StreamedColumn> columns)
+            => columns.Select(x => (MemberInfo)x.Column.Property).ToArray();
+
+        /// <summary>
+        ///     <para>
+        ///         Sets every streamed member to an empty value for the statement that writes the row, and
+        ///         returns what was there so it can be put back.
+        ///     </para>
+        ///     <para>
+        ///         Empty, not <c>NULL</c>. A <c>NOT NULL</c> column accepts it, it clears whatever an update
+        ///         is replacing, and it gives the chunks a value to append to — SQL Server's <c>.WRITE</c>
+        ///         refuses to append to a <c>NULL</c>. Swapping the member, rather than building the
+        ///         statement without the column, keeps the statement the very one a plain save sends, so it
+        ///         shares that save's compiled query.
+        ///     </para>
+        /// </summary>
+        private object[] SwapInPlaceholders<T>(T entity, IReadOnlyList<StreamedColumn> columns)
+        {
+            var originals = new object[columns.Count];
+            for (var i = 0; i < columns.Count; i++)
+            {
+                var property = columns[i].Column.Property;
+                originals[i] = this.reflectionService.GetPropertyOrFieldValue(entity, property);
+                this.reflectionService.SetPropertyOrFieldValue(
+                    entity, property, columns[i].IsText ? (object)string.Empty : Array.Empty<byte>());
+            }
+            return originals;
+        }
+
+        private void RestoreOriginals<T>(T entity, IReadOnlyList<StreamedColumn> columns, object[] originals)
+        {
+            for (var i = 0; i < columns.Count; i++)
+                this.reflectionService.SetPropertyOrFieldValue(entity, columns[i].Column.Property, originals[i]);
+        }
+
+        private void WriteStreamedColumns<T>(
+            IDbCommunication communication, T entity, IReadOnlyList<StreamedColumn> columns, StreamedColumnWrite streaming)
+        {
+            var targets = this.CreateChunkTargets(entity, columns);
+            for (var i = 0; i < columns.Count; i++)
+            {
+                var target = targets[i];
+                switch (columns[i].Source)
+                {
+                    case ColumnWriteSource<byte[]> binary:
+                        WriteChunks<T, byte[]>(binary, chunk => this.WriteBinaryChunk(communication, target, chunk), streaming, columns, i);
+                        break;
+                    case ColumnWriteSource<string> text:
+                        WriteChunks<T, string>(text, chunk => this.WriteTextChunk(communication, target, chunk), streaming, columns, i);
+                        break;
+                }
+            }
+        }
+
+        private static void WriteChunks<T, TChunk>(
+            ColumnWriteSource<TChunk> source,
+            Func<TChunk, int> writeChunk,
+            StreamedColumnWrite streaming,
+            IReadOnlyList<StreamedColumn> columns,
+            int index)
+            where TChunk : class
+        {
+            long written = 0;
+            var anyChunk = false;
+            TChunk chunk;
+            while ((chunk = source.ReadNext(streaming.ChunkSizeBytes)) != null)
+            {
+                EnsureChunkWritten<T>(writeChunk(chunk), columns[index]);
+                written += source.LengthOf(chunk);
+                anyChunk = true;
+                ReportProgress(streaming, columns, index, written, source.TotalLength);
+            }
+            if (!anyChunk)
+                ReportProgress(streaming, columns, index, written, source.TotalLength);
+        }
+
+        private async Task WriteStreamedColumnsAsync<T>(
+            IDbCommunication communication,
+            T entity,
+            IReadOnlyList<StreamedColumn> columns,
+            StreamedColumnWrite streaming,
+            CancellationToken cancellationToken)
+        {
+            var targets = this.CreateChunkTargets(entity, columns);
+            for (var i = 0; i < columns.Count; i++)
+            {
+                var target = targets[i];
+                switch (columns[i].Source)
+                {
+                    case ColumnWriteSource<byte[]> binary:
+                        await WriteChunksAsync<T, byte[]>(
+                                binary,
+                                chunk => this.WriteBinaryChunkAsync(communication, target, chunk, cancellationToken),
+                                streaming, columns, i, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    case ColumnWriteSource<string> text:
+                        await WriteChunksAsync<T, string>(
+                                text,
+                                chunk => this.WriteTextChunkAsync(communication, target, chunk, cancellationToken),
+                                streaming, columns, i, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                }
+            }
+        }
+
+        private static async Task WriteChunksAsync<T, TChunk>(
+            ColumnWriteSource<TChunk> source,
+            Func<TChunk, Task<int>> writeChunk,
+            StreamedColumnWrite streaming,
+            IReadOnlyList<StreamedColumn> columns,
+            int index,
+            CancellationToken cancellationToken)
+            where TChunk : class
+        {
+            long written = 0;
+            var anyChunk = false;
+            TChunk chunk;
+            while ((chunk = await source.ReadNextAsync(streaming.ChunkSizeBytes, cancellationToken).ConfigureAwait(false)) != null)
+            {
+                EnsureChunkWritten<T>(await writeChunk(chunk).ConfigureAwait(false), columns[index]);
+                written += source.LengthOf(chunk);
+                anyChunk = true;
+                ReportProgress(streaming, columns, index, written, source.TotalLength);
+            }
+            if (!anyChunk)
+                ReportProgress(streaming, columns, index, written, source.TotalLength);
+        }
+
+        /// <summary>
+        ///     One target per streamed column, all keyed on the row's primary key as the entity holds it
+        ///     now — after an insert, that includes a key the database has just generated.
+        /// </summary>
+        private IReadOnlyList<ColumnChunkTarget> CreateChunkTargets<T>(T entity, IReadOnlyList<StreamedColumn> columns)
+        {
+            var map = this.GetWriteMap(typeof(T));
+            var entityMetadata = this.model.GetRequiredEntity(typeof(T));
+
+            var keyColumns = map.KeyMembers
+                                .Select(member => new KeyValuePair<string, object>(
+                                    entityMetadata.SqlColumns.First(x => x.ModelPropertyName == member.Name).DatabaseColumnName,
+                                    this.reflectionService.GetPropertyOrFieldValue(entity, member)))
+                                .ToArray();
+
+            return columns.Select(x => new ColumnChunkTarget(entityMetadata.Table, x.DatabaseColumnName, keyColumns)).ToArray();
+        }
+
+        /// <summary>
+        ///     The row was written moments ago inside the same transaction, so a chunk that finds no row
+        ///     means the key does not reach it — a mapping problem, not a concurrency one.
+        /// </summary>
+        private static void EnsureChunkWritten<T>(int rowsAffected, StreamedColumn column)
+        {
+            if (rowsAffected != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Writing a chunk of '{typeof(T).Name}.{column.Column.ModelPropertyName}' affected {rowsAffected} rows " +
+                    "instead of 1. The columns marked as the primary key do not identify the row that was written.");
+            }
+        }
+
+        private static void ReportProgress(
+            StreamedColumnWrite streaming, IReadOnlyList<StreamedColumn> columns, int index, long written, long? total)
+        {
+            streaming.OnProgress?.Invoke(new ColumnWriteProgress(
+                columns[index].Column.ModelPropertyName, index + 1, columns.Count, written, total));
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Reads the row version and computed columns again once the chunks are in. The statement
+        ///         that wrote the row returned them, but every chunk is another update, so a row version
+        ///         has moved on since, and a computed column over a streamed one — its length, say — was
+        ///         computed from the empty placeholder.
+        ///     </para>
+        ///     <para>
+        ///         An identity value does not change, so it is not read again.
+        ///     </para>
+        /// </summary>
+        private void ReadBackAfterStreaming<T>(T entity, string operation)
+        {
+            var map = this.GetWriteMap(typeof(T));
+            if (map.UpdateGeneratedMembers.Count == 0)
+                return;
+
+            var plan = new ReadBackPlan(null, map.KeyMembers, map.UpdateGeneratedMembers);
+            this.AssignReadBackValues(entity, plan.SelectBackMembers, this.ExecuteDictionary(this.CreateReadBackCall(entity, plan)), operation);
+        }
+
+        private async Task ReadBackAfterStreamingAsync<T>(T entity, string operation, CancellationToken cancellationToken)
+        {
+            var map = this.GetWriteMap(typeof(T));
+            if (map.UpdateGeneratedMembers.Count == 0)
+                return;
+
+            var plan = new ReadBackPlan(null, map.KeyMembers, map.UpdateGeneratedMembers);
+            var rows = await this.ExecuteDictionaryAsync(this.CreateReadBackCall(entity, plan), cancellationToken).ConfigureAwait(false);
+            this.AssignReadBackValues(entity, plan.SelectBackMembers, rows, operation);
+        }
+
+        /// <summary>One column this write sends in chunks.</summary>
+        private sealed class StreamedColumn
+        {
+            public StreamedColumn(CrudColumn column, string databaseColumnName, ColumnWriteSource source)
+            {
+                this.Column = column;
+                this.DatabaseColumnName = databaseColumnName;
+                this.Source = source;
+            }
+
+            public CrudColumn Column { get; }
+
+            public string DatabaseColumnName { get; }
+
+            public ColumnWriteSource Source { get; }
+
+            public bool IsText => this.Source.IsText;
+        }
 
         // ---------------------------------------------------------------------------------------
         // Read-back without an OUTPUT clause
@@ -366,7 +862,8 @@ namespace Atis.Orm.DataManipulation
         // Statement building
         // ---------------------------------------------------------------------------------------
 
-        private IReadOnlyList<FieldValuePair> BuildInsertValues<T>(T entity, out IReadOnlyList<MemberInfo> generatedMembers)
+        private IReadOnlyList<FieldValuePair> BuildInsertValues<T>(
+            T entity, ICollection<MemberInfo> streamedMembers, out IReadOnlyList<MemberInfo> generatedMembers)
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
@@ -374,7 +871,7 @@ namespace Atis.Orm.DataManipulation
             var map = this.GetWriteMap(typeof(T));
             if (map.InsertColumns.Count == 0)
                 throw new InvalidOperationException($"'{typeof(T).Name}' has no insertable column, so it cannot be inserted.");
-            this.ValidateRequired(entity, map.InsertColumns);
+            this.ValidateRequired(entity, map.InsertColumns, streamedMembers);
 
             generatedMembers = map.InsertGeneratedMembers;
             return Assignments<T>(entity, map.InsertColumns.Select(x => (MemberInfo)x.Property));
@@ -383,6 +880,7 @@ namespace Atis.Orm.DataManipulation
         private IReadOnlyList<FieldValuePair> BuildUpdateSetters<T>(
             T entity,
             bool optimisticConcurrency,
+            ICollection<MemberInfo> streamedMembers,
             out IReadOnlyList<FieldValuePair> keys,
             out IReadOnlyList<MemberInfo> generatedMembers)
         {
@@ -393,7 +891,7 @@ namespace Atis.Orm.DataManipulation
             EnsureHasKey<T>(map, "updated");
             if (map.UpdateColumns.Count == 0)
                 throw new InvalidOperationException($"'{typeof(T).Name}' has no updatable column, so it cannot be updated.");
-            this.ValidateRequired(entity, map.UpdateColumns);
+            this.ValidateRequired(entity, map.UpdateColumns, streamedMembers);
 
             keys = Assignments<T>(entity, KeyAndConcurrencyMembers(map, optimisticConcurrency));
             generatedMembers = map.UpdateGeneratedMembers;
@@ -766,14 +1264,17 @@ namespace Atis.Orm.DataManipulation
 
         /// <summary>
         ///     Fails the write before it is built when a required value is missing, naming the field the
-        ///     way the mapping asked for it to be named.
+        ///     way the mapping asked for it to be named. A streamed column is skipped: its member holds
+        ///     an empty placeholder by now, and its real value arrives in chunks afterwards.
         /// </summary>
-        private void ValidateRequired(object entity, IReadOnlyList<CrudColumn> columns)
+        private void ValidateRequired(object entity, IReadOnlyList<CrudColumn> columns, ICollection<MemberInfo> streamedMembers)
         {
             for (var i = 0; i < columns.Count; i++)
             {
                 var column = columns[i];
                 if (!column.IsRequired)
+                    continue;
+                if (streamedMembers != null && streamedMembers.Contains(column.Property))
                     continue;
 
                 var value = this.reflectionService.GetPropertyOrFieldValue(entity, column.Property);

@@ -1,5 +1,6 @@
 using System;
 
+using Atis.Orm.Abstractions;
 using Atis.Orm.Translation;
 using Atis.SqlExpressionEngine.SqlExpressions;
 
@@ -13,6 +14,17 @@ namespace Atis.Orm.SqlServer
     /// </summary>
     public class SqlServerSqlExpressionTranslator : SqlExpressionTranslatorBase
     {
+        /// <summary>Constructs a translator that spells names the default way.</summary>
+        public SqlServerSqlExpressionTranslator()
+        {
+        }
+
+        /// <summary>Constructs a translator that spells table and column names through <paramref name="naming"/>.</summary>
+        public SqlServerSqlExpressionTranslator(ISqlNaming naming)
+            : base(naming)
+        {
+        }
+
         /// <inheritdoc />
         protected override void TranslateStringFunction(SqlStringFunctionExpression node)
         {

@@ -1,3 +1,4 @@
+using Atis.Orm.DataManipulation;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -52,5 +53,31 @@ namespace Atis.Orm.Abstractions
 
         /// <summary>The asynchronous <see cref="Delete{T}(T, bool)"/>.</summary>
         Task<int> DeleteAsync<T>(T entity, bool optimisticConcurrency, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     <para>
+        ///         <see cref="Insert{T}(T)"/>, with the large columns <paramref name="streaming"/> selects
+        ///         written in chunks after the row, inside one transaction with it. With nothing to stream
+        ///         it is a plain <see cref="Insert{T}(T)"/>.
+        ///     </para>
+        ///     <para>
+        ///         The entity's streamed members are left holding what the caller gave them.
+        ///     </para>
+        /// </summary>
+        int Insert<T>(T entity, StreamedColumnWrite streaming);
+
+        /// <summary>The asynchronous <see cref="Insert{T}(T, StreamedColumnWrite)"/>.</summary>
+        Task<int> InsertAsync<T>(T entity, StreamedColumnWrite streaming, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        ///     <see cref="Update{T}(T, bool)"/>, with the large columns written in chunks as
+        ///     <see cref="Insert{T}(T, StreamedColumnWrite)"/> describes. When the update matches no row,
+        ///     no chunk is written.
+        /// </summary>
+        int Update<T>(T entity, bool optimisticConcurrency, StreamedColumnWrite streaming);
+
+        /// <summary>The asynchronous <see cref="Update{T}(T, bool, StreamedColumnWrite)"/>.</summary>
+        Task<int> UpdateAsync<T>(
+            T entity, bool optimisticConcurrency, StreamedColumnWrite streaming, CancellationToken cancellationToken = default);
     }
 }

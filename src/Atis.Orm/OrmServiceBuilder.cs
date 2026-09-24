@@ -58,6 +58,8 @@ namespace Atis.Orm
                 // IQueryTranslator, and the rest of that chain — IQueryCompiler, IQueryExecutor,
                 // IDbCommunication — so one translator per unit of work.
                 { typeof(ISqlExpressionTranslator),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
+                // Stateless, and fixed per provider — the compiled-query cache holds SQL spelled by it.
+                { typeof(ISqlNaming),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IElementFactoryBuilder),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 // Scoped for the same two reasons ISqlExpressionTranslator is. It takes IModel in its
                 // constructor and hands it to the preprocessors it builds, so a singleton would capture one
@@ -119,6 +121,7 @@ namespace Atis.Orm
             this.TryAdd<IElementFactoryBuilder, ElementFactoryBuilder>();
             this.TryAdd<IExpressionPreprocessorProvider, OrmExpressionPreprocessorProvider>();
             this.TryAdd<ISqlExpressionPostprocessorProvider, SqlExpressionPostprocessorProvider>();
+            this.TryAdd<ISqlNaming, SqlNaming>();
             this.TryAdd<ISqlExpressionTranslator, SqlExpressionTranslatorBase>();
             this.TryAdd<ICommandRenderer, CommandRenderer>();
             this.TryAdd<IQueryTranslator, QueryTranslator>();

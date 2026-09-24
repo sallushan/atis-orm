@@ -14,6 +14,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     [TestClass]
     public class QueryExecutionTests : TestBase
     {
+        [ClassInitialize]
+        public static void EnsureDatabaseExists(TestContext context) => TestDb.EnsureCreated();
+
         [TestMethod]
         public void Simple_materialization()
         {

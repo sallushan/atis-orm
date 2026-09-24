@@ -31,6 +31,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
     [TestClass]
     public class ConcurrencyDetectionTests
     {
+        [ClassInitialize]
+        public static void EnsureDatabaseExists(TestContext context) => TestDb.EnsureCreated();
+
         private const string ConnectionString =
             "server=localhost;database=TestDb;integrated security=true;TrustServerCertificate=True";
 

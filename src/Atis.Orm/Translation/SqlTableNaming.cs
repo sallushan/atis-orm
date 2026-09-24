@@ -5,9 +5,12 @@ namespace Atis.Orm.Translation
 {
     /// <summary>
     ///     <para>
-    ///         How a <see cref="SqlTable"/> is spelled in SQL. Every statement that names a table —
-    ///         a FROM source, an INSERT destination, an INSERT ... SELECT destination — must spell it
-    ///         the same way, so the rule lives here instead of being rewritten at each site.
+    ///         The default spelling of a <see cref="SqlTable"/>: its non-empty parts joined with dots.
+    ///     </para>
+    ///     <para>
+    ///         Production code asks <see cref="Abstractions.ISqlNaming"/>, which a provider can replace;
+    ///         the default <see cref="SqlNaming"/> delegates here. Use this directly only where no
+    ///         provider is involved, such as a test translator.
     ///     </para>
     /// </summary>
     public static class SqlTableNaming
