@@ -43,12 +43,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         /// <summary>
         ///     <para>
-        ///         Seeds one document with raw SQL rather than through <c>InsertEntity</c>. Not a
-        ///         preference: the fluent insert cannot write a <c>byte[]</c> member at all today —
-        ///         <c>CompositeMemberAssignmentConverterBase</c> sees a non-string <c>IEnumerable</c> and
-        ///         demands a <c>SqlDerivedTableExpression</c>, so the assignment fails to convert. That is
-        ///         a bug in the insert path, not in anything these tests assert, and seeding around it
-        ///         keeps them about streaming.
+        ///         Seeds one document with raw SQL rather than through <c>InsertEntity</c>, so the row
+        ///         these tests read does not depend on the ORM's own write path — which is not what
+        ///         they assert — and keeps them about streaming.
         ///     </para>
         /// </summary>
         private static int Seed(OrmDbContext db, string name, byte[] content = null, string body = null)

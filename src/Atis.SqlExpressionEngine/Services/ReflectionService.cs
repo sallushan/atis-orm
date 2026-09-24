@@ -84,7 +84,7 @@ namespace Atis.SqlExpressionEngine.Services
 
         public virtual bool IsEnumerableType(Type type)
         {
-            if (type == typeof(string))
+            if (type == typeof(string) || type == typeof(byte[]))
                 return false;
 
             return type.GetInterfaces()
