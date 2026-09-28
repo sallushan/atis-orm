@@ -218,6 +218,64 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             public IEnumerator GetEnumerator() => throw new NotImplementedException();
         }
 
+        /// <summary>
+        ///     <para>
+        ///         <c>.Select(x =&gt; new { x.Id, VO = x.ValObjOutTime, Other = x.ValObjInTime.ZoneCode })</c>
+        ///         — selecting the whole value-object property, not just one of its members.
+        ///     </para>
+        ///     <para>
+        ///         The rendered select list flattens <c>VO</c>'s three columns to the top level under
+        ///         their own leaf names (<c>ZoneCode</c>, <c>LocalDateTime</c>, <c>ZuluDateTime</c>) rather
+        ///         than keeping a <c>VO_</c>-prefixed alias — this is the engine's ordinary, deliberate
+        ///         behaviour for selecting a whole composite object, already covered by
+        ///         <c>ComplexProjectionTests</c> (e.g.
+        ///         <c>Multiple_data_sources_selected_in_1_property_and_then_that_1_property_selected_in_projection_in_anonymous_type_...</c>,
+        ///         where <c>t = x.o</c> hoists every column of the joined shape <c>o</c> to the top level
+        ///         with <c>_1</c>/<c>_2</c> suffixes on collision). A value object is, from the engine's
+        ///         point of view, just another <c>SqlMemberInitExpression</c>-shaped member, so it goes
+        ///         through the exact same flattening — nothing new needed here.
+        ///     </para>
+        ///     <para>
+        ///         What this test actually checks is materialization: <c>ElementFactoryBuilder</c> maps
+        ///         columns to the target type by the <em>ordinal position</em> of the
+        ///         <c>SqlExpression</c> object it was built from (<c>ReferenceEqualityComparer</c> on
+        ///         <c>SqlDataSourceColumnExpression</c> instances), not by rendered alias text, so the
+        ///         anonymous type's <c>VO</c> member should still come back correctly constructed. This
+        ///         proves it by executing the compiled factory, not by re-reasoning about it.
+        ///     </para>
+        /// </summary>
+        [TestMethod]
+        public void Selecting_the_whole_value_object_still_materializes_correctly()
+        {
+            var q = new Queryable<ValueObjectAnnotatedEntity>(this.queryProvider)
+                        .Select(x => new { x.Id, VO = x.ValObjOutTime, Other = x.ValObjInTime.ZoneCode });
+
+            var sqlExpression = this.ConvertExpressionToSqlExpression(q.Expression, out var updated);
+            var translator = new SqlExpressionTranslator { IsRowNumberSupported = false };
+            var rendered = Squash(translator.Translate(sqlExpression));
+
+            // Documents the flattening described above: VO's alias is gone, its three columns sit at the
+            // top level under their own leaf names.
+            StringAssert.Contains(rendered, "a_1.IdasId,a_1.OUT_DT_TM_FROMasZoneCode,a_1.OUT_DT_TMasLocalDateTime,a_1.OUT_DT_TM_ZULUasZuluDateTime,a_1.IN_DT_TM_TOasOther");
+
+            var derivedTable = sqlExpression as SqlDerivedTableExpression
+                                ?? throw new InvalidOperationException($"Expected {nameof(SqlDerivedTableExpression)}, got {sqlExpression?.GetType().Name}.");
+            var elementFactory = new ElementFactoryBuilder().CreateElementFactory(updated, derivedTable);
+
+            var local = new DateTime(2026, 3, 1, 10, 0, 0);
+            var zulu = new DateTime(2026, 3, 1, 15, 0, 0);
+            var reader = new FakeDataReader(new object[] { 1, "UTC", local, zulu, "PST" });
+
+            dynamic element = elementFactory(reader);
+
+            Assert.AreEqual(1, (int)element.Id);
+            Assert.IsNotNull(element.VO, "the whole value-object member must still materialize as a real instance.");
+            Assert.AreEqual("UTC", (string)element.VO.ZoneCode);
+            Assert.AreEqual(local, (DateTime)element.VO.LocalDateTime);
+            Assert.AreEqual(zulu, (DateTime)element.VO.ZuluDateTime);
+            Assert.AreEqual("PST", (string)element.Other);
+        }
+
         /// <summary>The fluent path (ModelBuilder / EntityBuilder&lt;T&gt;.ValueObject) seeds the same dotted TableColumns as the attribute path.</summary>
         [TestMethod]
         public void Fluent_configuration_produces_the_same_dotted_columns_as_the_attribute()
