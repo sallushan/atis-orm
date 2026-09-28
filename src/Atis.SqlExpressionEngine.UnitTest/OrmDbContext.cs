@@ -132,6 +132,24 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 e.Column(x => x.LegacyId).HasKind(ColumnKind.Regular);
                 e.Ignore(x => x.ScratchNote);
             });
+
+            mb.Entity<ValueObjectFluentEntity>(e =>
+            {
+                e.ToTable("VALUE_OBJECT_FLUENT_ENTITY");
+                e.HasKey(x => x.Id);
+                e.ValueObject(x => x.ValObjOutTime, vo =>
+                {
+                    vo.Map(v => v.ZoneCode, "OUT_DT_TM_FROM");
+                    vo.Map(v => v.LocalDateTime, "OUT_DT_TM");
+                    vo.Map(v => v.ZuluDateTime, "OUT_DT_TM_ZULU");
+                });
+                e.ValueObject(x => x.ValObjInTime, vo =>
+                {
+                    vo.Map(v => v.ZoneCode, "IN_DT_TM_TO");
+                    vo.Map(v => v.LocalDateTime, "IN_DT_TM");
+                    vo.Map(v => v.ZuluDateTime, "IN_DT_TM_ZULU");
+                });
+            });
         }
 
         // Exposes this context's scope so tests can assert service lifetimes — which instances are

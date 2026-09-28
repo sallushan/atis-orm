@@ -612,4 +612,39 @@ namespace Atis.SqlExpressionEngine.UnitTest
         // Excluded fluently via EntityBuilder<T>.Ignore rather than by annotation.
         public string ScratchNote { get; set; }
     }
+
+    // A composite (value object) type embedded on an entity's own table. Deliberately reused on two
+    // different entity properties below, each mapping to its own set of columns, to prove the mapping
+    // is per-property rather than by naming convention.
+    public class ZonedDateTimeValueObject
+    {
+        public string ZoneCode { get; set; }
+        public DateTime LocalDateTime { get; set; }
+        public DateTime ZuluDateTime { get; set; }
+    }
+
+    [DbTable("VALUE_OBJECT_ANNOTATED_ENTITY")]
+    public class ValueObjectAnnotatedEntity
+    {
+        [PrimaryKey]
+        public int Id { get; set; }
+
+        [ValueObject(
+            new[] { nameof(ZonedDateTimeValueObject.ZoneCode), nameof(ZonedDateTimeValueObject.LocalDateTime), nameof(ZonedDateTimeValueObject.ZuluDateTime) },
+            new[] { "OUT_DT_TM_FROM", "OUT_DT_TM", "OUT_DT_TM_ZULU" })]
+        public ZonedDateTimeValueObject ValObjOutTime { get; set; }
+
+        [ValueObject(
+            new[] { nameof(ZonedDateTimeValueObject.ZoneCode), nameof(ZonedDateTimeValueObject.LocalDateTime), nameof(ZonedDateTimeValueObject.ZuluDateTime) },
+            new[] { "IN_DT_TM_TO", "IN_DT_TM", "IN_DT_TM_ZULU" })]
+        public ZonedDateTimeValueObject ValObjInTime { get; set; }
+    }
+
+    // The same shape configured entirely through ModelBuilder / EntityBuilder<T>.ValueObject(...).
+    public class ValueObjectFluentEntity
+    {
+        public int Id { get; set; }
+        public ZonedDateTimeValueObject ValObjOutTime { get; set; }
+        public ZonedDateTimeValueObject ValObjInTime { get; set; }
+    }
 }

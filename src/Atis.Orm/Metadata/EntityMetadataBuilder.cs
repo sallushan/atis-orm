@@ -47,6 +47,7 @@ namespace Atis.Orm.Metadata
             var columnProperties = this.GetColumnProperties(type);
             var columns = columnProperties
                             .Select(x => new TableColumn(this.GetColumnName(x), x.Name, isPrimaryKey: this.IsPrimaryKey(x)))
+                            .Concat(this.GetValueObjectColumns(type))
                             .ToArray();
             var navigationProperties = type.GetProperties()
                                                 .Select(x => new { Prop = x, NavigationType = this.GetNavigationPropertyType(type, x) })
@@ -135,7 +136,37 @@ namespace Atis.Orm.Metadata
             => propertyInfo.GetCustomAttribute<NavigationPropertyAttribute>() == null &&
                                         propertyInfo.GetCustomAttribute<CalculatedPropertyAttribute>() == null &&
                                         propertyInfo.GetCustomAttribute<NavigationLinkAttribute>() == null &&
-                                        propertyInfo.GetCustomAttribute<DbNotMappedAttribute>() == null;
+                                        propertyInfo.GetCustomAttribute<DbNotMappedAttribute>() == null &&
+                                        propertyInfo.GetCustomAttribute<ValueObjectAttribute>() == null;
+
+        /// <summary>
+        ///     <para>
+        ///         Expands every <see cref="ValueObjectAttribute"/>-annotated property into one
+        ///         <see cref="TableColumn"/> per mapped member, keyed by a dotted path
+        ///         (<c>"{PropertyName}.{ValueObjectMemberName}"</c>) rather than a bare member name.
+        ///     </para>
+        ///     <para>
+        ///         The dotted path is an opaque string everywhere in the metadata pipeline; it is only
+        ///         given nested meaning by <see cref="Atis.SqlExpressionEngine.SqlExpressions.SqlTableExpression.CreateQueryShape"/>,
+        ///         which groups dotted columns into a nested member-init shape so that
+        ///         <c>x.ValueObjectProperty.Member</c> resolves like any other two-level member access.
+        ///     </para>
+        /// </summary>
+        protected virtual IEnumerable<TableColumn> GetValueObjectColumns(Type type)
+        {
+            var valueObjectProperties = type.GetProperties()
+                                                .Select(x => new { Prop = x, Attr = x.GetCustomAttribute<ValueObjectAttribute>() })
+                                                .Where(x => x.Attr != null);
+            foreach (var valueObjectProperty in valueObjectProperties)
+            {
+                for (var i = 0; i < valueObjectProperty.Attr.Properties.Length; i++)
+                {
+                    yield return new TableColumn(
+                        valueObjectProperty.Attr.Columns[i],
+                        $"{valueObjectProperty.Prop.Name}.{valueObjectProperty.Attr.Properties[i]}");
+                }
+            }
+        }
 
         protected virtual string GetColumnName(PropertyInfo propertyInfo)
             => propertyInfo.GetCustomAttribute<DbColumnAttribute>()?.ColumnName ?? propertyInfo.Name;

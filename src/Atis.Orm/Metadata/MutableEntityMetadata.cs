@@ -75,6 +75,31 @@ namespace Atis.Orm.Metadata
             this.SqlColumns.RemoveAll(x => x.ModelPropertyName == propertyName);
         }
 
+        private readonly HashSet<string> valueObjectPropertiesSeen = new HashSet<string>();
+
+        /// <summary>
+        ///     <para>
+        ///         Adds or updates the column mapping for one member of a value-object-typed property,
+        ///         keyed by the dotted path <c>"{outerPropertyName}.{voMemberName}"</c> — the same
+        ///         opaque-string shape <see cref="EntityMetadataBuilder.GetValueObjectColumns"/> seeds
+        ///         from <see cref="Atis.Orm.Annotations.ValueObjectAttribute"/>.
+        ///     </para>
+        ///     <para>
+        ///         The first call for a given <paramref name="outerPropertyName"/> also removes any
+        ///         auto-seeded flat column for it, exactly like <see cref="EntityBuilder{T}.Ignore"/>
+        ///         and navigation configuration already do — an un-annotated value-object property would
+        ///         otherwise look like a plain (unresolvable) column.
+        ///     </para>
+        /// </summary>
+        public void AddValueObjectColumn(string outerPropertyName, string voMemberName, string columnName)
+        {
+            if (this.valueObjectPropertiesSeen.Add(outerPropertyName))
+                this.RemoveColumn(outerPropertyName);
+
+            var dottedPropertyName = $"{outerPropertyName}.{voMemberName}";
+            this.GetOrAddColumn(dottedPropertyName).DatabaseColumnName = columnName;
+        }
+
         /// <summary>
         ///     Builds the query side of the mapping. Column kinds are deliberately absent — they are a
         ///     persistence concept and belong to <see cref="BuildCrud"/>.

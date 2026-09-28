@@ -45,6 +45,30 @@ namespace Atis.Orm.Metadata
             return new ColumnBuilder<T>(_mutable, memberName);
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Configures a property whose type is a value object — a composite type mapped onto
+        ///         several columns of this entity's own table instead of a separate table. The fluent
+        ///         counterpart of <see cref="Atis.Orm.Annotations.ValueObjectAttribute"/>.
+        ///     </para>
+        /// </summary>
+        public ValueObjectBuilder<T, TVo> ValueObject<TVo>(Expression<Func<T, TVo>> property)
+        {
+            if (property == null) throw new ArgumentNullException(nameof(property));
+            var memberName = MemberNameExtractor.GetMemberName(property);
+            return new ValueObjectBuilder<T, TVo>(_mutable, memberName);
+        }
+
+        /// <summary>
+        ///     Configures a value-object-typed property. See <see cref="ValueObject{TVo}(Expression{Func{T, TVo}})"/>.
+        /// </summary>
+        public EntityBuilder<T> ValueObject<TVo>(Expression<Func<T, TVo>> property, Action<ValueObjectBuilder<T, TVo>> configure)
+        {
+            if (configure == null) throw new ArgumentNullException(nameof(configure));
+            configure(this.ValueObject(property));
+            return this;
+        }
+
         public EntityBuilder<T> HasKey(Expression<Func<T, object>> property)
         {
             if (property == null) throw new ArgumentNullException(nameof(property));
