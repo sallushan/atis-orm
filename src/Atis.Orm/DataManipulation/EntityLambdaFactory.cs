@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -85,25 +86,64 @@ namespace Atis.Orm
             if (!entityType.IsValueType && entityType.GetConstructor(Type.EmptyTypes) is null)
                 throw new InvalidOperationException($"Entity '{entityType.Name}' needs a parameterless constructor to be {names.OperationPastTense} through {names.ApiMethod}.");
 
-            var bindings = new List<MemberBinding>(fieldValues.Count);
-            foreach (var fieldValue in fieldValues)
-            {
-                var member = GetSelectedMember(fieldValue.FieldSelector);
-                var memberType = GetSettableMemberType(entityType, member, names);
+            var assignments = fieldValues
+                .Select(x => new PathAssignment(GetSelectedPath(x.FieldSelector), x.ValueSelector.Body))
+                .ToArray();
+            return Expression.MemberInit(Expression.New(entityType), CreateBindings(entityType, assignments, 0, names));
+        }
 
-                var value = fieldValue.ValueSelector.Body;
-                if (!memberType.IsAssignableFrom(value.Type))
+        /// <summary>
+        ///     The bindings for the members at position <paramref name="depth"/> of each path. A path that
+        ///     ends there is a plain assignment; the paths that carry on through the same member are the
+        ///     columns of one value object, and become one nested <c>new V { ... }</c>.
+        /// </summary>
+        private static List<MemberBinding> CreateBindings(
+            Type containerType, IReadOnlyList<PathAssignment> assignments, int depth, EntityFluentApiNames names)
+        {
+            var bindings = new List<MemberBinding>();
+            var handled = new HashSet<MemberInfo>();
+            foreach (var assignment in assignments)
+            {
+                var member = assignment.Path[depth];
+                var memberType = GetSettableMemberType(containerType, member, names);
+
+                if (assignment.Path.Count == depth + 1)
                 {
-                    // Reachable because GetSelectedMember strips Convert nodes off the field
-                    // selector, so FT can be wider than the member it names.
-                    throw new InvalidOperationException(
-                        $"{names.SetterMethod} gave '{entityType.Name}.{member.Name}' a value of type '{value.Type}', which cannot be assigned to a member of type '{memberType}'.");
+                    var value = assignment.Value;
+                    if (!memberType.IsAssignableFrom(value.Type))
+                    {
+                        // Reachable because GetSelectedPath strips Convert nodes off the field
+                        // selector, so FT can be wider than the member it names.
+                        throw new InvalidOperationException(
+                            $"{names.SetterMethod} gave '{containerType.Name}.{member.Name}' a value of type '{value.Type}', which cannot be assigned to a member of type '{memberType}'.");
+                    }
+                    bindings.Add(Expression.Bind(member, value));
+                    continue;
                 }
 
-                bindings.Add(Expression.Bind(member, value));
+                if (!handled.Add(member))
+                    continue;
+                if (!memberType.IsValueType && memberType.GetConstructor(Type.EmptyTypes) is null)
+                    throw new InvalidOperationException($"'{memberType.Name}' needs a parameterless constructor to be assigned member by member through {names.ApiMethod}.");
+
+                var group = assignments.Where(x => x.Path.Count > depth + 1 && x.Path[depth].Equals(member)).ToArray();
+                bindings.Add(Expression.Bind(
+                    member,
+                    Expression.MemberInit(Expression.New(memberType), CreateBindings(memberType, group, depth + 1, names))));
+            }
+            return bindings;
+        }
+
+        private sealed class PathAssignment
+        {
+            public PathAssignment(IReadOnlyList<MemberInfo> path, Expression value)
+            {
+                this.Path = path;
+                this.Value = value;
             }
 
-            return Expression.MemberInit(Expression.New(entityType), bindings);
+            public IReadOnlyList<MemberInfo> Path { get; }
+            public Expression Value { get; }
         }
 
         /// <summary>Rewrites the collected output selectors into the single array lambda the OUTPUT clause is built from.</summary>
@@ -161,6 +201,31 @@ namespace Atis.Orm
             if (expression.Parameters.Count != 1)
                 throw new ArgumentException("A field selector must have exactly one parameter.", nameof(expression));
             return new ParameterReplacingVisitor(expression.Parameters[0], replacement).Visit(expression.Body);
+        }
+
+        /// <summary>
+        ///     The members a <c>x =&gt; x.LastName</c> or <c>x =&gt; x.Vo.Leaf</c> style selector walks, outermost
+        ///     first, with any widening Convert removed.
+        /// </summary>
+        public static IReadOnlyList<MemberInfo> GetSelectedPath(LambdaExpression selector)
+        {
+            var body = selector.Body;
+            while (body is UnaryExpression unary &&
+                   (unary.NodeType == ExpressionType.Convert || unary.NodeType == ExpressionType.ConvertChecked))
+            {
+                body = unary.Operand;
+            }
+
+            var path = new List<MemberInfo>();
+            for (var member = body as MemberExpression; member != null; member = member.Expression as MemberExpression)
+                path.Insert(0, member.Member);
+            if (path.Count == 0)
+            {
+                throw new ArgumentException(
+                    $"Expected a member selector such as 'x => x.LastName', but got '{selector.Body}'.",
+                    nameof(selector));
+            }
+            return path;
         }
 
         /// <summary>The member a <c>x =&gt; x.LastName</c> style selector names, with any widening Convert removed.</summary>

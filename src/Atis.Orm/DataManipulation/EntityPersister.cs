@@ -432,12 +432,17 @@ namespace Atis.Orm.DataManipulation
             var columns = new List<StreamedColumn>();
             foreach (var column in writeColumns)
             {
+                // Chunked writing swaps the member for a placeholder on the entity itself, so it is not
+                // available to a column inside a value object.
+                if (column.Path.IsNested)
+                    continue;
+
                 var source = streaming.Sources.Where(x => x.Key.Name == column.ModelPropertyName)
                                               .Select(x => x.Value)
                                               .FirstOrDefault();
                 if (source is null)
                 {
-                    var value = this.reflectionService.GetPropertyOrFieldValue(entity, column.Property);
+                    var value = this.reflectionService.GetPropertyOrFieldValue(entity, column.Path.Leaf);
                     if (value is byte[] bytes && bytes.Length > streaming.ChunkSizeBytes)
                         source = ColumnWriteSource.FromBytes(bytes);
                     else if (value is string text && text.Length * 2L > streaming.ChunkSizeBytes)
@@ -446,7 +451,7 @@ namespace Atis.Orm.DataManipulation
                 if (source is null)
                     continue;
 
-                if (!this.reflectionService.IsWriteableMember(column.Property))
+                if (!this.reflectionService.IsWriteableMember(column.Path.Leaf))
                 {
                     throw new InvalidOperationException(
                         $"'{typeof(T).Name}.{column.ModelPropertyName}' is written in chunks, which needs its member to hold an " +
@@ -481,7 +486,7 @@ namespace Atis.Orm.DataManipulation
         }
 
         private static ICollection<MemberInfo> StreamedMembers(IReadOnlyList<StreamedColumn> columns)
-            => columns.Select(x => (MemberInfo)x.Column.Property).ToArray();
+            => columns.Select(x => (MemberInfo)x.Column.Path.Leaf).ToArray();
 
         /// <summary>
         ///     <para>
@@ -501,7 +506,7 @@ namespace Atis.Orm.DataManipulation
             var originals = new object[columns.Count];
             for (var i = 0; i < columns.Count; i++)
             {
-                var property = columns[i].Column.Property;
+                var property = columns[i].Column.Path.Leaf;
                 originals[i] = this.reflectionService.GetPropertyOrFieldValue(entity, property);
                 this.reflectionService.SetPropertyOrFieldValue(
                     entity, property, columns[i].IsText ? (object)string.Empty : Array.Empty<byte>());
@@ -512,7 +517,7 @@ namespace Atis.Orm.DataManipulation
         private void RestoreOriginals<T>(T entity, IReadOnlyList<StreamedColumn> columns, object[] originals)
         {
             for (var i = 0; i < columns.Count; i++)
-                this.reflectionService.SetPropertyOrFieldValue(entity, columns[i].Column.Property, originals[i]);
+                this.reflectionService.SetPropertyOrFieldValue(entity, columns[i].Column.Path.Leaf, originals[i]);
         }
 
         private void WriteStreamedColumns<T>(
@@ -622,7 +627,7 @@ namespace Atis.Orm.DataManipulation
             var keyColumns = map.KeyMembers
                                 .Select(member => new KeyValuePair<string, object>(
                                     entityMetadata.SqlColumns.First(x => x.ModelPropertyName == member.Name).DatabaseColumnName,
-                                    this.reflectionService.GetPropertyOrFieldValue(entity, member)))
+                                    member.GetValue(entity)))
                                 .ToArray();
 
             return columns.Select(x => new ColumnChunkTarget(entityMetadata.Table, x.DatabaseColumnName, keyColumns)).ToArray();
@@ -726,7 +731,7 @@ namespace Atis.Orm.DataManipulation
         ///         the key.
         ///     </para>
         /// </summary>
-        protected virtual int InsertWithoutOutput<T>(T entity, Expression insertCall, IReadOnlyList<MemberInfo> generatedMembers)
+        protected virtual int InsertWithoutOutput<T>(T entity, Expression insertCall, IReadOnlyList<ColumnPath> generatedMembers)
         {
             var plan = this.PlanReadBack<T>(generatedMembers, "inserted");
             var communication = this.RequireDbCommunication<T>("inserted");
@@ -754,9 +759,9 @@ namespace Atis.Orm.DataManipulation
             return rowsAffected;
         }
 
-        /// <summary>The asynchronous <see cref="InsertWithoutOutput{T}(T, Expression, IReadOnlyList{MemberInfo})"/>.</summary>
+        /// <summary>The asynchronous <see cref="InsertWithoutOutput{T}(T, Expression, IReadOnlyList{ColumnPath})"/>.</summary>
         protected virtual async Task<int> InsertWithoutOutputAsync<T>(
-            T entity, Expression insertCall, IReadOnlyList<MemberInfo> generatedMembers, CancellationToken cancellationToken)
+            T entity, Expression insertCall, IReadOnlyList<ColumnPath> generatedMembers, CancellationToken cancellationToken)
         {
             var plan = this.PlanReadBack<T>(generatedMembers, "inserted");
             var communication = this.RequireDbCommunication<T>("inserted");
@@ -788,7 +793,7 @@ namespace Atis.Orm.DataManipulation
 
         /// <summary>
         ///     <para>
-        ///         The <see cref="InsertWithoutOutput{T}(T, Expression, IReadOnlyList{MemberInfo})"/> of
+        ///         The <see cref="InsertWithoutOutput{T}(T, Expression, IReadOnlyList{ColumnPath})"/> of
         ///         update, and simpler: the key is already known, so there is never a generated key to
         ///         fetch and the read-back is a single select.
         ///     </para>
@@ -801,7 +806,7 @@ namespace Atis.Orm.DataManipulation
         ///         row version, because the update has just changed it.
         ///     </para>
         /// </summary>
-        protected virtual int UpdateWithoutOutput<T>(T entity, Expression updateCall, IReadOnlyList<MemberInfo> generatedMembers)
+        protected virtual int UpdateWithoutOutput<T>(T entity, Expression updateCall, IReadOnlyList<ColumnPath> generatedMembers)
         {
             var plan = this.PlanReadBack<T>(generatedMembers, "updated", isUpdate: true);
             var communication = this.RequireDbCommunication<T>("updated");
@@ -819,9 +824,9 @@ namespace Atis.Orm.DataManipulation
             return rowsAffected;
         }
 
-        /// <summary>The asynchronous <see cref="UpdateWithoutOutput{T}(T, Expression, IReadOnlyList{MemberInfo})"/>.</summary>
+        /// <summary>The asynchronous <see cref="UpdateWithoutOutput{T}(T, Expression, IReadOnlyList{ColumnPath})"/>.</summary>
         protected virtual async Task<int> UpdateWithoutOutputAsync<T>(
-            T entity, Expression updateCall, IReadOnlyList<MemberInfo> generatedMembers, CancellationToken cancellationToken)
+            T entity, Expression updateCall, IReadOnlyList<ColumnPath> generatedMembers, CancellationToken cancellationToken)
         {
             var plan = this.PlanReadBack<T>(generatedMembers, "updated", isUpdate: true);
             var communication = this.RequireDbCommunication<T>("updated");
@@ -863,7 +868,7 @@ namespace Atis.Orm.DataManipulation
         // ---------------------------------------------------------------------------------------
 
         private IReadOnlyList<FieldValuePair> BuildInsertValues<T>(
-            T entity, ICollection<MemberInfo> streamedMembers, out IReadOnlyList<MemberInfo> generatedMembers)
+            T entity, ICollection<MemberInfo> streamedMembers, out IReadOnlyList<ColumnPath> generatedMembers)
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
@@ -874,7 +879,7 @@ namespace Atis.Orm.DataManipulation
             this.ValidateRequired(entity, map.InsertColumns, streamedMembers);
 
             generatedMembers = map.InsertGeneratedMembers;
-            return Assignments<T>(entity, map.InsertColumns.Select(x => (MemberInfo)x.Property));
+            return Assignments<T>(entity, map.InsertColumns.Select(x => x.Path));
         }
 
         private IReadOnlyList<FieldValuePair> BuildUpdateSetters<T>(
@@ -882,7 +887,7 @@ namespace Atis.Orm.DataManipulation
             bool optimisticConcurrency,
             ICollection<MemberInfo> streamedMembers,
             out IReadOnlyList<FieldValuePair> keys,
-            out IReadOnlyList<MemberInfo> generatedMembers)
+            out IReadOnlyList<ColumnPath> generatedMembers)
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
@@ -895,7 +900,7 @@ namespace Atis.Orm.DataManipulation
 
             keys = Assignments<T>(entity, KeyAndConcurrencyMembers(map, optimisticConcurrency));
             generatedMembers = map.UpdateGeneratedMembers;
-            return Assignments<T>(entity, map.UpdateColumns.Select(x => (MemberInfo)x.Property));
+            return Assignments<T>(entity, map.UpdateColumns.Select(x => x.Path));
         }
 
         private IReadOnlyList<FieldValuePair> BuildDeleteKeys<T>(T entity, bool optimisticConcurrency)
@@ -914,26 +919,29 @@ namespace Atis.Orm.DataManipulation
         ///     update to a particular version of a row is the same operation as narrowing it to a
         ///     particular row.
         /// </summary>
-        private static IEnumerable<MemberInfo> KeyAndConcurrencyMembers(EntityWriteMap map, bool optimisticConcurrency)
+        private static IEnumerable<ColumnPath> KeyAndConcurrencyMembers(EntityWriteMap map, bool optimisticConcurrency)
             => optimisticConcurrency
                 ? map.KeyMembers.Concat(map.ConcurrencyMembers)
                 : map.KeyMembers;
 
         /// <summary>Pairs each member with the entity's current value for it.</summary>
-        private static IReadOnlyList<FieldValuePair> Assignments<T>(T entity, IEnumerable<MemberInfo> members)
+        private static IReadOnlyList<FieldValuePair> Assignments<T>(T entity, IEnumerable<ColumnPath> members)
             => members.Select(member => new FieldValuePair(
                                     CreateFieldSelector<T>(member),
                                     CreateValueSelector(entity, member)))
                       .ToArray();
 
-        private static IReadOnlyList<LambdaExpression> OutputSelectors<T>(IReadOnlyList<MemberInfo> members)
+        private static IReadOnlyList<LambdaExpression> OutputSelectors<T>(IReadOnlyList<ColumnPath> members)
             => members.Select(CreateFieldSelector<T>).ToArray();
 
-        /// <summary>The <c>e =&gt; e.Member</c> selector naming the column.</summary>
-        private static LambdaExpression CreateFieldSelector<T>(MemberInfo member)
+        /// <summary>The <c>e =&gt; e.Member</c> (or <c>e =&gt; e.Vo.Member</c>) selector naming the column.</summary>
+        private static LambdaExpression CreateFieldSelector<T>(ColumnPath path)
         {
             var parameter = Expression.Parameter(typeof(T), "e");
-            return Expression.Lambda(Expression.MakeMemberAccess(parameter, member), parameter);
+            Expression body = parameter;
+            foreach (var segment in path.Segments)
+                body = Expression.MakeMemberAccess(body, segment);
+            return Expression.Lambda(body, parameter);
         }
 
         /// <summary>
@@ -956,9 +964,40 @@ namespace Atis.Orm.DataManipulation
         ///         holder would give every column of every entity the same identity, and two columns
         ///         claiming one identity is rejected outright when the values are re-extracted.
         ///     </para>
+        ///     <para>
+        ///         A column of a value object that is <c>null</c> on this entity gets a typed <c>null</c>
+        ///         instead: reading through the missing value object would throw, and a missing value
+        ///         object means every one of its columns is NULL. That null is a literal, so it is part of
+        ///         the cache key — a value object that is present and one that is not are two shapes, at
+        ///         most two compiled queries for each value object property.
+        ///     </para>
         /// </summary>
-        private static LambdaExpression CreateValueSelector<T>(T entity, MemberInfo member)
-            => Expression.Lambda(Expression.MakeMemberAccess(Expression.Constant(entity, typeof(T)), member));
+        private static LambdaExpression CreateValueSelector<T>(T entity, ColumnPath path)
+        {
+            if (path.IndexOfNullContainer(entity) >= 0)
+                return Expression.Lambda(CreateNullOf(path.Type));
+
+            Expression body = Expression.Constant(entity, typeof(T));
+            foreach (var segment in path.Segments)
+                body = Expression.MakeMemberAccess(body, segment);
+            return Expression.Lambda(body);
+        }
+
+        /// <summary>
+        ///     A <c>null</c> of <paramref name="type"/>. A non-nullable value type has no null, so it is
+        ///     the null of its nullable form converted back — legal in an expression tree, and never
+        ///     evaluated because the engine reads the null off the tree.
+        /// </summary>
+        private static Expression CreateNullOf(Type type)
+        {
+            if (type.IsValueType && Nullable.GetUnderlyingType(type) is null)
+            {
+                return Expression.Convert(
+                    Expression.Constant(null, typeof(Nullable<>).MakeGenericType(type)),
+                    type);
+            }
+            return Expression.Constant(null, type);
+        }
 
         // ---------------------------------------------------------------------------------------
         // Execution
@@ -994,7 +1033,7 @@ namespace Atis.Orm.DataManipulation
         /// </summary>
         private int ApplyGeneratedValues<T>(
             T entity,
-            IReadOnlyList<MemberInfo> generatedMembers,
+            IReadOnlyList<ColumnPath> generatedMembers,
             IReadOnlyList<IReadOnlyDictionary<string, object>> rows,
             string operation)
         {
@@ -1010,14 +1049,26 @@ namespace Atis.Orm.DataManipulation
             var row = rows[0];
             foreach (var member in generatedMembers)
             {
-                if (!row.TryGetValue(member.Name, out var value))
+                if (!row.TryGetValue(member.Alias, out var value))
                 {
                     throw new InvalidOperationException(
                         $"The {operation} of '{typeof(T).Name}' did not return a value for the database generated column '{member.Name}'.");
                 }
-                this.reflectionService.SetPropertyOrFieldValue(entity, member, value);
+                AssignGeneratedValue(entity, member, value);
             }
             return 1;
+        }
+
+        /// <summary>
+        ///     Puts a value the database generated onto the entity. A generated column of a value object
+        ///     that is <c>null</c> on the entity does not bring the value object into being just to hold a
+        ///     <c>NULL</c>: the entity said "no value object", and the database agreeing leaves it so.
+        /// </summary>
+        private static void AssignGeneratedValue(object entity, ColumnPath path, object value)
+        {
+            if ((value is null || value is DBNull) && path.IndexOfNullContainer(entity) >= 0)
+                return;
+            path.SetValue(entity, value);
         }
 
         // ---------------------------------------------------------------------------------------
@@ -1042,7 +1093,7 @@ namespace Atis.Orm.DataManipulation
         ///         statement.
         ///     </para>
         /// </summary>
-        private ReadBackPlan PlanReadBack<T>(IReadOnlyList<MemberInfo> generatedMembers, string operationPastTense, bool isUpdate = false)
+        private ReadBackPlan PlanReadBack<T>(IReadOnlyList<ColumnPath> generatedMembers, string operationPastTense, bool isUpdate = false)
         {
             var map = this.GetWriteMap(typeof(T));
             if (map.KeyMembers.Count == 0)
@@ -1071,9 +1122,9 @@ namespace Atis.Orm.DataManipulation
         ///     one is rejected rather than guessed at: no database generates two key values for one insert,
         ///     so the mapping says something that cannot be true.
         /// </summary>
-        private static MemberInfo StoreGeneratedKeyMember<T>(EntityWriteMap map)
+        private static ColumnPath StoreGeneratedKeyMember<T>(EntityWriteMap map)
         {
-            MemberInfo found = null;
+            ColumnPath found = null;
             foreach (var identity in map.IdentityMembers)
             {
                 if (!map.KeyMembers.Contains(identity))
@@ -1113,9 +1164,9 @@ namespace Atis.Orm.DataManipulation
                 $"commands — but this persister was constructed without an {nameof(IDbCommunication)}, which is " +
                 "what holds those commands on one connection.");
 
-        private string RequireLastGeneratedKeySql<T>(MemberInfo keyMember)
+        private string RequireLastGeneratedKeySql<T>(ColumnPath keyMember)
         {
-            var sql = this.GetLastGeneratedKeySql(typeof(T), keyMember);
+            var sql = this.GetLastGeneratedKeySql(typeof(T), keyMember.Leaf);
             if (string.IsNullOrWhiteSpace(sql))
             {
                 throw new NotSupportedException(
@@ -1132,7 +1183,7 @@ namespace Atis.Orm.DataManipulation
         ///     statements are typically wider than the column: SQL Server's <c>SCOPE_IDENTITY()</c> is
         ///     <c>numeric(38,0)</c>, which arrives as a <see cref="decimal"/> whatever the column is.
         /// </summary>
-        private void AssignGeneratedKey<T>(T entity, MemberInfo keyMember, object value)
+        private void AssignGeneratedKey<T>(T entity, ColumnPath keyMember, object value)
         {
             if (value is null || value is DBNull)
             {
@@ -1141,8 +1192,7 @@ namespace Atis.Orm.DataManipulation
                     $"generated key column '{keyMember.Name}'.");
             }
 
-            var memberType = this.reflectionService.GetPropertyOrFieldType(keyMember);
-            this.reflectionService.SetPropertyOrFieldValue(entity, keyMember, ConvertToMemberType(value, memberType));
+            keyMember.SetValue(entity, ConvertToMemberType(value, keyMember.Type));
         }
 
         /// <summary>
@@ -1159,7 +1209,7 @@ namespace Atis.Orm.DataManipulation
         /// </summary>
         private void AssignReadBackValues<T>(
             T entity,
-            IReadOnlyList<MemberInfo> members,
+            IReadOnlyList<ColumnPath> members,
             IReadOnlyList<IReadOnlyDictionary<string, object>> rows,
             string operation)
         {
@@ -1183,15 +1233,14 @@ namespace Atis.Orm.DataManipulation
                 // both are built from the same list -- but a silently skipped column would leave the
                 // entity holding the value it was written with, which reads as "the database did not
                 // change it".
-                if (!row.TryGetValue(member.Name, out var value))
+                if (!row.TryGetValue(member.Alias, out var value))
                 {
                     throw new InvalidOperationException(
                         $"Reading back the {operation}d '{typeof(T).Name}' returned no value for the database " +
                         $"generated column '{member.Name}'.");
                 }
 
-                this.reflectionService.SetPropertyOrFieldValue(
-                    entity, member, ConvertToMemberType(value, this.reflectionService.GetPropertyOrFieldType(member)));
+                AssignGeneratedValue(entity, member, ConvertToMemberType(value, member.Type));
             }
         }
 
@@ -1223,7 +1272,7 @@ namespace Atis.Orm.DataManipulation
         /// <summary>How one entity's generated values will be found again once the write has run.</summary>
         private sealed class ReadBackPlan
         {
-            public ReadBackPlan(MemberInfo generatedKey, IReadOnlyList<MemberInfo> keyMembers, IReadOnlyList<MemberInfo> selectBackMembers)
+            public ReadBackPlan(ColumnPath generatedKey, IReadOnlyList<ColumnPath> keyMembers, IReadOnlyList<ColumnPath> selectBackMembers)
             {
                 this.GeneratedKey = generatedKey;
                 this.KeyMembers = keyMembers;
@@ -1231,17 +1280,17 @@ namespace Atis.Orm.DataManipulation
             }
 
             /// <summary>The key column the database generates, which must be asked for before the row can be found. May be <c>null</c>.</summary>
-            public MemberInfo GeneratedKey { get; }
+            public ColumnPath GeneratedKey { get; }
 
             /// <summary>The primary key columns the read-back select filters on — never the row version.</summary>
-            public IReadOnlyList<MemberInfo> KeyMembers { get; }
+            public IReadOnlyList<ColumnPath> KeyMembers { get; }
 
             /// <summary>
             ///     The generated columns left for the select. Empty when the generated key was the only one,
             ///     which is what lets the commonest case — an identity primary key and nothing else — skip
             ///     the select entirely.
             /// </summary>
-            public IReadOnlyList<MemberInfo> SelectBackMembers { get; }
+            public IReadOnlyList<ColumnPath> SelectBackMembers { get; }
         }
 
         // ---------------------------------------------------------------------------------------
@@ -1274,10 +1323,10 @@ namespace Atis.Orm.DataManipulation
                 var column = columns[i];
                 if (!column.IsRequired)
                     continue;
-                if (streamedMembers != null && streamedMembers.Contains(column.Property))
+                if (streamedMembers != null && streamedMembers.Contains(column.Path.Leaf))
                     continue;
 
-                var value = this.reflectionService.GetPropertyOrFieldValue(entity, column.Property);
+                var value = column.Path.GetValue(entity);
                 var isMissing = value is null || (value is string text && string.IsNullOrWhiteSpace(text));
                 if (isMissing)
                 {
@@ -1300,7 +1349,18 @@ namespace Atis.Orm.DataManipulation
             // First use for a write is where it said the check belongs.
             foreach (var column in crudMetadata.Columns)
             {
-                EnsureSingleColumnKindAnnotation(entityType, column.Property);
+                EnsureSingleColumnKindAnnotation(entityType, column.Path.Leaf);
+
+                // A value object is written as a group of plain columns, and it can be absent altogether.
+                // An identity or row version column inside one has nothing to find the row by while the
+                // value object is null, and none of the write paths above are built to look inside one.
+                if (column.Path.IsNested && (column.Kind == ColumnKind.Identity || column.Kind == ColumnKind.RowVersion))
+                {
+                    throw new InvalidOperationException(
+                        $"'{entityType.Name}.{column.ModelPropertyName}' is a column of a value object, and a value object " +
+                        $"cannot hold a {column.Kind} column. Only regular, insert only, update only and read only " +
+                        "(computed) columns can belong to one.");
+                }
             }
 
             var keyPropertyNames = new HashSet<string>(
@@ -1309,7 +1369,7 @@ namespace Atis.Orm.DataManipulation
 
             var keyMembers = crudMetadata.Columns
                                          .Where(x => keyPropertyNames.Contains(x.ModelPropertyName))
-                                         .Select(x => (MemberInfo)x.Property)
+                                         .Select(x => x.Path)
                                          .ToArray();
 
             var insertColumns = crudMetadata.Columns
@@ -1327,17 +1387,17 @@ namespace Atis.Orm.DataManipulation
                                               .Where(x => x.Kind == ColumnKind.Identity ||
                                                           x.Kind == ColumnKind.ReadOnly ||
                                                           x.Kind == ColumnKind.RowVersion)
-                                              .Select(x => (MemberInfo)x.Property)
+                                              .Select(x => x.Path)
                                               .ToArray();
 
             var updateGenerated = crudMetadata.Columns
                                               .Where(x => x.Kind == ColumnKind.ReadOnly || x.Kind == ColumnKind.RowVersion)
-                                              .Select(x => (MemberInfo)x.Property)
+                                              .Select(x => x.Path)
                                               .ToArray();
 
             var concurrencyMembers = crudMetadata.Columns
                                                  .Where(x => x.Kind == ColumnKind.RowVersion)
-                                                 .Select(x => (MemberInfo)x.Property)
+                                                 .Select(x => x.Path)
                                                  .ToArray();
 
             // Kept apart from the merged generated set above because the read-back path on a database with
@@ -1345,14 +1405,14 @@ namespace Atis.Orm.DataManipulation
             // can be asked for with SCOPE_IDENTITY and friends.
             var identityMembers = crudMetadata.Columns
                                               .Where(x => x.Kind == ColumnKind.Identity)
-                                              .Select(x => (MemberInfo)x.Property)
+                                              .Select(x => x.Path)
                                               .ToArray();
 
             // Read-back is done by assignment, so a generated column that cannot be assigned would leave
             // the entity holding a stale value with nothing to say so. Reject the mapping instead.
             foreach (var member in insertGenerated)
             {
-                if (!this.reflectionService.IsWriteableMember(member))
+                if (!this.reflectionService.IsWriteableMember(member.Leaf))
                 {
                     throw new InvalidOperationException(
                         $"'{entityType.Name}.{member.Name}' is a database generated column, so its value is read back " +
@@ -1393,13 +1453,13 @@ namespace Atis.Orm.DataManipulation
         private sealed class EntityWriteMap
         {
             public EntityWriteMap(
-                IReadOnlyList<MemberInfo> keyMembers,
+                IReadOnlyList<ColumnPath> keyMembers,
                 IReadOnlyList<CrudColumn> insertColumns,
                 IReadOnlyList<CrudColumn> updateColumns,
-                IReadOnlyList<MemberInfo> insertGeneratedMembers,
-                IReadOnlyList<MemberInfo> updateGeneratedMembers,
-                IReadOnlyList<MemberInfo> concurrencyMembers,
-                IReadOnlyList<MemberInfo> identityMembers)
+                IReadOnlyList<ColumnPath> insertGeneratedMembers,
+                IReadOnlyList<ColumnPath> updateGeneratedMembers,
+                IReadOnlyList<ColumnPath> concurrencyMembers,
+                IReadOnlyList<ColumnPath> identityMembers)
             {
                 this.KeyMembers = keyMembers;
                 this.InsertColumns = insertColumns;
@@ -1411,7 +1471,7 @@ namespace Atis.Orm.DataManipulation
             }
 
             /// <summary>The primary key columns, which identify the row an Update or Delete acts on.</summary>
-            public IReadOnlyList<MemberInfo> KeyMembers { get; }
+            public IReadOnlyList<ColumnPath> KeyMembers { get; }
 
             /// <summary>The columns an Insert writes.</summary>
             public IReadOnlyList<CrudColumn> InsertColumns { get; }
@@ -1420,19 +1480,19 @@ namespace Atis.Orm.DataManipulation
             public IReadOnlyList<CrudColumn> UpdateColumns { get; }
 
             /// <summary>The columns read back after an Insert.</summary>
-            public IReadOnlyList<MemberInfo> InsertGeneratedMembers { get; }
+            public IReadOnlyList<ColumnPath> InsertGeneratedMembers { get; }
 
             /// <summary>The columns read back after an Update.</summary>
-            public IReadOnlyList<MemberInfo> UpdateGeneratedMembers { get; }
+            public IReadOnlyList<ColumnPath> UpdateGeneratedMembers { get; }
 
             /// <summary>The row version columns, which join the WHERE clause under optimistic concurrency.</summary>
-            public IReadOnlyList<MemberInfo> ConcurrencyMembers { get; }
+            public IReadOnlyList<ColumnPath> ConcurrencyMembers { get; }
 
             /// <summary>
             ///     The identity columns on their own. A subset of <see cref="InsertGeneratedMembers"/>,
             ///     kept separately because only an identity value can be asked for after the fact.
             /// </summary>
-            public IReadOnlyList<MemberInfo> IdentityMembers { get; }
+            public IReadOnlyList<ColumnPath> IdentityMembers { get; }
         }
     }
 }

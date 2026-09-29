@@ -1,4 +1,4 @@
-﻿using Atis.Orm;
+using Atis.Orm;
 using Atis.Orm.Abstractions;
 using Atis.Orm.Annotations;
 using Atis.Orm.DataAccess;
@@ -131,6 +131,50 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             [DbInsertOnly]
             [DbUpdateOnly]
             public string Confused { get; set; }
+        }
+
+        /// <summary>A value object with one computed leaf: read back after a write, never written.</summary>
+        public class Price
+        {
+            public decimal Net { get; set; }
+
+            public string Currency { get; set; }
+
+            [DbReadOnlyColumn]
+            public decimal Gross { get; set; }
+        }
+
+        /// <summary>An entity whose <see cref="Price"/> is stored in three of its own columns.</summary>
+        [DbTable]
+        public class PricedItem : Record
+        {
+            [PrimaryKey]
+            [DbIdentityColumn]
+            public int Id { get; set; }
+
+            public string Name { get; set; }
+
+            [ValueObject(
+                new[] { nameof(Price.Net), nameof(Price.Currency), nameof(Price.Gross) },
+                new[] { "NetAmt", "Curr", "GrossAmt" })]
+            public Price Price { get; set; }
+        }
+
+        /// <summary>A value object holding a column kind it cannot hold.</summary>
+        public class RowNumbered
+        {
+            [DbIdentityColumn]
+            public int Serial { get; set; }
+        }
+
+        [DbTable]
+        public class BadValueObjectOwner : Record
+        {
+            [PrimaryKey]
+            public int Id { get; set; }
+
+            [ValueObject(new[] { nameof(RowNumbered.Serial) }, new[] { "SERIAL" })]
+            public RowNumbered Numbering { get; set; }
         }
 
         #endregion
@@ -1057,6 +1101,201 @@ insert into Tag (Code, Label)
 values ('T2', 'Second')
 ";
             Test("Persister Insert Second Row Test", provider.CapturedExpression, expectedResult);
+        }
+
+        #endregion
+
+        #region value objects
+
+        private static Dictionary<string, object> Row(params (string Key, object Value)[] values)
+        {
+            var row = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in values)
+                row[key] = value;
+            return row;
+        }
+
+        /// <summary>
+        ///     The value object's columns are written like the entity's own, and its computed column is
+        ///     asked for back under the whole path of the member.
+        /// </summary>
+        [TestMethod]
+        public void Insert_writes_a_value_object_and_reads_back_its_computed_column()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(Row(("Id", 5), ("Price_Gross", 12.5m)));
+            var item = new PricedItem { Name = "Bolt", Price = new Price { Net = 10m, Currency = "USD" } };
+
+            CreatePersister(provider, supportsOutput: true).Insert(item);
+
+            string expectedResult = @"
+insert into PricedItem (Name, NetAmt, Curr)
+output inserted.Id as Id, inserted.GrossAmt as Price_Gross
+values ('Bolt', 10, 'USD')
+";
+            Test("Persister Insert Value Object Test", provider.CapturedExpression, expectedResult);
+            Assert.AreEqual(5, item.Id);
+            Assert.AreEqual(12.5m, item.Price.Gross);
+        }
+
+        /// <summary>
+        ///     A null value object is not an error: every column it owns that can be written gets NULL, and
+        ///     the computed one is still left alone.
+        /// </summary>
+        [TestMethod]
+        public void Insert_of_a_null_value_object_writes_null_to_its_writable_columns_only()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(Row(("Id", 5), ("Price_Gross", DBNull.Value)));
+            var item = new PricedItem { Name = "Bolt", Price = null };
+
+            CreatePersister(provider, supportsOutput: true).Insert(item);
+
+            string expectedResult = @"
+insert into PricedItem (Name, NetAmt, Curr)
+output inserted.Id as Id, inserted.GrossAmt as Price_Gross
+values ('Bolt', null, null)
+";
+            Test("Persister Insert Null Value Object Test", provider.CapturedExpression, expectedResult);
+            Assert.IsNull(item.Price, "The database returning NULL for its column must not bring a value object into being.");
+        }
+
+        /// <summary>
+        ///     The reverse: the entity has no value object but the database computed a value for one of its
+        ///     columns, so the value has to land somewhere.
+        /// </summary>
+        [TestMethod]
+        public void A_computed_value_read_back_into_a_null_value_object_creates_it()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(Row(("Id", 5), ("Price_Gross", 3m)));
+            var item = new PricedItem { Name = "Bolt", Price = null };
+
+            CreatePersister(provider, supportsOutput: true).Insert(item);
+
+            Assert.IsNotNull(item.Price);
+            Assert.AreEqual(3m, item.Price.Gross);
+        }
+
+        [TestMethod]
+        public void Update_sets_the_value_object_columns_and_outputs_the_computed_one()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(Row(("Price_Gross", 24m)));
+            var item = new PricedItem { Id = 5, Name = "Bolt", Price = new Price { Net = 20m, Currency = "EUR" } };
+
+            CreatePersister(provider, supportsOutput: true).Update(item, optimisticConcurrency: false);
+
+            string expectedResult = @"
+update a_1
+	set Name = 'Bolt',
+		NetAmt = 20,
+		Curr = 'EUR'
+output inserted.GrossAmt as Price_Gross
+from	PricedItem as a_1
+where	(a_1.Id = 5)
+";
+            Test("Persister Update Value Object Test", provider.CapturedExpression, expectedResult);
+            Assert.AreEqual(24m, item.Price.Gross);
+        }
+
+        /// <summary>Two rows with a value object each still share one compiled query.</summary>
+        [TestMethod]
+        public void Insert_of_two_rows_with_a_value_object_shares_one_cache_key()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            var first = new CapturingQueryProvider();
+            first.Rows.Add(Row(("Id", 1), ("Price_Gross", 1m)));
+            CreatePersister(first, supportsOutput: true).Insert(new PricedItem { Name = "A", Price = new Price { Net = 1m, Currency = "USD" } });
+
+            var second = new CapturingQueryProvider();
+            second.Rows.Add(Row(("Id", 2), ("Price_Gross", 2m)));
+            CreatePersister(second, supportsOutput: true).Insert(new PricedItem { Name = "B", Price = new Price { Net = 2m, Currency = "EUR" } });
+
+            Assert.AreEqual(
+                keyProvider.GetCacheKey(first.CapturedExpression),
+                keyProvider.GetCacheKey(second.CapturedExpression));
+        }
+
+        /// <summary>
+        ///     Every column of the value object is a parameter with its own identity, so the values can be
+        ///     found again on a cache hit. The identity is the whole path, which is also what keeps two
+        ///     value objects of one type apart.
+        /// </summary>
+        [TestMethod]
+        public void Value_object_columns_are_parameters_with_one_identity_per_column()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(Row(("Id", 1), ("Price_Gross", 1m)));
+            CreatePersister(provider, supportsOutput: true).Insert(new PricedItem { Name = "A", Price = new Price { Net = 7m, Currency = "USD" } });
+
+            var extractor = new ExpressionVariableValuesExtractor(
+                new global::Atis.SqlExpressionEngine.Services.ExpressionEvaluator(),
+                new global::Atis.SqlExpressionEngine.Services.VariableIdentityProvider());
+            var valuesByIdentity = extractor.ExtractVariableValuesByIdentity(provider.CapturedExpression);
+
+            Assert.AreEqual(3, valuesByIdentity.Count);
+            Assert.AreEqual(7m, valuesByIdentity.Single(x => x.Key.EndsWith(".Price.Net")).Value);
+            Assert.AreEqual("USD", valuesByIdentity.Single(x => x.Key.EndsWith(".Price.Currency")).Value);
+        }
+
+        /// <summary>
+        ///     Present and absent are different shapes — the absent one carries literal NULLs — so they are
+        ///     two cache entries, not one entry that would write the wrong thing.
+        /// </summary>
+        [TestMethod]
+        public void A_null_value_object_and_a_present_one_do_not_share_a_cache_key()
+        {
+            var keyProvider = new ExpressionCacheKeyProvider();
+
+            var present = new CapturingQueryProvider();
+            present.Rows.Add(Row(("Id", 1), ("Price_Gross", 1m)));
+            CreatePersister(present, supportsOutput: true).Insert(new PricedItem { Name = "A", Price = new Price { Net = 1m, Currency = "USD" } });
+
+            var absent = new CapturingQueryProvider();
+            absent.Rows.Add(Row(("Id", 2), ("Price_Gross", DBNull.Value)));
+            CreatePersister(absent, supportsOutput: true).Insert(new PricedItem { Name = "B", Price = null });
+
+            Assert.AreNotEqual(
+                keyProvider.GetCacheKey(present.CapturedExpression),
+                keyProvider.GetCacheKey(absent.CapturedExpression));
+        }
+
+        /// <summary>
+        ///     The database with no OUTPUT clause reads the computed column back with a keyed select, which
+        ///     asks for it under the same whole-path name.
+        /// </summary>
+        [TestMethod]
+        public void Read_back_without_output_selects_the_computed_value_object_column()
+        {
+            var provider = new CapturingQueryProvider();
+            provider.Rows.Add(Row(("Price_Gross", 12.5m)));
+            var communication = new FakeDbCommunication { ScalarResult = 42m };
+            var item = new PricedItem { Name = "Bolt", Price = new Price { Net = 10m, Currency = "USD" } };
+
+            CreateNoOutputPersister(provider, communication).Insert(item);
+
+            string expectedResult = @"
+select	a_1.GrossAmt as Price_Gross
+from	PricedItem as a_1
+where	(a_1.Id = 42)
+";
+            Test("Persister Read Back Value Object Test", provider.CapturedExpressions[1], expectedResult);
+            Assert.AreEqual(42, item.Id);
+            Assert.AreEqual(12.5m, item.Price.Gross);
+        }
+
+        [TestMethod]
+        public void A_value_object_cannot_hold_an_identity_column()
+        {
+            var provider = new CapturingQueryProvider();
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => CreatePersister(provider).Insert(new BadValueObjectOwner { Id = 1 }));
+
+            StringAssert.Contains(thrown.Message, "Numbering.Serial");
+            StringAssert.Contains(thrown.Message, "value object");
         }
 
         #endregion

@@ -42,10 +42,22 @@ namespace Atis.SqlExpressionEngine.Internal
                 selectedField = unary.Operand;
             }
 
-            return (selectedField as MemberExpression)?.Member.Name
-                ?? throw new InvalidOperationException(
+            if (!(selectedField is MemberExpression member))
+            {
+                throw new InvalidOperationException(
                     $"{methodName} field {index} must select a member, for example " +
                     $"'x => new object[] {{ x.EmployeeId }}', but was '{selectedField}'.");
+            }
+
+            // A member of a value object (x.Vo.Leaf) is named by its whole path. The leaf alone would make
+            // two value objects of the same type collide, and a dot cannot be used because aliases are
+            // written into the SQL unquoted.
+            var name = member.Member.Name;
+            for (var inner = member.Expression as MemberExpression; inner != null; inner = inner.Expression as MemberExpression)
+            {
+                name = inner.Member.Name + "_" + name;
+            }
+            return name;
         }
     }
 }

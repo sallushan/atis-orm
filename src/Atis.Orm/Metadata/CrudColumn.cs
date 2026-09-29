@@ -30,18 +30,34 @@ namespace Atis.Orm.Metadata
         ///     property name.
         /// </param>
         public CrudColumn(PropertyInfo property, ColumnKind kind, bool isRequired, string requiredFieldTitle)
+            : this(new ColumnPath(property), kind, isRequired, requiredFieldTitle)
         {
-            this.Property = property ?? throw new ArgumentNullException(nameof(property));
+        }
+
+        /// <summary>
+        ///     Constructs a <see cref="CrudColumn"/> that may belong to a value object.
+        /// </summary>
+        /// <param name="path">The route from the entity to the property this column maps to.</param>
+        /// <param name="kind">How the column participates in Insert and Update.</param>
+        /// <param name="isRequired">Whether the value must be supplied before a write.</param>
+        /// <param name="requiredFieldTitle">
+        ///     The name to report when required field validation fails, or <c>null</c> to use the
+        ///     property name.
+        /// </param>
+        public CrudColumn(ColumnPath path, ColumnKind kind, bool isRequired, string requiredFieldTitle)
+        {
+            this.Path = path ?? throw new ArgumentNullException(nameof(path));
             this.Kind = kind;
             this.IsRequired = isRequired;
             this.RequiredFieldTitle = requiredFieldTitle;
         }
 
         /// <summary>
-        ///     The property this column maps to. Also the key that pairs this instance with the
-        ///     matching <see cref="Atis.SqlExpressionEngine.SqlExpressions.TableColumn"/>.
+        ///     The property this column maps to, dotted when it belongs to a value object. Also the key
+        ///     that pairs this instance with the matching
+        ///     <see cref="Atis.SqlExpressionEngine.SqlExpressions.TableColumn"/>.
         /// </summary>
-        public string ModelPropertyName => this.Property.Name;
+        public string ModelPropertyName => this.Path.Name;
 
         /// <summary>
         ///     How the column participates in Insert and Update, and whether the database owns its
@@ -50,14 +66,14 @@ namespace Atis.Orm.Metadata
         public ColumnKind Kind { get; }
 
         /// <summary>
-        ///     The property this column reads from and writes to.
+        ///     The route to the property this column reads from and writes to.
         /// </summary>
-        public PropertyInfo Property { get; }
+        public ColumnPath Path { get; }
 
         /// <summary>
-        ///     The CLR type of <see cref="Property"/>.
+        ///     The CLR type of the property at the end of <see cref="Path"/>.
         /// </summary>
-        public Type ClrType => this.Property.PropertyType;
+        public Type ClrType => this.Path.Type;
 
         /// <summary>
         ///     Whether the value must be supplied before the entity can be inserted or updated.

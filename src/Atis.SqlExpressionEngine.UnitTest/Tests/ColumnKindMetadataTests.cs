@@ -42,6 +42,37 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.AreEqual(ColumnKind.Regular, Column(crud, nameof(CrudAnnotatedEmployee.FirstName)).Kind);
         }
 
+        /// <summary>
+        ///     A value object's columns are persistence columns too. They are keyed by the dotted path the
+        ///     query side uses, and reach their property through the value object.
+        /// </summary>
+        [TestMethod]
+        public void Annotated_value_object_columns_are_mapped_by_dotted_path()
+        {
+            using var dbc = new OrmDbContext();
+            var crud = dbc.GetEntityCrudMetadata<ValueObjectAnnotatedEntity>();
+
+            var zone = Column(crud, "ValObjOutTime.ZoneCode");
+            Assert.AreEqual(ColumnKind.Regular, zone.Kind);
+            Assert.IsTrue(zone.Path.IsNested);
+            Assert.AreEqual(typeof(string), zone.ClrType);
+            Assert.AreEqual("ValObjOutTime_ZoneCode", zone.Path.Alias);
+            Assert.AreEqual(6, crud.Columns.Count(x => x.Path.IsNested));
+        }
+
+        /// <summary>The fluent spelling of a computed value object column.</summary>
+        [TestMethod]
+        public void Fluent_value_object_map_can_declare_a_read_only_column()
+        {
+            using var dbc = new OrmDbContext();
+            var crud = dbc.GetEntityCrudMetadata<ValueObjectFluentEntity>();
+
+            Assert.AreEqual(ColumnKind.ReadOnly, Column(crud, "ValObjOutTime.ZuluDateTime").Kind);
+            Assert.AreEqual(ColumnKind.Regular, Column(crud, "ValObjOutTime.LocalDateTime").Kind);
+            Assert.AreEqual(ColumnKind.Regular, Column(crud, "ValObjInTime.ZuluDateTime").Kind,
+                "The kind belongs to the property it was declared on, not to the value object type.");
+        }
+
         [TestMethod]
         public void Required_field_annotation_surfaces_with_its_title()
         {
@@ -68,7 +99,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             var rowVer = Column(crud, nameof(CrudAnnotatedEmployee.RowVer));
             Assert.AreEqual(typeof(byte[]), rowVer.ClrType);
-            Assert.AreEqual(typeof(CrudAnnotatedEmployee), rowVer.Property.DeclaringType);
+            Assert.AreEqual(typeof(CrudAnnotatedEmployee), rowVer.Path.Leaf.DeclaringType);
         }
 
         [TestMethod]

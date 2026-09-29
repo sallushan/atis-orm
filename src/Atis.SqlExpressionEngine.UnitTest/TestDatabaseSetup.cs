@@ -180,6 +180,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 CreateEmployeeSkillTable(connection);
                 CreateAuditLogTable(connection);
                 CreateDocumentTable(connection);
+                CreatePricedItemTable(connection);
             }
         }
 
@@ -196,6 +197,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 await CreateEmployeeSkillTableAsync(connection);
                 await CreateAuditLogTableAsync(connection);
                 await CreateDocumentTableAsync(connection);
+                await CreatePricedItemTableAsync(connection);
             }
         }
 
@@ -469,6 +471,36 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 await ExecuteNonQueryAsync(connection, DocumentTableSql);
                 Console.WriteLine("Table Document created.");
+            }
+        }
+
+        // The only table with a computed column, which is what a value object's read back column is:
+        // the database owns its value, so it can be read but never written. Gross is NULL whenever
+        // Net is, so a row with no price at all reads back NULL, not zero.
+        private const string PricedItemTableSql = @"
+                    CREATE TABLE [dbo].[PricedItem] (
+                        [Id] INT IDENTITY(1,1) PRIMARY KEY,
+                        [Name] NVARCHAR(50) NOT NULL,
+                        [NetAmt] DECIMAL(18,2) NULL,
+                        [Curr] NVARCHAR(3) NULL,
+                        [GrossAmt] AS ([NetAmt] * 2)
+                    )";
+
+        private void CreatePricedItemTable(SqlConnection connection)
+        {
+            if (!TableExists(connection, "PricedItem"))
+            {
+                ExecuteNonQuery(connection, PricedItemTableSql);
+                Console.WriteLine("Table PricedItem created.");
+            }
+        }
+
+        private async Task CreatePricedItemTableAsync(SqlConnection connection)
+        {
+            if (!await TableExistsAsync(connection, "PricedItem"))
+            {
+                await ExecuteNonQueryAsync(connection, PricedItemTableSql);
+                Console.WriteLine("Table PricedItem created.");
             }
         }
 

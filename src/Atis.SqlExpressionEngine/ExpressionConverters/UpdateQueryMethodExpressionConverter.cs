@@ -87,8 +87,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                                      ?? throw new InvalidOperationException("The data source to update was not found in the query.");
             var tableToUpdate = dataSourceToUpdate.QuerySource.CastTo<SqlTableExpression>();
 
-            var columnNames = memberInit.Bindings.Select(x => tableToUpdate.GetByPropertyName(x.MemberName)).ToArray();
-            var values = memberInit.Bindings.Select(x => x.SqlExpression).ToArray();
+            MemberInitColumnFlattener.Flatten(tableToUpdate, memberInit, this.SqlFactory.CreateLiteral, out var columnNames, out var values);
             var outputs = this.HasOutputs
                 ? this.CreateOutputs(arguments[this.OutputFieldsArgumentIndex - 1], selectedDataSource)
                 : null;

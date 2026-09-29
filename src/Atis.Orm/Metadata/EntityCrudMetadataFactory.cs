@@ -34,8 +34,38 @@ namespace Atis.Orm.Metadata
             var columns = this.entityMetadataBuilder
                                 .GetColumnProperties(type)
                                 .Select(x => this.CreateColumn(type, x))
+                                .Concat(this.CreateValueObjectColumns(type))
                                 .ToArray();
             return new EntityCrudMetadata(type, columns);
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The persistence side of every column a <see cref="ValueObjectAttribute"/> maps, in the
+        ///         same order the query side lists them. Each is keyed by the dotted path the query side
+        ///         uses, and takes its kind from the annotations on the value object's own property.
+        ///     </para>
+        ///     <para>
+        ///         A member the attribute names but the value object does not have is left out, for the
+        ///         same reason <c>MutableEntityMetadata.BuildCrud</c> leaves out an unresolvable column: the
+        ///         entity may only ever be queried.
+        ///     </para>
+        /// </summary>
+        protected virtual IEnumerable<CrudColumn> CreateValueObjectColumns(Type type)
+        {
+            foreach (var property in type.GetProperties())
+            {
+                var attribute = property.GetCustomAttribute<ValueObjectAttribute>();
+                if (attribute is null)
+                    continue;
+                foreach (var memberName in attribute.Properties)
+                {
+                    var path = ColumnPath.TryResolve(type, property.Name + "." + memberName);
+                    if (path is null)
+                        continue;
+                    yield return new CrudColumn(path, this.GetColumnKind(path.Leaf), isRequired: false, requiredFieldTitle: null);
+                }
+            }
         }
 
         /// <summary>
@@ -61,19 +91,7 @@ namespace Atis.Orm.Metadata
         ///     </para>
         /// </summary>
         protected virtual ColumnKind GetColumnKind(PropertyInfo propertyInfo)
-        {
-            if (propertyInfo.GetCustomAttribute<DbIdentityColumnAttribute>() != null)
-                return ColumnKind.Identity;
-            if (propertyInfo.GetCustomAttribute<DbRowVersionAttribute>() != null)
-                return ColumnKind.RowVersion;
-            if (propertyInfo.GetCustomAttribute<DbReadOnlyColumnAttribute>() != null)
-                return ColumnKind.ReadOnly;
-            if (propertyInfo.GetCustomAttribute<DbInsertOnlyAttribute>() != null)
-                return ColumnKind.InsertOnly;
-            if (propertyInfo.GetCustomAttribute<DbUpdateOnlyAttribute>() != null)
-                return ColumnKind.UpdateOnly;
-            return ColumnKind.Regular;
-        }
+            => ColumnKindAttributes.GetKind(propertyInfo);
 
         /// <summary>
         ///     Determines whether a value must be supplied for this column before a write, and under

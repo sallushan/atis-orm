@@ -91,13 +91,24 @@ namespace Atis.Orm.Metadata
         ///         otherwise look like a plain (unresolvable) column.
         ///     </para>
         /// </summary>
-        public void AddValueObjectColumn(string outerPropertyName, string voMemberName, string columnName)
+        public void AddValueObjectColumn(string outerPropertyName, string voMemberName, string columnName, ColumnKind? kind = null)
         {
             if (this.valueObjectPropertiesSeen.Add(outerPropertyName))
                 this.RemoveColumn(outerPropertyName);
 
             var dottedPropertyName = $"{outerPropertyName}.{voMemberName}";
-            this.GetOrAddColumn(dottedPropertyName).DatabaseColumnName = columnName;
+            var column = this.GetOrAddColumn(dottedPropertyName);
+            column.DatabaseColumnName = columnName;
+
+            // With no explicit kind the leaf is annotated the way an entity property is, so a computed
+            // column can be declared once on the value object type.
+            if (kind.HasValue)
+            {
+                column.Kind = kind.Value;
+                return;
+            }
+            var path = ColumnPath.TryResolve(this.ClrType, dottedPropertyName);
+            column.Kind = path is null ? ColumnKind.Regular : ColumnKindAttributes.GetKind(path.Leaf);
         }
 
         /// <summary>
@@ -132,10 +143,10 @@ namespace Atis.Orm.Metadata
             var columns = new List<CrudColumn>(this.SqlColumns.Count);
             foreach (var column in this.SqlColumns)
             {
-                var property = this.ClrType.GetProperty(column.ModelPropertyName);
-                if (property is null)
+                var path = ColumnPath.TryResolve(this.ClrType, column.ModelPropertyName);
+                if (path is null)
                     continue;
-                columns.Add(new CrudColumn(property, column.Kind, column.IsRequired, column.RequiredFieldTitle));
+                columns.Add(new CrudColumn(path, column.Kind, column.IsRequired, column.RequiredFieldTitle));
             }
             return new EntityCrudMetadata(this.ClrType, columns);
         }

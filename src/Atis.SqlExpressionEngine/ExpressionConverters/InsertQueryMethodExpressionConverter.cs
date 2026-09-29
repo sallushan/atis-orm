@@ -70,10 +70,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 ?? throw new InvalidOperationException(
                     $"Argument 1 of {nameof(QueryExtensions.Insert)} must be a member-init expression, for example '() => new T {{ Property = value }}'.");
 
-            var columns = insertFields.Bindings
-                .Select(x => table.GetByPropertyName(x.MemberName))
-                .ToArray();
-            var values = insertFields.Bindings.Select(x => x.SqlExpression).ToArray();
+            MemberInitColumnFlattener.Flatten(table, insertFields, this.SqlFactory.CreateLiteral, out var columns, out var values);
             var outputs = this.HasOutputs
                 ? this.CreateOutputs(arguments[1], dataSource.Alias)
                 : null;

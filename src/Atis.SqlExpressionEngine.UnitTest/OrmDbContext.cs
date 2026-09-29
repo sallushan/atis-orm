@@ -141,7 +141,9 @@ namespace Atis.SqlExpressionEngine.UnitTest
                 {
                     vo.Map(v => v.ZoneCode, "OUT_DT_TM_FROM");
                     vo.Map(v => v.LocalDateTime, "OUT_DT_TM");
-                    vo.Map(v => v.ZuluDateTime, "OUT_DT_TM_ZULU");
+                    // Only this one is a computed column: a kind given here is the fluent spelling of
+                    // [DbReadOnlyColumn] on the value object's own member.
+                    vo.Map(v => v.ZuluDateTime, "OUT_DT_TM_ZULU", ColumnKind.ReadOnly);
                 });
                 e.ValueObject(x => x.ValObjInTime, vo =>
                 {
