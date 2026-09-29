@@ -22,9 +22,11 @@ namespace Atis.Orm.Querying
         private readonly IQueryCompiler queryCompiler;
         private readonly IExpressionVariableValuesExtractor expressionVariableValuesExtractor;
         private readonly INavigationInitializer navigationInitializer;
+        private readonly IQueryContext queryContext;
 
-        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, INavigationInitializer navigationInitializer)
+        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, INavigationInitializer navigationInitializer, IQueryContext queryContext)
         {
+            this.queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
             this.dbAdapter = dbAdapter ?? throw new ArgumentNullException(nameof(dbAdapter));
             this.queryCacheProvider = queryCacheProvider ?? throw new ArgumentNullException(nameof(queryCacheProvider));
             this.queryCompiler = queryCompiler ?? throw new ArgumentNullException(nameof(queryCompiler));
@@ -111,7 +113,7 @@ namespace Atis.Orm.Querying
                 // CompiledQueryBase.ResolveValue, i.e. behaves as a literal frozen at the first compile.
                 parameterValuesByIdentity = this.expressionVariableValuesExtractor.ExtractVariableValuesByIdentity(expression);
             }
-            IExecutionContext queryExecutionParameter = compiledQuery.GetExecutionContext(parameterValuesByIdentity, useInitialValues: !cacheHit);
+            IExecutionContext queryExecutionParameter = compiledQuery.GetExecutionContext(parameterValuesByIdentity, useInitialValues: !cacheHit, queryContext: this.queryContext);
             return queryExecutionParameter;
         }
 

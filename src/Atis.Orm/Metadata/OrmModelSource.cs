@@ -11,11 +11,11 @@ namespace Atis.Orm.Metadata
         private readonly OrmModel model;
 
         /// <summary>Constructs the source and the empty model it will populate.</summary>
-        public OrmModelSource(IEntityMetadataBuilder entityMetadataBuilder, IEntityCrudMetadataFactory crudMetadataFactory)
+        public OrmModelSource(IEntityMetadataBuilder entityMetadataBuilder, IEntityCrudMetadataFactory crudMetadataFactory, IContextualMemberAnnotationReader contextualAnnotationReader = null)
         {
             this.entityMetadataBuilder = entityMetadataBuilder ?? throw new ArgumentNullException(nameof(entityMetadataBuilder));
             this.crudMetadataFactory = crudMetadataFactory ?? throw new ArgumentNullException(nameof(crudMetadataFactory));
-            this.model = new OrmModel(entityMetadataBuilder);
+            this.model = new OrmModel(entityMetadataBuilder, contextualAnnotationReader);
         }
 
         /// <inheritdoc />

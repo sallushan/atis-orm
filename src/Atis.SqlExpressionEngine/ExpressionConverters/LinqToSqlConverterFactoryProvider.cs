@@ -90,6 +90,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new DelimitedValuesExpressionConverterFactory(),
                 new NextDayBoundaryExpressionConverterFactory(),
                 new NamedParameterExpressionConverterFactory(),
+                new ContextualExpressionConverterFactory(),
                 new NewArrayExpressionConverterFactory(),
                 new StandaloneSelectQueryMethodExpressionConverterFactory(),
                 new DateFunctionsConverterFactory(),

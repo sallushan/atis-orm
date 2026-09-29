@@ -287,8 +287,8 @@ namespace Atis.Orm.Translation
         {
             // Non-literal parameters carry the source variable's identity so their value can be rebound by
             // lookup (not by traversal position) on a cache hit. Literals keep InitialValue and need none.
-            var identity = (sourceExpression as SqlParameterExpression)?.Identity;
-            return new QueryParameter(value, isLiteral, sourceExpression, identity);
+            var source = sourceExpression as SqlParameterExpression;
+            return new QueryParameter(value, isLiteral, sourceExpression, source?.Identity, source?.ContextKey);
         }
 
         /// <summary>

@@ -61,6 +61,9 @@ namespace Atis.SqlExpressionEngine.UnitTest
         {
             _onModelCreatingCallCount++;
 
+            mb.ContextualValue(() => Tests.ContextualNodeTests.FluentCurrent.MinEmployeeId, "MinEmployeeId");
+            mb.ContextualValue<Tests.ContextualNodeTests.FluentRequest, int>(r => r.MinEmployeeId, "MinEmployeeId");
+
             mb.Entity<SimulatedExternalEntity>(entity =>
             {
                 entity.ToTable("SIM_EXT_TBL")

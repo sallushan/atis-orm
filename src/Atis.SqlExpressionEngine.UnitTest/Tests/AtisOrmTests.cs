@@ -173,7 +173,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var elementFactoryBuilder = new ElementFactoryBuilder();
             var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
             var queryCompiler = new QueryCompiler(queryTranslator, commandRenderer, dbParameterFactory, elementFactoryBuilder);
-            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, new NoOpNavigationInitializer());
+            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, new NoOpNavigationInitializer(), new QueryContext());
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
             var results = queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToList();
@@ -211,7 +211,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var elementFactoryBuilder = new ElementFactoryBuilder();
             var queryTranslator = new QueryTranslator(preprocessor, linqToSqlConverter, sqlExpressionTranslator, logger);
             var queryCompiler = new QueryCompiler(queryTranslator, commandRenderer, dbParameterFactory, elementFactoryBuilder);
-            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, new NoOpNavigationInitializer());
+            var queryExecutor = new QueryExecutor(dbAdapter, queryCacheProvider, queryCompiler, expressionVariableValueExtractor, new NoOpNavigationInitializer(), new QueryContext());
             var ormQueryProvider = new OrmQueryProvider(reflectionService, queryExecutor);
             var queryable = new Queryable<TestEntities.Employee>(ormQueryProvider);
             var results = await queryable.Select(x => new { x.FirstName, x.EmployeeId }).Take(10).ToListAsync();

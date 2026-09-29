@@ -70,12 +70,18 @@ namespace Atis.Orm
                 { typeof(ISqlExpressionPostprocessorProvider),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IQueryTranslator),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryCompiler),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
-                { typeof(IExpressionVariableValuesExtractor),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                // Scoped: it asks the model which members are context values, and the model is per context.
+                { typeof(IExpressionVariableValuesExtractor),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
+                { typeof(IContextualMemberAnnotationReader),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                // The model itself answers; no second store of what is marked.
+                { typeof(IContextualMemberProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IDbParameterFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IDbParameterNameGenerator),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(ICommandRenderer),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
                 { typeof(IDatabaseAdapter),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IDbCommunication),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
+                // Scoped: the values it holds (logged-in user, tenant) belong to one unit of work.
+                { typeof(IQueryContext),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IQueryExecutor),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IEntityPersister),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(INavigationInitializer),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
@@ -127,7 +133,10 @@ namespace Atis.Orm
             this.TryAdd<IQueryTranslator, QueryTranslator>();
             this.TryAdd<IQueryCompiler, QueryCompiler>();
             this.TryAdd<IExpressionVariableValuesExtractor, ExpressionVariableValuesExtractor>();
+            this.TryAdd<IContextualMemberAnnotationReader, ContextualMemberAnnotationReader>();
+            this.TryAdd<IContextualMemberProvider>(p => p.GetRequiredService<IOrmModel>());
             this.TryAdd<IDatabaseAdapter, DatabaseAdapter>();
+            this.TryAdd<IQueryContext, QueryContext>();
             this.TryAdd<IQueryExecutor, QueryExecutor>();
             this.TryAdd<IEntityPersister, EntityPersister>();
             this.TryAdd<INavigationInitializer, NavigationInitializer>();

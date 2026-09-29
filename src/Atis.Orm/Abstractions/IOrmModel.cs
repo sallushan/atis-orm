@@ -20,7 +20,7 @@ namespace Atis.Orm.Abstractions
     ///         expression engine.
     ///     </para>
     /// </summary>
-    public interface IOrmModel : IModel
+    public interface IOrmModel : IModel, IContextualMemberProvider
     {
         void Add(EntityMetadata metadata);
 
@@ -28,6 +28,12 @@ namespace Atis.Orm.Abstractions
         ///     Stores the persistence side of an entity's mapping, replacing any existing entry.
         /// </summary>
         void AddCrud(EntityCrudMetadata crudMetadata);
+
+        /// <summary>
+        ///     Marks <paramref name="member"/> as a context value under <paramref name="key"/>, replacing any
+        ///     earlier mark. Wins over an annotation on the same member.
+        /// </summary>
+        void AddContextualValue(System.Reflection.MemberInfo member, string key);
 
         /// <summary>
         ///     <para>

@@ -53,8 +53,47 @@ namespace Atis.Orm.Metadata
             return builder;
         }
 
+        /// <summary>
+        ///     <para>
+        ///         Marks a static member as a value the execution context supplies, for a class that cannot
+        ///         carry <c>[ContextualValue]</c>: <c>mb.ContextualValue(() =&gt; Current.UserId, "CurrentUserId")</c>.
+        ///         The key defaults to the member's name. Wins over an annotation on the same member.
+        ///     </para>
+        /// </summary>
+        public ModelBuilder ContextualValue<TValue>(System.Linq.Expressions.Expression<Func<TValue>> member, string key = null)
+        {
+            return this.AddContextualValue(member, key);
+        }
+
+        /// <summary>
+        ///     Marks an instance member as a context value, for every instance of <typeparamref name="TOwner"/>:
+        ///     <c>mb.ContextualValue&lt;RequestInfo&gt;(r =&gt; r.UserId, "CurrentUserId")</c>.
+        /// </summary>
+        public ModelBuilder ContextualValue<TOwner, TValue>(System.Linq.Expressions.Expression<Func<TOwner, TValue>> member, string key = null)
+        {
+            return this.AddContextualValue(member, key);
+        }
+
+        private ModelBuilder AddContextualValue(System.Linq.Expressions.LambdaExpression member, string key)
+        {
+            if (member == null) throw new ArgumentNullException(nameof(member));
+            var body = member.Body;
+            // A value-typed member arrives wrapped in a Convert when the lambda is typed as object.
+            while (body is System.Linq.Expressions.UnaryExpression unary && body.NodeType == System.Linq.Expressions.ExpressionType.Convert)
+                body = unary.Operand;
+            if (!(body is System.Linq.Expressions.MemberExpression memberExpression))
+                throw new ArgumentException($"'{member}' must be a plain property or field access.", nameof(member));
+            this._contextualValues.Add((memberExpression.Member, key ?? memberExpression.Member.Name));
+            return this;
+        }
+
+        private readonly List<(System.Reflection.MemberInfo Member, string Key)> _contextualValues = new List<(System.Reflection.MemberInfo, string)>();
+
         internal void Build()
         {
+            foreach (var (member, key) in _contextualValues)
+                _ormModel.AddContextualValue(member, key);
+
             foreach (var mutableMetadata in _mutableEntityMetadata.Values)
             {
                 _ormModel.Add(mutableMetadata.Build());

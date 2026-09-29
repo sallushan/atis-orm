@@ -35,8 +35,15 @@ namespace Atis.Orm.Services
         private readonly IVariableIdentityProvider variableIdentityProvider;
         private List<Expression> parameterNodes = new List<Expression>();
 
-        public ExpressionVariableValuesExtractor(IExpressionEvaluator expressionEvaluator, IVariableIdentityProvider variableIdentityProvider)
+        private readonly IContextualMemberProvider contextualMembers;
+
+        /// <param name="contextualMembers">
+        ///     Tells the extractor which members are context values, so it leaves them alone. The container
+        ///     supplies it; <c>null</c> is for hand-wired code that uses no context values.
+        /// </param>
+        public ExpressionVariableValuesExtractor(IExpressionEvaluator expressionEvaluator, IVariableIdentityProvider variableIdentityProvider, IContextualMemberProvider contextualMembers = null)
         {
+            this.contextualMembers = contextualMembers;
             this.expressionEvaluator = expressionEvaluator ?? throw new ArgumentNullException(nameof(expressionEvaluator));
             this.variableIdentityProvider = variableIdentityProvider ?? throw new ArgumentNullException(nameof(variableIdentityProvider));
         }
@@ -109,6 +116,11 @@ namespace Atis.Orm.Services
 
         protected override Expression VisitMember(MemberExpression node)
         {
+            // A context value is supplied by the IQueryContext, not read off the tree, and its getter is a
+            // marker that must never be called.
+            if (this.contextualMembers != null && this.contextualMembers.TryGetContextualKey(node.Member, out _))
+                return node;
+
             if (this.expressionEvaluator.IsVariable(node))
             {
                 // The whole member access evaluates to a value, so stop traversing into the access chain

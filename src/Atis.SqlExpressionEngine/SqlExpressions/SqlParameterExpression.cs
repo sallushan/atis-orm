@@ -36,12 +36,25 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         /// <param name="valueType">
         ///     The declared type of the source the value came from. <c>null</c> when unknown.
         /// </param>
-        public SqlParameterExpression(object value, string identity = null, Type valueType = null)
+        /// <param name="contextKey">
+        ///     Set when the value comes from the ambient execution context rather than from the query: the key
+        ///     to ask for it by, on every execution. <see cref="Value"/> is then meaningless.
+        /// </param>
+        public SqlParameterExpression(object value, string identity = null, Type valueType = null, string contextKey = null)
         {
             this.Value = value;
             this.Identity = identity;
             this.ValueType = valueType;
+            this.ContextKey = contextKey;
         }
+
+        /// <summary>
+        ///     <para>
+        ///         Gets the key under which the execution context supplies this parameter's value, or
+        ///         <c>null</c> for an ordinary parameter.
+        ///     </para>
+        /// </summary>
+        public string ContextKey { get; }
 
         /// <summary>
         ///     <para>

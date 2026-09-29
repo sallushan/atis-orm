@@ -30,7 +30,7 @@ namespace Atis.Orm.Querying
             this.elementFactory = elementFactory;
         }
 
-        public abstract IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues);
+        public abstract IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues, IQueryContext queryContext = null);
 
         protected IExecutionContext CreateExecutionContext(string sql, IReadOnlyList<DbParameter> dbParameters)
         {
@@ -55,9 +55,19 @@ namespace Atis.Orm.Querying
         ///         something genuinely per-execution is violating that contract, and no single execution can
         ///         detect it.
         ///     </para>
+        ///     <para>
+        ///         The third source is the <see cref="IQueryContext"/>, for parameters that carry a
+        ///         <see cref="IQueryParameter.ContextKey"/>. It is asked on every execution and never falls back
+        ///         to <see cref="IQueryParameter.InitialValue"/>: freezing the first caller's value would hand it
+        ///         to everyone after.
+        ///     </para>
         /// </summary>
-        protected static object ResolveValue(IQueryParameter queryParameter, IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues)
+        protected static object ResolveValue(IQueryParameter queryParameter, IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues, IQueryContext queryContext)
         {
+            // Checked first, ahead of useInitialValues: a contextual parameter has no translation-time value
+            // (its InitialValue is null), so even the first execution has to ask the context.
+            if (queryParameter.ContextKey != null)
+                return ResolveContextValue(queryParameter.ContextKey, queryContext);
             if (useInitialValues || queryParameter.IsLiteral)
                 return queryParameter.InitialValue;
             if (parameterValuesByIdentity != null
@@ -65,6 +75,15 @@ namespace Atis.Orm.Querying
                 && parameterValuesByIdentity.TryGetValue(queryParameter.ParameterIdentity, out var reboundValue))
                 return reboundValue;
             return queryParameter.InitialValue;
+        }
+
+        private static object ResolveContextValue(string key, IQueryContext queryContext)
+        {
+            if (queryContext is null)
+                throw new InvalidOperationException($"The query uses the context value '{key}' but no IQueryContext was supplied to resolve it.");
+            if (!queryContext.TryGetValue(key, out var value))
+                throw new InvalidOperationException($"The query uses the context value '{key}' but the IQueryContext has no value under that key.");
+            return value;
         }
     }
 
@@ -97,13 +116,13 @@ namespace Atis.Orm.Querying
             this.parameterFactory = parameterFactory ?? throw new ArgumentNullException(nameof(parameterFactory));
         }
 
-        public override IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues)
+        public override IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues, IQueryContext queryContext = null)
         {
             var dbParameters = new DbParameter[this.orderedParameters.Count];
             for (int i = 0; i < this.orderedParameters.Count; i++)
             {
                 var queryParameter = this.orderedParameters[i];
-                var value = ResolveValue(queryParameter, parameterValuesByIdentity, useInitialValues);
+                var value = ResolveValue(queryParameter, parameterValuesByIdentity, useInitialValues, queryContext);
                 dbParameters[i] = this.parameterFactory.CreateDbParameter(i, queryParameter, value);
             }
             return this.CreateExecutionContext(this.sql, dbParameters);
@@ -132,9 +151,9 @@ namespace Atis.Orm.Querying
             this.renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
         }
 
-        public override IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues)
+        public override IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues, IQueryContext queryContext = null)
         {
-            var rendered = this.renderer.Render(this.fragments, p => ResolveValue(p, parameterValuesByIdentity, useInitialValues));
+            var rendered = this.renderer.Render(this.fragments, p => ResolveValue(p, parameterValuesByIdentity, useInitialValues, queryContext));
             return this.CreateExecutionContext(rendered.Sql, rendered.DbParameters);
         }
     }

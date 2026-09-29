@@ -16,7 +16,7 @@ namespace Atis.Orm.Preprocessing
         private readonly int maxIterations;
         protected List<IExpressionPreprocessor> ExpressionPreprocessors { get; } = new List<IExpressionPreprocessor>();
 
-        public OrmExpressionPreprocessorProvider(IModel model, IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, IEnumerable<IExpressionPreprocessor> plugins, int maxIterations = 50) 
+        public OrmExpressionPreprocessorProvider(IModel model, IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, IEnumerable<IExpressionPreprocessor> plugins, int maxIterations = 50, IContextualMemberProvider contextualMemberProvider = null) 
         {
             this.maxIterations = maxIterations;
 
@@ -34,7 +34,8 @@ namespace Atis.Orm.Preprocessing
             var methodInterfaceTypeReplacementPreprocessor = new QueryMethodGenericTypeReplacementPreprocessor(reflectionService);
             var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model, reflectionService);
             var whereBuilderRewriterPreprocessor = new WhereBuilderRewriterPreprocessor();
-            
+            var contextualValuePreprocessor = new ContextualValueRewriterPreprocessor(contextualMemberProvider ?? new NoContextualMembers());
+
             this.ExpressionPreprocessors.AddRange(new IExpressionPreprocessor[]
             {
                 queryVariablePreprocessor, 
@@ -47,7 +48,8 @@ namespace Atis.Orm.Preprocessing
                 allToAnyRewriterPreprocessor, 
                 inValuesReplacementPreprocessor,
                 navigationEqualityPreprocessor,
-                whereBuilderRewriterPreprocessor
+                whereBuilderRewriterPreprocessor,
+                contextualValuePreprocessor
             });
         }
 

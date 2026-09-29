@@ -18,6 +18,13 @@ namespace Atis.Orm.Abstractions
         /// </summary>
         string ParameterIdentity { get; }
 
+        /// <summary>
+        ///     Key under which the <see cref="IQueryContext"/> supplies this parameter's value, or <c>null</c>
+        ///     for an ordinary parameter. When set, <see cref="InitialValue"/> is meaningless and the value is
+        ///     asked for on every execution, the first one included.
+        /// </summary>
+        string ContextKey { get; }
+
         SqlExpression SqlParameterExpression { get; }
     }
 }

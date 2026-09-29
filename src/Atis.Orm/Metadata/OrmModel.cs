@@ -11,11 +11,13 @@ using Atis.Orm.Annotations;
 namespace Atis.Orm.Metadata
 {
     /// <inheritdoc />
-    public class OrmModel : IOrmModel
+    public class OrmModel : IOrmModel, Atis.SqlExpressionEngine.Abstractions.IContextualMemberProvider
     {
         private readonly ConcurrentDictionary<Type, EntityMetadata> metadataMap = new ConcurrentDictionary<Type, EntityMetadata>();
         private readonly ConcurrentDictionary<Type, EntityCrudMetadata> crudMetadataMap = new ConcurrentDictionary<Type, EntityCrudMetadata>();
+        private readonly ConcurrentDictionary<MemberInfo, string> contextualKeys = new ConcurrentDictionary<MemberInfo, string>();
         private readonly IEntityMetadataBuilder entityMetadataBuilder;
+        private readonly IContextualMemberAnnotationReader contextualAnnotationReader;
         private volatile bool _modelCreated = false;
         private readonly object _modelCreatedLock = new object();
 
@@ -26,9 +28,35 @@ namespace Atis.Orm.Metadata
         ///     Derives a mapping from annotations for an entity that <c>OnModelCreating</c> never
         ///     configured, and decides which types are entities at all — see <see cref="CanBeEntity"/>.
         /// </param>
-        public OrmModel(IEntityMetadataBuilder entityMetadataBuilder)
+        /// <param name="contextualAnnotationReader">
+        ///     Reads the annotation that marks a context value. Defaults to the attribute-based reader.
+        /// </param>
+        public OrmModel(IEntityMetadataBuilder entityMetadataBuilder, IContextualMemberAnnotationReader contextualAnnotationReader = null)
         {
             this.entityMetadataBuilder = entityMetadataBuilder ?? throw new ArgumentNullException(nameof(entityMetadataBuilder));
+            this.contextualAnnotationReader = contextualAnnotationReader ?? new ContextualMemberAnnotationReader();
+        }
+
+        /// <inheritdoc />
+        public void AddContextualValue(MemberInfo member, string key)
+        {
+            if (member == null) throw new ArgumentNullException(nameof(member));
+            if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("A context key must not be blank.", nameof(key));
+            this.contextualKeys[member] = key;
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        ///     Fluent configuration first, then the annotation, so a fluent call overrides an attribute as it
+        ///     does everywhere else in the model.
+        /// </remarks>
+        public bool TryGetContextualKey(MemberInfo member, out string key)
+        {
+            if (member == null) throw new ArgumentNullException(nameof(member));
+            if (this.contextualKeys.TryGetValue(member, out key))
+                return true;
+            key = this.contextualAnnotationReader.GetKey(member);
+            return key != null;
         }
 
         /// <inheritdoc />

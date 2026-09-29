@@ -384,9 +384,9 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlDatePartExpression(datePart, dateExpr);
         }
 
-        public SqlParameterExpression CreateParameter(object value, string identity = null, Type valueType = null)
+        public SqlParameterExpression CreateParameter(object value, string identity = null, Type valueType = null, string contextKey = null)
         {
-            return new SqlParameterExpression(value, identity, valueType);
+            return new SqlParameterExpression(value, identity, valueType, contextKey);
         }
 
         public SqlInValuesExpression CreateInValuesExpression(SqlExpression expression, SqlExpression values)
