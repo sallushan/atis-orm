@@ -15,6 +15,7 @@ using System.Text;
 using Atis.Orm.Abstractions;
 using Atis.Orm.DataAccess;
 using Atis.Orm.DataManipulation;
+using Atis.Orm.Functions;
 using Atis.Orm.Metadata;
 using Atis.Orm.Preprocessing;
 using Atis.Orm.Querying;
@@ -73,6 +74,8 @@ namespace Atis.Orm
                 // Scoped: it asks the model which members are context values, and the model is per context.
                 { typeof(IExpressionVariableValuesExtractor),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IContextualMemberAnnotationReader),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                { typeof(ISqlFunctionAnnotationReader),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
+                { typeof(ISqlFunctionMetadataProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 // The model itself answers; no second store of what is marked.
                 { typeof(IContextualMemberProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
                 { typeof(IDbParameterFactory),    new ServiceCharacteristic(ServiceLifetime.Singleton) },
@@ -134,7 +137,9 @@ namespace Atis.Orm
             this.TryAdd<IQueryCompiler, QueryCompiler>();
             this.TryAdd<IExpressionVariableValuesExtractor, ExpressionVariableValuesExtractor>();
             this.TryAdd<IContextualMemberAnnotationReader, ContextualMemberAnnotationReader>();
+            this.TryAdd<ISqlFunctionAnnotationReader, SqlFunctionAnnotationReader>();
             this.TryAdd<IContextualMemberProvider>(p => p.GetRequiredService<IOrmModel>());
+            this.TryAdd<ISqlFunctionMetadataProvider>(p => p.GetRequiredService<IOrmModel>());
             this.TryAdd<IDatabaseAdapter, DatabaseAdapter>();
             this.TryAdd<IQueryContext, QueryContext>();
             this.TryAdd<IQueryExecutor, QueryExecutor>();
@@ -145,6 +150,11 @@ namespace Atis.Orm
             this.TryAdd<IQueryProvider>(p => p.GetRequiredService<IAsyncQueryProvider>());
 
             this.TryAdd<ILambdaParameterToDataSourceMapper, LambdaParameterToDataSourceMapper>();
+
+            // Specialized SQL-function metadata must be handled before the plain-function fallback.
+            this.AddConverterFactory<SqlWindowConverterFactory>();
+            this.AddConverterFactory<SqlFunctionTemplateConverterFactory>();
+            this.AddConverterFactory<SqlFunctionConverterFactory>();
         }
 
         protected override IReadOnlyCollection<Type> GetCoreServiceTypes()

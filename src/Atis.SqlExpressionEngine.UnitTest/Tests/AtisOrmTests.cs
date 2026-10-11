@@ -163,7 +163,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var model = new Services.Model(reflectionService);
             var serviceCollection = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
-            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory()]);
+            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory(), new Atis.Orm.Functions.SqlWindowConverterFactory(), new Atis.Orm.Functions.SqlFunctionTemplateConverterFactory(), new Atis.Orm.Functions.SqlFunctionConverterFactory()]);
             var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
             var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, model);
             var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));
@@ -201,7 +201,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var model = new Services.Model(reflectionService);
             var serviceCollection = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
-            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory()]);
+            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory(), new Atis.Orm.Functions.SqlWindowConverterFactory(), new Atis.Orm.Functions.SqlFunctionTemplateConverterFactory(), new Atis.Orm.Functions.SqlFunctionConverterFactory()]);
             var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
             var preprocessor = GetPreprocessorProvider(reflectionService, expressionEvaluator, model);
             var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));

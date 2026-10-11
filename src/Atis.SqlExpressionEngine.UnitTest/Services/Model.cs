@@ -12,12 +12,15 @@ using System.Linq.Expressions;
 using System.Reflection;
 
 using Atis.Orm.Metadata;
+using Atis.Orm.Abstractions;
+using Atis.Orm.Functions;
 namespace Atis.SqlExpressionEngine.UnitTest.Services
 {
-    internal class Model : Atis.SqlExpressionEngine.Services.Model
+    internal class Model : Atis.SqlExpressionEngine.Services.Model, ISqlFunctionMetadataProvider
     {
         private readonly EntityMetadataBuilder entityMetadataBuilder;
         private readonly ConcurrentDictionary<Type, EntityMetadata> metadataCache = new ConcurrentDictionary<Type, EntityMetadata>();
+        private readonly SqlFunctionAnnotationReader sqlFunctionAnnotationReader = new SqlFunctionAnnotationReader();
 
         public Model(IReflectionService reflectionService)
         {
@@ -38,5 +41,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Services
             this.metadataCache.TryAdd(type, metadata);
             return metadata;
         }
+
+        public bool TryGetSqlFunction(MethodInfo method, out SqlFunctionMetadata metadata)
+            => this.sqlFunctionAnnotationReader.TryGetSqlFunction(method, out metadata);
     }
 }

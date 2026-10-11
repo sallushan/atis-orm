@@ -51,10 +51,10 @@ namespace Atis.SqlExpressionEngine.Visitors
             return base.VisitSqlParameter(sqlParameterExpression);
         }
 
-        protected internal override SqlExpression VisitSqlFunctionCall(SqlFunctionCallExpression node)
+        protected internal override SqlExpression VisitSqlFunction(SqlFunctionExpression node)
         {
-            this.hashCode.Add(node.FunctionName);
-            return base.VisitSqlFunctionCall(node);
+            foreach (var component in node.GetHashComponents()) this.hashCode.Add(component);
+            return base.VisitSqlFunction(node);
         }
 
         protected internal override SqlExpression VisitSqlAlias(SqlAliasExpression node)

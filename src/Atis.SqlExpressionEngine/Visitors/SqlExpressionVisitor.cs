@@ -137,14 +137,9 @@ namespace Atis.SqlExpressionEngine.Visitors
             return node.Update(stringExpression, newArguments);
         }
 
-        protected virtual internal SqlExpression VisitSqlFunctionCall(SqlFunctionCallExpression node)
+        protected virtual internal SqlExpression VisitSqlFunction(SqlFunctionExpression node)
         {
-            var arguments = new List<SqlExpression>();
-            foreach (var argument in node.Arguments)
-            {
-                arguments.Add(this.Visit(argument));
-            }
-            return node.Update(arguments);
+            return node.VisitChildren(this);
         }
 
         protected virtual internal SqlExpression VisitSqlDefaultIfEmpty(SqlDefaultIfEmptyExpression node)

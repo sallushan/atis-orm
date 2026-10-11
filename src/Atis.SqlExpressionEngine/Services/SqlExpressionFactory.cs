@@ -164,9 +164,9 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlTableExpression(sqlTable, tableColumns);
         }
 
-        public virtual SqlFunctionCallExpression CreateFunctionCall(string functionName, SqlExpression[] arguments)
+        public virtual SqlFunctionExpression CreateFunctionCall(string functionName, SqlExpression[] arguments)
         {
-            return new SqlFunctionCallExpression(functionName, arguments);
+            return new SqlFunctionExpression(functionName, arguments);
         }
 
         public SqlSelectExpression CreateSelectQueryFromStandaloneSelect(SqlStandaloneSelectExpression standaloneSelect)

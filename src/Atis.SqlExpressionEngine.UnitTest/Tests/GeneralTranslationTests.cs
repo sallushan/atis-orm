@@ -827,7 +827,7 @@ where exists(
         [TestMethod]
         public void Direct_count_method_call_test()
         {
-            //SqlFunctionCallExpression
+            // SqlFunctionExpression
             Expression<Func<object>> queryExpression = () => queryProvider.DataSet<Student>().Where(x => x.StudentType == "123").Count();
             string? expectedResult = @"
 select Count(1) as Col1
@@ -839,7 +839,7 @@ select Count(1) as Col1
         [TestMethod]
         public void Direct_max_method_call_test()
         {
-            //SqlFunctionCallExpression
+            // SqlFunctionExpression
             Expression<Func<object>> queryExpression = () => queryProvider.DataSet<Student>().Max(x => x.StudentId);
             string? expectedResult = @"
 select Max(a_1.StudentId) as Col1

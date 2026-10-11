@@ -1,6 +1,7 @@
 ﻿using Atis.SqlExpressionEngine;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 
 using Atis.Orm.Abstractions;
 namespace Atis.Orm.Metadata
@@ -11,6 +12,7 @@ namespace Atis.Orm.Metadata
         private readonly IEntityCrudMetadataFactory _entityCrudMetadataFactory;
         private readonly IOrmModel _ormModel;
         private readonly Dictionary<Type, MutableEntityMetadata> _mutableEntityMetadata = new Dictionary<Type, MutableEntityMetadata>();
+        private readonly Dictionary<MethodInfo, SqlFunctionBuilder> _sqlFunctions = new Dictionary<MethodInfo, SqlFunctionBuilder>();
 
         public bool AllClrProperties { get; set; } = false;
 
@@ -54,6 +56,41 @@ namespace Atis.Orm.Metadata
         }
 
         /// <summary>
+        ///     Configures a CLR marker method as a SQL function. Explicit configuration wins over annotations.
+        /// </summary>
+        public SqlFunctionBuilder SqlFunction(MethodInfo method)
+        {
+            if (method == null) throw new ArgumentNullException(nameof(method));
+            method = Functions.SqlFunctionMetadata.Normalize(method);
+            if (!this._sqlFunctions.TryGetValue(method, out var builder))
+            {
+                builder = new SqlFunctionBuilder(method);
+                this._sqlFunctions.Add(method, builder);
+            }
+            return builder;
+        }
+
+        /// <summary>Strongly typed overload for configuring a marker method without executing it.</summary>
+        public SqlFunctionBuilder SqlFunction<TResult>(System.Linq.Expressions.Expression<Func<TResult>> methodCall)
+            => this.SqlFunction(GetMethod(methodCall));
+
+        /// <summary>Strongly typed overload for a void marker method.</summary>
+        public SqlFunctionBuilder SqlFunction(System.Linq.Expressions.Expression<Action> methodCall)
+            => this.SqlFunction(GetMethod(methodCall));
+
+        private static MethodInfo GetMethod(System.Linq.Expressions.LambdaExpression methodCall)
+        {
+            if (methodCall == null) throw new ArgumentNullException(nameof(methodCall));
+            var body = methodCall.Body;
+            while (body is System.Linq.Expressions.UnaryExpression unary
+                   && body.NodeType == System.Linq.Expressions.ExpressionType.Convert)
+                body = unary.Operand;
+            if (!(body is System.Linq.Expressions.MethodCallExpression call))
+                throw new ArgumentException($"'{methodCall}' must contain one method call.", nameof(methodCall));
+            return call.Method;
+        }
+
+        /// <summary>
         ///     <para>
         ///         Marks a static member as a value the execution context supplies, for a class that cannot
         ///         carry <c>[ContextualValue]</c>: <c>mb.ContextualValue(() =&gt; Current.UserId, "CurrentUserId")</c>.
@@ -91,6 +128,9 @@ namespace Atis.Orm.Metadata
 
         internal void Build()
         {
+            foreach (var sqlFunction in this._sqlFunctions.Values)
+                _ormModel.AddSqlFunction(sqlFunction.Build());
+
             foreach (var (member, key) in _contextualValues)
                 _ormModel.AddContextualValue(member, key);
 

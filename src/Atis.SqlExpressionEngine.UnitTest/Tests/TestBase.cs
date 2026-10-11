@@ -109,7 +109,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var logger = new Services.Logger();
             var serviceCollection = new object[] { sqlDataTypeFactory, sqlFactory, model, parameterMapper, reflectionService, logger, expressionEvaluator };
             var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
-            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory()]);
+            var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory(), new Atis.Orm.Functions.SqlWindowConverterFactory(), new Atis.Orm.Functions.SqlFunctionTemplateConverterFactory(), new Atis.Orm.Functions.SqlFunctionConverterFactory()]);
             var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
             var postProcessorProvider = new SqlExpressionPostprocessorProvider(postprocessors: []);
             var linqToSqlConverter = new LinqToSqlConverter(treeConverter, postProcessorProvider);

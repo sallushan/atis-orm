@@ -132,7 +132,7 @@ namespace Atis.Orm.Services
 
         private Expression BuildReadExpression(Type targetType, SqlExpression queryShape, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam)
         {
-            // Case 1: Scalar - direct column read (SqlDataSourceColumnExpression, SqlFunctionCallExpression, etc.)
+            // Case 1: Scalar - direct column read (SqlDataSourceColumnExpression, SqlFunctionExpression, etc.)
             if (IsScalarShape(queryShape))
             {
                 return BuildScalarReadExpression(targetType, queryShape, ordinalMap, drParam);

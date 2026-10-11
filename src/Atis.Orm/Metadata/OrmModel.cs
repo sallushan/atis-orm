@@ -8,6 +8,7 @@ using System.Text;
 
 using Atis.Orm.Abstractions;
 using Atis.Orm.Annotations;
+using Atis.Orm.Functions;
 namespace Atis.Orm.Metadata
 {
     /// <inheritdoc />
@@ -16,8 +17,10 @@ namespace Atis.Orm.Metadata
         private readonly ConcurrentDictionary<Type, EntityMetadata> metadataMap = new ConcurrentDictionary<Type, EntityMetadata>();
         private readonly ConcurrentDictionary<Type, EntityCrudMetadata> crudMetadataMap = new ConcurrentDictionary<Type, EntityCrudMetadata>();
         private readonly ConcurrentDictionary<MemberInfo, string> contextualKeys = new ConcurrentDictionary<MemberInfo, string>();
+        private readonly ConcurrentDictionary<MethodInfo, SqlFunctionMetadata> sqlFunctions = new ConcurrentDictionary<MethodInfo, SqlFunctionMetadata>();
         private readonly IEntityMetadataBuilder entityMetadataBuilder;
         private readonly IContextualMemberAnnotationReader contextualAnnotationReader;
+        private readonly ISqlFunctionAnnotationReader sqlFunctionAnnotationReader;
         private volatile bool _modelCreated = false;
         private readonly object _modelCreatedLock = new object();
 
@@ -31,10 +34,35 @@ namespace Atis.Orm.Metadata
         /// <param name="contextualAnnotationReader">
         ///     Reads the annotation that marks a context value. Defaults to the attribute-based reader.
         /// </param>
-        public OrmModel(IEntityMetadataBuilder entityMetadataBuilder, IContextualMemberAnnotationReader contextualAnnotationReader = null)
+        public OrmModel(
+            IEntityMetadataBuilder entityMetadataBuilder,
+            IContextualMemberAnnotationReader contextualAnnotationReader = null,
+            ISqlFunctionAnnotationReader sqlFunctionAnnotationReader = null)
         {
             this.entityMetadataBuilder = entityMetadataBuilder ?? throw new ArgumentNullException(nameof(entityMetadataBuilder));
             this.contextualAnnotationReader = contextualAnnotationReader ?? new ContextualMemberAnnotationReader();
+            this.sqlFunctionAnnotationReader = sqlFunctionAnnotationReader ?? new SqlFunctionAnnotationReader();
+        }
+
+        /// <inheritdoc />
+        public void AddSqlFunction(SqlFunctionMetadata metadata)
+        {
+            if (metadata == null) throw new ArgumentNullException(nameof(metadata));
+            this.sqlFunctions[metadata.Method] = metadata;
+        }
+
+        /// <inheritdoc />
+        /// <remarks>Fluent/provider registrations win; annotations are only an on-demand discovery fallback.</remarks>
+        public bool TryGetSqlFunction(MethodInfo method, out SqlFunctionMetadata metadata)
+        {
+            if (method == null) throw new ArgumentNullException(nameof(method));
+            method = SqlFunctionMetadata.Normalize(method);
+            if (this.sqlFunctions.TryGetValue(method, out metadata))
+                return true;
+            if (!this.sqlFunctionAnnotationReader.TryGetSqlFunction(method, out metadata))
+                return false;
+            this.sqlFunctions.TryAdd(method, metadata);
+            return true;
         }
 
         /// <inheritdoc />

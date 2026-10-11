@@ -72,7 +72,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Converters
             var functionName = this.Expression.Method.GetCustomAttribute<SqlFunctionAttribute>()?.SqlFunctionName
                                 ??
                                 throw new InvalidOperationException($"The method {this.Expression.Method.Name} does not have a SqlFunctionAttribute.");
-            var sqlFunction = new SqlFunctionCallExpression(functionName, functionArguments.ToArray());
+            var sqlFunction = new SqlFunctionExpression(functionName, functionArguments.ToArray());
             return sqlFunction;
         }
     }

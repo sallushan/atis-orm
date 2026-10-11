@@ -141,7 +141,7 @@ switch (this.Expression.NodeType)
 
 ## ✅ Why Not Use the General `MethodCallConverter`?
 
-- The general converter would wrap the `string.Compare` method call in a `SqlFunctionCallExpression`, which is not useful here.
+- The general converter would wrap the `string.Compare` method call in a `SqlFunctionExpression`, which is not useful here.
 - The parent converter would need to inspect and unpack that function call, introducing tight coupling and unpredictability.
 - By using a dedicated child converter, the parent retains **full control**, ensures a **predictable structure**, and avoids unnecessary complexity.
 

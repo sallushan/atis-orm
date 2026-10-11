@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using Atis.Orm.Metadata;
+using Atis.Orm.Functions;
 
 namespace Atis.Orm.Abstractions
 {
@@ -20,7 +21,7 @@ namespace Atis.Orm.Abstractions
     ///         expression engine.
     ///     </para>
     /// </summary>
-    public interface IOrmModel : IModel, IContextualMemberProvider
+    public interface IOrmModel : IModel, IContextualMemberProvider, ISqlFunctionMetadataProvider
     {
         void Add(EntityMetadata metadata);
 
@@ -34,6 +35,9 @@ namespace Atis.Orm.Abstractions
         ///     earlier mark. Wins over an annotation on the same member.
         /// </summary>
         void AddContextualValue(System.Reflection.MemberInfo member, string key);
+
+        /// <summary>Adds or replaces the SQL-function metadata for its CLR method.</summary>
+        void AddSqlFunction(SqlFunctionMetadata metadata);
 
         /// <summary>
         ///     <para>

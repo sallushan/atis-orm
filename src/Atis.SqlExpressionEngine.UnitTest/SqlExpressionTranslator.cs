@@ -56,9 +56,21 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateSqlDataSourceColumnExpression(sqlDataSourceColumnExpression);
             }
-            else if (sqlExpression is SqlFunctionCallExpression sqlFunctionCallExpression)
+            else if (sqlExpression is Atis.Orm.Functions.SqlTemplateFunctionExpression templateFunction)
             {
-                return this.TranslateSqlFunctionCallExpression(sqlFunctionCallExpression);
+                return this.TranslateTemplateFunction(templateFunction);
+            }
+            else if (sqlExpression is Atis.Orm.Functions.SqlWindowFunctionExpression windowFunction)
+            {
+                return this.TranslateWindowFunction(windowFunction);
+            }
+            else if (sqlExpression is Atis.Orm.Functions.SqlOverClauseExpression overClause)
+            {
+                return this.TranslateOverClause(overClause);
+            }
+            else if (sqlExpression is SqlFunctionExpression sqlFunctionExpression)
+            {
+                return this.TranslateSqlFunctionExpression(sqlFunctionExpression);
             }
             else if (sqlExpression is SqlParameterExpression sqlParameterExpression)
             {
@@ -801,17 +813,52 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return joinTypeString;
         }
 
-        private string TranslateSqlFunctionCallExpression(SqlFunctionCallExpression sqlFunctionCallExpression)
+        // The next three mirror Atis.Orm's SqlExpressionTranslatorBase (backlog item 15 keeps the two in step).
+        private string TranslateTemplateFunction(Atis.Orm.Functions.SqlTemplateFunctionExpression node)
         {
-            var arguments = sqlFunctionCallExpression.Arguments != null ? this.TranslateSqlFunctionArguments(sqlFunctionCallExpression) : string.Empty;
-            if (sqlFunctionCallExpression.FunctionName == "Count")
+            var text = new StringBuilder();
+            foreach (var part in node.Parts)
+            {
+                if (part.Kind == Atis.Orm.Functions.SqlFunctionTemplatePartKind.Text)
+                    text.Append(part.Text);
+                else
+                    text.Append(this.TranslateNonLogicalExpression(node.Arguments[part.ArgumentIndex]));
+            }
+            return text.ToString();
+        }
+
+        private string TranslateWindowFunction(Atis.Orm.Functions.SqlWindowFunctionExpression node)
+        {
+            var name = System.Text.RegularExpressions.Regex.Replace(node.Function.ToString(), "(?<=[a-z])(?=[A-Z])", "_").ToUpperInvariant();
+            var arguments = string.Join(", ", node.Arguments.Select(a => this.TranslateNonLogicalExpression(a)));
+            return $"{name}({arguments}) {this.TranslateOverClause(node.Over)}";
+        }
+
+        private string TranslateOverClause(Atis.Orm.Functions.SqlOverClauseExpression node)
+        {
+            var text = new StringBuilder("OVER (");
+            if (node.PartitionBy.Count > 0)
+                text.Append("PARTITION BY ").Append(string.Join(", ", node.PartitionBy.Select(p => this.TranslateNonLogicalExpression(p))));
+            if (node.OrderBy.Count > 0)
+            {
+                if (node.PartitionBy.Count > 0)
+                    text.Append(' ');
+                text.Append("ORDER BY ").Append(string.Join(", ", node.OrderBy.Select(o =>
+                    this.TranslateNonLogicalExpression(o.ColumnExpression) + (o.Direction == SortDirection.Ascending ? " ASC" : " DESC"))));
+            }
+            return text.Append(')').ToString();
+        }
+        private string TranslateSqlFunctionExpression(SqlFunctionExpression sqlFunctionExpression)
+        {
+            var arguments = sqlFunctionExpression.Arguments != null ? this.TranslateSqlFunctionArguments(sqlFunctionExpression) : string.Empty;
+            if (sqlFunctionExpression.FunctionName == "Count")
             {
                 arguments = string.IsNullOrWhiteSpace(arguments) ? "1" : arguments;
             }
-            return $"{sqlFunctionCallExpression.FunctionName}({arguments})";
+            return $"{sqlFunctionExpression.FunctionName}({arguments})";
         }
 
-        private string TranslateSqlFunctionArguments(SqlFunctionCallExpression sqlFunctionCallExpression)
+        private string TranslateSqlFunctionArguments(SqlFunctionExpression sqlFunctionCallExpression)
         {
             var translation = new StringBuilder();
             foreach (var arg in sqlFunctionCallExpression.Arguments)

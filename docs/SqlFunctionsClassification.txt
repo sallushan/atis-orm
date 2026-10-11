@@ -1,0 +1,1374 @@
+ORM SQL function classification
+Review date: 1 October 2026
+Scope and interpretation
+Reviewed every public method declaration in the supplied SqlFunctions.cs (205) and OverQueryPart.cs (5). Each overload has its own entry and an inline comment in the classified C# copies. The original code, XML documentation, attributes, BOM and CRLF line endings are unchanged. Review comments flag existing issues but do not fix them. Original line numbers below refer to the supplied files, not the longer annotated copies.
+This is an API-design classification, not a formal proof of semantic equivalence. Category 1 means a natural .NET/C# expression or a short composition of built-in APIs is preferable as the public query frontend. It does not mean arbitrary SQL functions can be run locally, nor that every provider can translate every .NET overload. Preserving an existing SQL Server method's exact behavior can require retaining a category-3 escape hatch even when its ordinary purpose is category 1.
+Category 2 means a useful, explicitly specified database operation or query construct belongs in a common provider-neutral API. Support is capability- and version-dependent; the translator may need a query rewrite, not just a different function name. A provider without support should fail clearly. Category 3 means retaining the current SQL Server-specific contract; it does not assert that no other database has a similarly named feature.
+Comparison scope: SQL Server, PostgreSQL, MySQL and Oracle, with SQLite treated as a smaller, sometimes extension-dependent provider. No minimum server versions or .NET target framework were supplied. The modern System.Text.Json alternative is marked framework-conditional; it may require a package on older targets. Providers' exact compatibility must be tested against the supported versions.
+The supplied sources expose declaration/translation templates, not the complete expression pipeline or project. No compilation, SQL execution or end-to-end translation tests were performed. Classification coverage and byte-for-byte preservation of original code after stripping the added comments were verified programmatically.
+Main design recommendations
+Use normal string, Math, DateTime, Guid, conditional/coalesce and LINQ APIs for ordinary operations. Use a provider-neutral database/window layer for operations without a natural standard query expression: window functions, statistical/approximate aggregates, date-boundary differences, explicit precision-aware database types and window-clause builders. Keep SQL Server style codes, exact legacy/store-type casts, code-page functions, phonetic/checksum algorithms and security identifiers/permission semantics in the SQL Server provider.
+Normalize both ordinary .NET expressions and shared database helpers to semantic query nodes. Render SQL in provider translators; do not put a SQL Server template on a neutral function and assume its SQL text is portable. Validate result type, nullability, grouping/window context, frame, ordering, volatility/evaluation scope and provider capabilities separately from method classification.
+Do not automatically delete category-1 scalar aggregate helpers from a custom implicit-group query DSL. Moving Avg(value) to group.Average(...), or a table-valued split marker to Split/SelectMany, changes query shape and needs an explicit rewrite. Keeping a category-2 neutral facade for those shapes is a defensible convenience choice.
+Semantic traps to test before migration
+- Strings: trailing spaces; UTF-16 code units versus Unicode scalars; NULL propagation; 1-based indices; invalid/clipped ranges; whitespace versus character-set trimming; database collation versus .NET culture/ordinal comparison.
+- Numerics: midpoint rounding, negative precision, nullable lifting, promotion/overflow and SQL errors versus .NET NaN/Infinity. SQL floating functions declared as decimal in this file require an intentional result conversion or corrected signatures.
+- Aggregates: COUNT rows versus non-NULL values; DISTINCT NULLs; integer AVG versus LINQ Average; empty/all-NULL results; explicit input ordering for string concatenation; output-size limits.
+- Dates: calendar boundary count versus elapsed duration; week anchoring; session language; month ends; temporal store precision/range; statement/transaction clock semantics.
+- Windows: partition versus frame, duplicate ordering keys, NULL ordering, offset/default restrictions, and absence of a row versus a row containing NULL. Ordered-set percentiles may require a grouped subquery/join when exposed as per-row windows.
+- Volatile functions: server versus client execution, per-row versus per-statement evaluation, seeded session state, and whether an expression is safe to cache/fold. Never parameterize a per-row UUID as one captured Guid.
+These are categories of tests, not claims that all the listed differences can or should be emulated. Unsupported exact semantics should be rejected or kept behind the explicit SQL Server API.
+OverQueryPart.cs and related supporting types
+All five public methods are category 2. OverClause, OrderByClause, QueryOrderByPart and OverClauseConfiguration describe common query syntax and can be provider-neutral. The OverClauseConfiguration constructor is infrastructure, not one of the 210 method declarations; its initialization of two lists is not a database function.
+The current representation has partitioning and ordering but no frame. Add an explicit frame model such as ROWS/RANGE BETWEEN boundaries and validate it per function/provider. LAST_VALUE over the default ordered frame is not automatically the last value in the whole partition. Also model sort direction per key and explicit NULL ordering where required.
+The DatePart enum mixes units for addition, extraction and boundary counting. Treat each operation's allowed units and week/fraction semantics separately. The String_Split_Result attribute embeds the SQL Server function name: remove that provider detail from any neutral rowset result model and let the provider own the mapping.
+Existing issues (flagged, not repaired)
+- SqlFunctions.cs:32 CharIndex: Return-type mismatch: CHARINDEX returns int/bigint (nullable), not string.
+- SqlFunctions.cs:40 CharIndex: Return-type mismatch: CHARINDEX returns int/bigint (nullable), not string.
+- SqlFunctions.cs:80 Format: Return-type mismatch: FORMAT returns text, not int?.
+- SqlFunctions.cs:89 Format: Return-type mismatch: FORMAT returns text, not int?.
+- SqlFunctions.cs:98 Format: Return-type mismatch: FORMAT returns text, not int?.
+- SqlFunctions.cs:108 Format: Return-type mismatch: FORMAT returns text, not int?.
+- SqlFunctions.cs:118 Format: Return-type mismatch: FORMAT returns text, not int?.
+- SqlFunctions.cs:128 Format: Return-type mismatch: FORMAT returns text, not int?.
+- SqlFunctions.cs:648 AvgDistinct: Invalid native SQL Server combination: AVG(DISTINCT expression) OVER(...). Rewrite the query or reject this combination.
+- SqlFunctions.cs:714 Count_Big: Translation defect: count_big() must be count_big(*) for row count.
+- SqlFunctions.cs:1099 First_Value: Incomplete standalone SQL shape: FIRST_VALUE requires OVER with ordering unless another translator supplies it.
+- SqlFunctions.cs:1199 Last_Value: Incomplete standalone SQL shape: LAST_VALUE requires OVER with ordering unless another translator supplies it.
+- SqlFunctions.cs:1324 Percentile_Disc: Return-type design issue: PERCENTILE_DISC returns the ordered expression type, not inherently decimal; also nullable for an empty/all-NULL input.
+- SqlFunctions.cs:1341 Percentile_Rank: Translation defect: percentile_rank() must be percent_rank().
+- SqlFunctions.cs:1610 DatePart: Translation defect: datename([0], {1}) must be datepart([0], {1}).
+- SqlFunctions.cs:1775 Ntile: Translation defect: ntile() {0} must be ntile({0}) {1}.
+- SqlFunctions.cs:1913 SUser_Id: Return-type mismatch: SUSER_ID returns an integer, not string.
+- SqlFunctions.cs:1923 SUser_Id: Return-type mismatch: SUSER_ID returns an integer, not string.
+Additional signature/translator checks: generic Avg<T>/Sum<T> are not sufficient to model all SQL return-type promotion; nullable results of empty/all-NULL aggregates and LAG/LEAD need attention. Several float-returning operations are declared decimal/decimal?, and Percentile_Cont can need a nullable floating result. Audit those systematically. Current_User/Session_User keyword rendering depends on the unseen default translator; missing explicit attributes alone do not prove invalid SQL. Likewise, [n] placeholders may be the custom literal-argument mechanism; they were not assumed to be malformed.
+Coverage totals
+File	Category 1	Category 2	Category 3	Methods
+SqlFunctions.cs	90	54	61	205
+OverQueryPart.cs	0	5	0	5
+Total	90	59	61	210
+
+
+Complete per-overload classification
+Each entry retains the exact original signature, its source location, a primary category, a preferred expression/API, caveats, and relevant documentation links. Recommendations are review judgments; documentation links support the underlying behaviors, not an assertion that the current ORM implements them.
+SqlFunctions.cs - String Functions
+SqlFunctions.cs:19 - Ascii - Category 3
+public static int? Ascii(string str)
+Recommendation: Keep SqlServerFunctions.Ascii/Char; offer separate ASCII-only or Unicode APIs if needed.
+Caveat: The existing 8-bit/code-page and collation contract is not a Unicode char/code-point conversion. PostgreSQL UTF-8 ascii/chr have different meanings for non-ASCII text. A restricted 0..127 API is a different, portable contract.
+Checks: Encoding, ExactSqlContract.
+Documentation: ascii, pgstring.
+SqlFunctions.cs:25 - Char - Category 3
+public static string Char(int? ascii)
+Recommendation: Keep SqlServerFunctions.Ascii/Char; offer separate ASCII-only or Unicode APIs if needed.
+Caveat: The existing 8-bit/code-page and collation contract is not a Unicode char/code-point conversion. PostgreSQL UTF-8 ascii/chr have different meanings for non-ASCII text. A restricted 0..127 API is a different, portable contract.
+Checks: Encoding, ExactSqlContract.
+Documentation: ascii, pgstring.
+SqlFunctions.cs:32 - CharIndex - Category 1
+public static string CharIndex(string expr_to_find, string search_in)
+Recommendation: searchIn.IndexOf(value) / searchIn.IndexOf(value, startIndex)
+Caveat: SQL is 1-based and returns 0 when absent; .NET is 0-based and returns -1. Normalize the start position, NULL handling, comparison/collation and character units. This is a frontend replacement, not a literal rename.
+Existing issue: Return-type mismatch: CHARINDEX returns int/bigint (nullable), not string.
+Checks: IndexBase, Nulls, Collation, Unicode.
+Documentation: charindex, ef.
+SqlFunctions.cs:40 - CharIndex - Category 1
+public static string CharIndex(string expr_to_find, string search_in, int? start_location)
+Recommendation: searchIn.IndexOf(value) / searchIn.IndexOf(value, startIndex)
+Caveat: SQL is 1-based and returns 0 when absent; .NET is 0-based and returns -1. Normalize the start position, NULL handling, comparison/collation and character units. This is a frontend replacement, not a literal rename.
+Existing issue: Return-type mismatch: CHARINDEX returns int/bigint (nullable), not string.
+Checks: IndexBase, Nulls, Collation, Unicode.
+Documentation: charindex, ef.
+SqlFunctions.cs:50 - Concat - Category 1
+public static string Concat(string str_exp1, string str_exp2, params string[] other_string_exps)
+Recommendation: string.Concat(...) or string concatenation
+Caveat: Preserve the chosen NULL-as-empty contract; provider concatenation operators/functions differ. SQL return types and length limits still require type inference.
+Checks: Nulls, StoreType.
+Documentation: ef, pgstring, mysqlstring.
+SqlFunctions.cs:64 - Concat_WS - Category 1
+public static string Concat_WS(string separator, string str_exp1, string str_exp2, params string[] other_string_exps)
+Recommendation: string.Join(separator, values.Where(v => v != null))
+Caveat: Filtering NULL values preserves the SQL skip-NULL intent; plain string.Join keeps empty slots for NULL elements. Specify NULL-separator and all-NULL behavior. Translation of the collection expression is provider work.
+Checks: Nulls, CollectionRewrite.
+Documentation: mysqlstring, pgstring.
+SqlFunctions.cs:71 - Difference - Category 3
+public static int? Difference(string str_exp1, string str_exp2)
+Recommendation: Keep the current SQL Server phonetic functions; optionally design a separately specified phonetic API.
+Caveat: Other engines also offer SOUNDEX (and PostgreSQL fuzzystrmatch offers difference), so these names are not exclusive to SQL Server. Algorithms, output length and language/encoding behavior differ. Native implementations are not an exact-output portable contract merely because the names match.
+Checks: Algorithm, Collation, Capability, ExactSqlContract.
+Documentation: pgsoundex, mysqlstring, sqlitecore.
+SqlFunctions.cs:80 - Format - Category 1
+public static int? Format(int? value, string format)
+Recommendation: value.ToString(format) / value.ToString(format, CultureInfo.GetCultureInfo(culture))
+Caveat: Natural .NET formatting API, not a promise of portable server-side arbitrary .NET format/culture support. SQL FORMAT uses CLR formatting but defaults to SQL session language and can return NULL for invalid formats. Retain the vendor escape hatch when exact SQL behavior or mandatory SQL execution is required.
+Existing issue: Return-type mismatch: FORMAT returns text, not int?.
+Checks: Culture, PushdownLimited, Nulls, FrameworkApi.
+Documentation: format.
+SqlFunctions.cs:89 - Format - Category 1
+public static int? Format(decimal value, string format)
+Recommendation: value.ToString(format) / value.ToString(format, CultureInfo.GetCultureInfo(culture))
+Caveat: Natural .NET formatting API, not a promise of portable server-side arbitrary .NET format/culture support. SQL FORMAT uses CLR formatting but defaults to SQL session language and can return NULL for invalid formats. Retain the vendor escape hatch when exact SQL behavior or mandatory SQL execution is required.
+Existing issue: Return-type mismatch: FORMAT returns text, not int?.
+Checks: Culture, PushdownLimited, Nulls, FrameworkApi.
+Documentation: format.
+SqlFunctions.cs:98 - Format - Category 1
+public static int? Format(DateTime value, string format)
+Recommendation: value.ToString(format) / value.ToString(format, CultureInfo.GetCultureInfo(culture))
+Caveat: Natural .NET formatting API, not a promise of portable server-side arbitrary .NET format/culture support. SQL FORMAT uses CLR formatting but defaults to SQL session language and can return NULL for invalid formats. Retain the vendor escape hatch when exact SQL behavior or mandatory SQL execution is required.
+Existing issue: Return-type mismatch: FORMAT returns text, not int?.
+Checks: Culture, PushdownLimited, Nulls, FrameworkApi.
+Documentation: format.
+SqlFunctions.cs:108 - Format - Category 1
+public static int? Format(int? value, string format, string culture)
+Recommendation: value.ToString(format) / value.ToString(format, CultureInfo.GetCultureInfo(culture))
+Caveat: Natural .NET formatting API, not a promise of portable server-side arbitrary .NET format/culture support. SQL FORMAT uses CLR formatting but defaults to SQL session language and can return NULL for invalid formats. Retain the vendor escape hatch when exact SQL behavior or mandatory SQL execution is required.
+Existing issue: Return-type mismatch: FORMAT returns text, not int?.
+Checks: Culture, PushdownLimited, Nulls, FrameworkApi.
+Documentation: format.
+SqlFunctions.cs:118 - Format - Category 1
+public static int? Format(decimal value, string format, string culture)
+Recommendation: value.ToString(format) / value.ToString(format, CultureInfo.GetCultureInfo(culture))
+Caveat: Natural .NET formatting API, not a promise of portable server-side arbitrary .NET format/culture support. SQL FORMAT uses CLR formatting but defaults to SQL session language and can return NULL for invalid formats. Retain the vendor escape hatch when exact SQL behavior or mandatory SQL execution is required.
+Existing issue: Return-type mismatch: FORMAT returns text, not int?.
+Checks: Culture, PushdownLimited, Nulls, FrameworkApi.
+Documentation: format.
+SqlFunctions.cs:128 - Format - Category 1
+public static int? Format(DateTime value, string format, string culture)
+Recommendation: value.ToString(format) / value.ToString(format, CultureInfo.GetCultureInfo(culture))
+Caveat: Natural .NET formatting API, not a promise of portable server-side arbitrary .NET format/culture support. SQL FORMAT uses CLR formatting but defaults to SQL session language and can return NULL for invalid formats. Retain the vendor escape hatch when exact SQL behavior or mandatory SQL execution is required.
+Existing issue: Return-type mismatch: FORMAT returns text, not int?.
+Checks: Culture, PushdownLimited, Nulls, FrameworkApi.
+Documentation: format.
+SqlFunctions.cs:137 - Left - Category 1
+public static string Left(string str, int? len)
+Recommendation: str.Substring(0, Math.Min(length, str.Length))
+Caveat: This sketch assumes non-null str and nonnegative length. SQL accepts an overlong length and propagates NULL; .NET throws for invalid arguments. Character units and collation-sensitive Unicode behavior need a contract.
+Checks: Bounds, Nulls, Unicode.
+Documentation: pgstring, mysqlstring.
+SqlFunctions.cs:143 - Len - Category 1
+public static int? Len(string str_exp)
+Recommendation: str.Length; str.TrimEnd(' ').Length approximates SQL trailing-space behavior.
+Caveat: Not exactly equivalent: SQL LEN excludes trailing spaces and may count a surrogate pair as one character under SC collations; .NET Length counts UTF-16 code units. Do not universally substitute DATALENGTH/2: varchar encoding differs. Retain explicit SqlServerFunctions.Len for exact LEN semantics.
+Checks: SemanticMismatch, Nulls, Unicode, StoreType.
+Documentation: len, netlength.
+SqlFunctions.cs:149 - Lower - Category 1
+public static string Lower(string str_exp)
+Recommendation: str.ToLower() / str.ToUpper()
+Caveat: Database collation/locale is not automatically .NET CurrentCulture or invariant culture. Specify the query comparison/casing policy; reject unsupported exact culture requirements rather than silently evaluating locally.
+Checks: Collation, Culture, Nulls.
+Documentation: ef, pgstring.
+SqlFunctions.cs:155 - LTrim - Category 1
+public static string LTrim(string str_exp)
+Recommendation: str.TrimStart(' ')
+Caveat: The explicit space is important: parameterless .NET TrimStart removes more whitespace than this SQL wrapper. Preserve NULL propagation.
+Checks: Whitespace, Nulls.
+Documentation: pgstring.
+SqlFunctions.cs:164 - NChar - Category 1
+public static string NChar(int? int_exp)
+Recommendation: char.ConvertFromUtf32(codePoint)
+Caveat: Define code-point versus UTF-16-code-unit behavior. SQL NCHAR depends on supplementary-character collation support and may return NULL where .NET throws; invalid scalars/surrogates need explicit treatment.
+Checks: Unicode, Bounds, Nulls.
+Documentation: ascii, netlength.
+SqlFunctions.cs:177 - PatIndex - Category 3
+public static int? PatIndex(string pattern, string str_exp)
+Recommendation: Keep SqlServerFunctions.PatIndex.
+Caveat: This is a SQL wildcard-pattern search with SQL Server pattern syntax and collation rules, not String.IndexOf and not a regular expression. A new portable LIKE or regex API should have its own grammar and semantics.
+Checks: PatternGrammar, Collation, ExactSqlContract.
+Documentation: charindex.
+SqlFunctions.cs:184 - QuoteName - Category 3
+public static string QuoteName(string str_exp)
+Recommendation: Keep SQL Server identifier quoting inside the SQL Server provider.
+Caveat: Bracket defaults, accepted delimiter set, escaping and 128-character limit are SQL Server-specific. A neutral dialect service may quote identifiers during SQL generation, but it is not this value-returning SQL function and is not a replacement for value parameterization.
+Checks: IdentifierSyntax, ExactSqlContract.
+Documentation: pgstring.
+SqlFunctions.cs:192 - QuoteName - Category 3
+public static string QuoteName(string str_exp, string quote_character)
+Recommendation: Keep SQL Server identifier quoting inside the SQL Server provider.
+Caveat: Bracket defaults, accepted delimiter set, escaping and 128-character limit are SQL Server-specific. A neutral dialect service may quote identifiers during SQL generation, but it is not this value-returning SQL function and is not a replacement for value parameterization.
+Checks: IdentifierSyntax, ExactSqlContract.
+Documentation: pgstring.
+SqlFunctions.cs:200 - Replace - Category 1
+public static string Replace(string str_exp, string str_pattern, string str_to_replace)
+Recommendation: str.Replace(oldValue, newValue)
+Caveat: SQL collation, NULL arguments, empty-pattern behavior and store-type length limits can differ from .NET replacement. Do not infer ordinal comparison from a SQL replacement function.
+Checks: Collation, Nulls, Bounds, StoreType.
+Documentation: ef, mysqlstring.
+SqlFunctions.cs:207 - Replicate - Category 1
+public static string Replicate(string str_exp, int? int_exp)
+Recommendation: string.Concat(Enumerable.Repeat(str, count))
+Caveat: A short built-in composition is sufficient as a public expression. SQL NULL/negative-count and output-size behavior differ; the ORM must recognize the composition or retain a neutral convenience helper rather than execute the sequence on the client.
+Checks: Composition, CollectionRewrite, Nulls, Bounds.
+Documentation: mysqlstring.
+SqlFunctions.cs:213 - Reverse - Category 1
+public static string Reverse(string str_exp)
+Recommendation: new string(str.Reverse().ToArray())
+Caveat: This composition reverses UTF-16 code units, not necessarily Unicode scalar values or grapheme clusters. SQL SC-collation REVERSE can preserve surrogate pairs. An exact Unicode contract needs a different implementation or a retained provider helper.
+Checks: Composition, Unicode, SemanticMismatch.
+Documentation: pgstring, netlength.
+SqlFunctions.cs:220 - Right - Category 1
+public static string Right(string str_exp, int? len)
+Recommendation: str.Substring(Math.Max(0, str.Length - length))
+Caveat: Sketch assumes a non-null string and nonnegative length. Clamp an overlong length, preserve SQL NULL behavior when requested, and choose character units explicitly.
+Checks: Composition, Bounds, Nulls, Unicode.
+Documentation: pgstring, mysqlstring.
+SqlFunctions.cs:226 - RTrim - Category 1
+public static string RTrim(string str_exp)
+Recommendation: str.TrimEnd(' ')
+Caveat: The explicit space is important: parameterless .NET TrimEnd removes more whitespace than this SQL wrapper. Preserve NULL propagation.
+Checks: Whitespace, Nulls.
+Documentation: pgstring.
+SqlFunctions.cs:232 - Soundex - Category 3
+public static string Soundex(string str_exp)
+Recommendation: Keep the current SQL Server phonetic functions; optionally design a separately specified phonetic API.
+Caveat: Other engines also offer SOUNDEX (and PostgreSQL fuzzystrmatch offers difference), so these names are not exclusive to SQL Server. Algorithms, output length and language/encoding behavior differ. Native implementations are not an exact-output portable contract merely because the names match.
+Checks: Algorithm, Collation, Capability, ExactSqlContract.
+Documentation: pgsoundex, mysqlstring, sqlitecore.
+SqlFunctions.cs:238 - Space - Category 1
+public static string Space(int? int_exp)
+Recommendation: new string(' ', count)
+Caveat: SQL returns NULL for a negative count whereas the .NET constructor throws. NULL and SQL output-size rules require explicit handling.
+Checks: Bounds, Nulls, StoreType.
+Documentation: mysqlstring.
+SqlFunctions.cs:244 - Str - Category 3
+public static string Str(decimal? value)
+Recommendation: Keep SqlServerFunctions.Str.
+Caveat: Right-justified numeric rendering includes SQL-specific width, decimal limits, rounding and overflow-to-asterisks behavior. Ordinary ToString/PadLeft is a useful different frontend but not a faithful replacement for the complete STR contract.
+Checks: Formatting, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:251 - Str - Category 3
+public static string Str(decimal? value, int? len)
+Recommendation: Keep SqlServerFunctions.Str.
+Caveat: Right-justified numeric rendering includes SQL-specific width, decimal limits, rounding and overflow-to-asterisks behavior. Ordinary ToString/PadLeft is a useful different frontend but not a faithful replacement for the complete STR contract.
+Checks: Formatting, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:261 - Str - Category 3
+public static string Str(decimal? value, int? len, int? dec)
+Recommendation: Keep SqlServerFunctions.Str.
+Caveat: Right-justified numeric rendering includes SQL-specific width, decimal limits, rounding and overflow-to-asterisks behavior. Ordinary ToString/PadLeft is a useful different frontend but not a faithful replacement for the complete STR contract.
+Checks: Formatting, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:269 - String_Agg - Category 1
+public static string String_Agg(string str_exp, string sep)
+Recommendation: string.Join(separator, group.Select(x => x.Value))
+Caveat: Requires an explicit sequence/group rewrite from the current scalar-marker signature. SQL skips NULL values and can return NULL for an empty/all-NULL aggregate; .NET Join does not have the same contract. Normalize NULLs, order and output type/size deliberately. A neutral Aggregate.StringJoin helper may be retained for this ORM's implicit-group DSL.
+Checks: GroupRewrite, Nulls, Ordering, StoreType.
+Documentation: stringagg, ef.
+SqlFunctions.cs:279 - String_Agg - Category 1
+public static string String_Agg(string str_exp, string sep, OrderByClause orderClause)
+Recommendation: string.Join(separator, group.OrderBy(...).ThenBy(...).Select(x => x.Value))
+Caveat: Requires an explicit sequence/group rewrite from the current scalar-marker signature. SQL skips NULL values and can return NULL for an empty/all-NULL aggregate; .NET Join does not have the same contract. Normalize NULLs, order and output type/size deliberately. A neutral Aggregate.StringJoin helper may be retained for this ORM's implicit-group DSL. Ordering belongs inside the aggregate input; ordering the final query output is not equivalent.
+Checks: GroupRewrite, Nulls, Ordering, StoreType.
+Documentation: stringagg, ef.
+SqlFunctions.cs:287 - String_Escape - Category 1
+public static string String_Escape(string str_exp, string str_type)
+Recommendation: JsonEncodedText.Encode(str).ToString() when System.Text.Json is available.
+Caveat: Modern .NET supplies JSON escaping, but encoder policy can produce different escape sequences from SQL STRING_ESCAPE. This wrapper accepts only the SQL-supported json mode. Exact escaped text, invalid Unicode, NULLs and SQL pushdown are separate requirements. On a target without this framework/package API, use a category-2 JsonEscape helper instead.
+Checks: FrameworkConditional, Encoding, PushdownLimited, Nulls.
+Documentation: json, jsontostring.
+SqlFunctions.cs:301 - String_Split - Category 1
+public static Query<String_Split_Result> String_Split(string str_exp, string sep)
+Recommendation: str.Split(new[] { separator }, StringSplitOptions.None), with SelectMany for rows.
+Caveat: This replaces the public query shape, not the current Query<String_Split_Result> signature. SQL translation needs a table-valued/rowset expansion; an in-memory array is not a drop-in source. SQL separator width, unordered rows, empty tokens and NULL behavior differ. Keep a category-2 SplitRows helper if explicit relational APIs are preferred.
+Checks: RowsetRewrite, Ordering, Nulls, Bounds.
+Documentation: split, pgstring.
+SqlFunctions.cs:326 - Stuff - Category 1
+public static string Stuff(string char_exp, int? start, int? len, string replace_with_expr)
+Recommendation: str.Remove(startIndex, deleteLength).Insert(startIndex, replacement)
+Caveat: Sketch requires 1-to-0-based conversion and guards/clamping. SQL returns NULL for invalid positions/negative length, clips deletion at the end, and NULL replacement means deletion only; the direct .NET composition has different exception and NULL behavior.
+Checks: Composition, IndexBase, Bounds, Nulls.
+Documentation: pgstring.
+SqlFunctions.cs:343 - SubString - Category 1
+public static string SubString(string str_exp, int? start, int? len)
+Recommendation: str.Substring(startIndex, length)
+Caveat: Normalize SQL 1-based positions and SQL clipping rules; .NET invalid indices/lengths throw instead. NULL and supplementary-character behavior are also not automatically identical.
+Checks: IndexBase, Bounds, Nulls, Unicode.
+Documentation: ef, pgstring, mysqlstring.
+SqlFunctions.cs:353 - Translate - Category 2
+public static string Translate(string input_str, string search_char, string translations)
+Recommendation: DbFunctions.TranslateCharacters(input, sourceCharacters, targetCharacters)
+Caveat: Define simultaneous one-to-one character mapping, duplicate-key handling, equal-length validation and character units. PostgreSQL/Oracle-style TRANSLATE is a useful analogue; not every engine has an equivalent native function. Chaining Replace is wrong when replacements overlap.
+Checks: Capability, Unicode, SimultaneousMapping.
+Documentation: pgstring.
+SqlFunctions.cs:360 - Trim - Category 1
+public static string Trim(string str_exp)
+Recommendation: str.Trim(' ') or str.Trim(characters.ToCharArray())
+Caveat: Keep explicit character-set semantics and NULL handling. Parameterless .NET Trim removes general whitespace. MySQL multi-character TRIM removes a substring, not an arbitrary character set, so translating the second overload can need more than a function-name change.
+Checks: Whitespace, CharacterSet, Nulls, Capability.
+Documentation: pgstring, mysqlstring.
+SqlFunctions.cs:371 - Trim - Category 1
+public static string Trim(string characters_from, string str_exp_to_trim)
+Recommendation: str.Trim(' ') or str.Trim(characters.ToCharArray())
+Caveat: Keep explicit character-set semantics and NULL handling. Parameterless .NET Trim removes general whitespace. MySQL multi-character TRIM removes a substring, not an arbitrary character set, so translating the second overload can need more than a function-name change.
+Checks: Whitespace, CharacterSet, Nulls, Capability.
+Documentation: pgstring, mysqlstring.
+SqlFunctions.cs:377 - Unicode - Category 1
+public static int? Unicode(string str_exp)
+Recommendation: char.ConvertToUtf32(str, 0)
+Caveat: Use a Unicode-scalar contract, not simply (int)str[0]. SQL non-SC collations can expose UTF-16 code units instead; empty, NULL and invalid-surrogate cases differ.
+Checks: Unicode, Nulls, Bounds.
+Documentation: netlength, pgstring.
+SqlFunctions.cs:383 - Upper - Category 1
+public static string Upper(string str_exp)
+Recommendation: str.ToLower() / str.ToUpper()
+Caveat: Database collation/locale is not automatically .NET CurrentCulture or invariant culture. Specify the query comparison/casing policy; reject unsupported exact culture requirements rather than silently evaluating locally.
+Checks: Collation, Culture, Nulls.
+Documentation: ef, pgstring.
+SqlFunctions.cs - Mathmetics Functions
+SqlFunctions.cs:393 - Abs - Category 1
+public static decimal? Abs(decimal? value)
+Recommendation: Math.Abs(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:400 - Acos - Category 1
+public static decimal? Acos(decimal? value)
+Recommendation: Math.Acos(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:407 - Asin - Category 1
+public static decimal? Asin(decimal? value)
+Recommendation: Math.Asin(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:413 - Atan - Category 1
+public static decimal? Atan(decimal? value)
+Recommendation: Math.Atan(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:421 - Atn2 - Category 1
+public static decimal? Atn2(decimal? y, decimal? x)
+Recommendation: Math.Atan2(y, x)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:427 - Ceiling - Category 1
+public static decimal? Ceiling(decimal? value)
+Recommendation: Math.Ceiling(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:433 - Cos - Category 1
+public static decimal? Cos(decimal? value)
+Recommendation: Math.Cos(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:439 - Cot - Category 1
+public static decimal? Cot(decimal? value)
+Recommendation: 1.0 / Math.Tan(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:445 - Degrees - Category 1
+public static decimal? Degrees(decimal? value)
+Recommendation: value * (180.0 / Math.PI)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:451 - Exp - Category 1
+public static decimal? Exp(decimal? value)
+Recommendation: Math.Exp(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:457 - Floor - Category 1
+public static decimal? Floor(decimal? value)
+Recommendation: Math.Floor(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:463 - Log - Category 1
+public static decimal? Log(decimal? value)
+Recommendation: Math.Log(value) / Math.Log(value, baseValue)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:473 - Log - Category 1
+public static decimal? Log(decimal? value, int? base_num)
+Recommendation: Math.Log(value) / Math.Log(value, baseValue)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:479 - Log10 - Category 1
+public static decimal? Log10(decimal? value)
+Recommendation: Math.Log10(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:484 - Pi - Category 1
+public static decimal? Pi()
+Recommendation: Math.PI
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:492 - Power - Category 1
+public static decimal? Power(decimal? value, decimal? power)
+Recommendation: Math.Pow(value, power)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:498 - Radians - Category 1
+public static decimal? Radians(decimal? value)
+Recommendation: value * (Math.PI / 180.0)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:503 - Rand - Category 1
+public static decimal? Rand()
+Recommendation: A recognized Random.NextDouble() expression for an unseeded random value.
+Caveat: This is a frontend option, not permission to evaluate or parameterize it on the client. Model evaluation scope explicitly (once per query versus per row). Native SQL RAND and other providers' random functions can have different scope; an explicit category-2 database-random helper may be clearer.
+Checks: Volatile, EvaluationScope, PushdownLimited.
+Documentation: rand, ef.
+SqlFunctions.cs:510 - Rand - Category 3
+public static decimal? Rand(int? seed)
+Recommendation: Keep SqlServerFunctions.Rand(seed).
+Caveat: Seeding changes the SQL Server connection's pseudo-random sequence, including subsequent RAND calls. .NET Random(seed) and other engines do not reproduce that generator/state contract. A new portable seeded generator would have to specify its algorithm and evaluation scope.
+Checks: Algorithm, SessionState, Volatile, ExactSqlContract.
+Documentation: rand.
+SqlFunctions.cs:522 - Round - Category 1
+public static decimal? Round(decimal? value, int? len)
+Recommendation: Math.Round(value, digits, MidpointRounding.AwayFromZero); Math.Truncate for truncation.
+Caveat: SQL midpoint ties round away from zero, unlike the default Math.Round. SQL permits negative precision; scaling is needed for that case and must handle numeric precision/overflow. The third SQL argument switches to truncation when nonzero, including truncation at nonzero decimal positions.
+Checks: Rounding, NumericType, Composition, Nulls.
+Documentation: round, netround.
+SqlFunctions.cs:537 - Round - Category 1
+public static decimal? Round(decimal? value, int? len, int? func)
+Recommendation: Math.Round(value, digits, MidpointRounding.AwayFromZero); Math.Truncate for truncation.
+Caveat: SQL midpoint ties round away from zero, unlike the default Math.Round. SQL permits negative precision; scaling is needed for that case and must handle numeric precision/overflow. The third SQL argument switches to truncation when nonzero, including truncation at nonzero decimal positions.
+Checks: Rounding, NumericType, Composition, Nulls.
+Documentation: round, netround.
+SqlFunctions.cs:543 - Sign - Category 1
+public static decimal? Sign(decimal? value)
+Recommendation: Math.Sign(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:549 - Sin - Category 1
+public static decimal? Sin(decimal? value)
+Recommendation: Math.Sin(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:555 - Sqrt - Category 1
+public static decimal? Sqrt(decimal? value)
+Recommendation: Math.Sqrt(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:561 - Square - Category 1
+public static decimal? Square(decimal? value)
+Recommendation: value * value
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs:567 - Tan - Category 1
+public static decimal? Tan(decimal? value)
+Recommendation: Math.Tan(value)
+Caveat: Use the appropriate numeric type and explicitly lift nullable inputs. SQL precision/return-type promotion, overflow and domain errors can differ from .NET NaN/Infinity/exception behavior; several current signatures use decimal even though the SQL function returns float.
+Checks: NumericType, Nulls, Domain.
+Documentation: ef.
+SqlFunctions.cs - Logical Functions
+SqlFunctions.cs:579 - Iif - Category 1
+public static R Iif<R>(Func<bool> exp, R true_value, R false_value)
+Recommendation: condition ? trueValue : falseValue
+Caveat: Replace the Func<bool> marker with a conditional expression in the query tree. Preserve SQL three-valued Boolean handling and type inference; do not invoke arbitrary delegates on the client.
+Checks: ExpressionRewrite, Nulls, TypeInference.
+Documentation: ef.
+SqlFunctions.cs:588 - Choose - Category 1
+public static R Choose<R>(int index, R val_1, params R[] values)
+Recommendation: Guarded array indexing or a conditional/CASE expression.
+Caveat: SQL index is 1-based and out-of-range yields NULL. Use a nullable result where required; default(T) is not NULL for a non-nullable value type. Array indexing without bounds normalization is not equivalent.
+Checks: IndexBase, Bounds, Nulls, ExpressionRewrite.
+SqlFunctions.cs - Aggregate Functions
+SqlFunctions.cs:599 - Approx_Count_Distinct - Category 2
+public static long Approx_Count_Distinct(object expr)
+Recommendation: DbAggregates.ApproximateCountDistinct(value)
+Caveat: A useful cross-provider approximate-aggregate concept (including SQL Server and Oracle), but support, precision guarantees and algorithms vary. Specify the approximation/error contract; capability-gate it and do not silently substitute a potentially expensive exact count.
+Checks: Approximation, Capability, GroupContext.
+Documentation: oracleapprox.
+SqlFunctions.cs:608 - Avg - Category 1
+public static T Avg<T>(T expr)
+Recommendation: group.Average(x => x.Value)
+Caveat: Move from an implicit scalar aggregate marker to an explicit LINQ group/query aggregate. Empty/all-NULL results, numeric return types, overflow and collation must be specified; LINQ and SQL aggregates do not always agree. A neutral marker may remain for the existing implicit-group DSL.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, avg, pgagg.
+SqlFunctions.cs:622 - Avg - Category 2
+public static T Avg<T>(T expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Avg(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, avg, pgagg, over, pgwindow.
+SqlFunctions.cs:632 - AvgDistinct - Category 1
+public static T AvgDistinct<T>(T expr)
+Recommendation: group.Select(x => x.Value).Distinct().Average()
+Caveat: Use a distinct sequence aggregate with deliberate NULL/result-type handling. DISTINCT has no effect on ordinary MIN/MAX values and may be omitted there. This is an explicit-group redesign, not a direct scalar-method rename.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:648 - AvgDistinct - Category 2
+public static T AvgDistinct<T>(T expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate AvgDistinct(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Existing issue: Invalid native SQL Server combination: AVG(DISTINCT expression) OVER(...). Rewrite the query or reject this combination.
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, pgagg, over, pgwindow.
+SqlFunctions.cs:656 - Count - Category 1
+public static int Count()
+Recommendation: group.Count() / group.LongCount(); filter non-NULL expressions for COUNT(expr).
+Caveat: COUNT(*) counts rows; COUNT(expr) counts only non-NULL values. Preserve that difference and choose the CLR return width/overflow policy. Requires explicit query/group context.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, countbig.
+SqlFunctions.cs:665 - Count - Category 1
+public static int Count(object expr)
+Recommendation: group.Count() / group.LongCount(); filter non-NULL expressions for COUNT(expr).
+Caveat: COUNT(*) counts rows; COUNT(expr) counts only non-NULL values. Preserve that difference and choose the CLR return width/overflow policy. Requires explicit query/group context.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, countbig.
+SqlFunctions.cs:681 - Count - Category 2
+public static int Count(object expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Count(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, countbig, over, pgwindow.
+SqlFunctions.cs:696 - Count - Category 2
+public static int Count(OverClause overClause)
+Recommendation: Provider-neutral window aggregate Count(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, countbig, over, pgwindow.
+SqlFunctions.cs:706 - CountDistinct - Category 1
+public static int CountDistinct(object expr)
+Recommendation: group.Select(x => x.Value).Where(v => v != null).Distinct().Count()/LongCount()
+Caveat: The NULL filter matters: SQL COUNT(DISTINCT expr) excludes NULL, whereas counting a .NET distinct nullable sequence can count one NULL. Choose 32-bit versus 64-bit result deliberately.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: countbig.
+SqlFunctions.cs:714 - Count_Big - Category 1
+public static long Count_Big()
+Recommendation: group.Count() / group.LongCount(); filter non-NULL expressions for COUNT(expr).
+Caveat: COUNT(*) counts rows; COUNT(expr) counts only non-NULL values. Preserve that difference and choose the CLR return width/overflow policy. Requires explicit query/group context.
+Existing issue: Translation defect: count_big() must be count_big(*) for row count.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, countbig.
+SqlFunctions.cs:723 - Count_Big - Category 1
+public static long Count_Big(object expr)
+Recommendation: group.Count() / group.LongCount(); filter non-NULL expressions for COUNT(expr).
+Caveat: COUNT(*) counts rows; COUNT(expr) counts only non-NULL values. Preserve that difference and choose the CLR return width/overflow policy. Requires explicit query/group context.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, countbig.
+SqlFunctions.cs:739 - Count_Big - Category 2
+public static long Count_Big(object expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Count_Big(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, countbig, over, pgwindow.
+SqlFunctions.cs:754 - Count_Big - Category 2
+public static long Count_Big(OverClause overClause)
+Recommendation: Provider-neutral window aggregate Count_Big(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, countbig, over, pgwindow.
+SqlFunctions.cs:764 - Count_BigDistinct - Category 1
+public static long Count_BigDistinct(object expr)
+Recommendation: group.Select(x => x.Value).Where(v => v != null).Distinct().Count()/LongCount()
+Caveat: The NULL filter matters: SQL COUNT(DISTINCT expr) excludes NULL, whereas counting a .NET distinct nullable sequence can count one NULL. Choose 32-bit versus 64-bit result deliberately.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: countbig.
+SqlFunctions.cs:776 - Max - Category 1
+public static T Max<T>(T expr)
+Recommendation: group.Max(x => x.Value)
+Caveat: Move from an implicit scalar aggregate marker to an explicit LINQ group/query aggregate. Empty/all-NULL results, numeric return types, overflow and collation must be specified; LINQ and SQL aggregates do not always agree. A neutral marker may remain for the existing implicit-group DSL.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, avg, pgagg.
+SqlFunctions.cs:797 - Max - Category 2
+public static T Max<T>(T expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Max(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, avg, pgagg, over, pgwindow.
+SqlFunctions.cs:809 - MaxDistinct - Category 1
+public static T MaxDistinct<T>(T expr)
+Recommendation: group.Select(x => x.Value).Distinct().Max()
+Caveat: Use a distinct sequence aggregate with deliberate NULL/result-type handling. DISTINCT has no effect on ordinary MIN/MAX values and may be omitted there. This is an explicit-group redesign, not a direct scalar-method rename.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:821 - Min - Category 1
+public static T Min<T>(T expr)
+Recommendation: group.Min(x => x.Value)
+Caveat: Move from an implicit scalar aggregate marker to an explicit LINQ group/query aggregate. Empty/all-NULL results, numeric return types, overflow and collation must be specified; LINQ and SQL aggregates do not always agree. A neutral marker may remain for the existing implicit-group DSL.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, avg, pgagg.
+SqlFunctions.cs:842 - Min - Category 2
+public static T Min<T>(T expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Min(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, avg, pgagg, over, pgwindow.
+SqlFunctions.cs:854 - MinDistinct - Category 1
+public static T MinDistinct<T>(T expr)
+Recommendation: group.Select(x => x.Value).Distinct().Min()
+Caveat: Use a distinct sequence aggregate with deliberate NULL/result-type handling. DISTINCT has no effect on ordinary MIN/MAX values and may be omitted there. This is an explicit-group redesign, not a direct scalar-method rename.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:863 - Stdev - Category 2
+public static decimal? Stdev(object expr)
+Recommendation: DbAggregates.StandardDeviationSample(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:881 - Stdev - Category 2
+public static decimal? Stdev(object expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Stdev(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. Specify sample versus population statistics and numerical precision.
+Checks: Capability, Statistics, Nulls, NumericType, Window, Frame.
+Documentation: ef, pgagg, over, pgwindow.
+SqlFunctions.cs:890 - StdevDistinct - Category 2
+public static decimal? StdevDistinct(object expr)
+Recommendation: DbAggregates.StandardDeviationSample(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:898 - Stdevp - Category 2
+public static decimal? Stdevp(object expr)
+Recommendation: DbAggregates.StandardDeviationPopulation(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:915 - Stdevp - Category 2
+public static decimal? Stdevp(object expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Stdevp(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. Specify sample versus population statistics and numerical precision.
+Checks: Capability, Statistics, Nulls, NumericType, Window, Frame.
+Documentation: ef, pgagg, over, pgwindow.
+SqlFunctions.cs:924 - StdevpDistinct - Category 2
+public static decimal? StdevpDistinct(object expr)
+Recommendation: DbAggregates.StandardDeviationPopulation(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:935 - Sum - Category 1
+public static T Sum<T>(T expr)
+Recommendation: group.Sum(x => x.Value)
+Caveat: Move from an implicit scalar aggregate marker to an explicit LINQ group/query aggregate. Empty/all-NULL results, numeric return types, overflow and collation must be specified; LINQ and SQL aggregates do not always agree. A neutral marker may remain for the existing implicit-group DSL.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, avg, pgagg.
+SqlFunctions.cs:955 - Sum - Category 2
+public static T Sum<T>(T expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Sum(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. 
+Checks: GroupRewrite, Nulls, NumericType, Window, Frame, Capability.
+Documentation: ef, avg, pgagg, over, pgwindow.
+SqlFunctions.cs:967 - SumDistinct - Category 1
+public static T SumDistinct<T>(T expr)
+Recommendation: group.Select(x => x.Value).Distinct().Sum()
+Caveat: Use a distinct sequence aggregate with deliberate NULL/result-type handling. DISTINCT has no effect on ordinary MIN/MAX values and may be omitted there. This is an explicit-group redesign, not a direct scalar-method rename.
+Checks: GroupRewrite, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:976 - Var - Category 2
+public static decimal? Var(object expr)
+Recommendation: DbAggregates.VarianceSample(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:993 - Var - Category 2
+public static decimal? Var(object expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Var(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. Specify sample versus population statistics and numerical precision.
+Checks: Capability, Statistics, Nulls, NumericType, Window, Frame.
+Documentation: ef, pgagg, over, pgwindow.
+SqlFunctions.cs:1002 - VarDistinct - Category 2
+public static decimal? VarDistinct(object expr)
+Recommendation: DbAggregates.VarianceSample(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:1011 - Varp - Category 2
+public static decimal? Varp(object expr)
+Recommendation: DbAggregates.VariancePopulation(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:1028 - Varp - Category 2
+public static decimal? Varp(object expr, OverClause overClause)
+Recommendation: Provider-neutral window aggregate Varp(value, window).
+Caveat: OVER preserves a result per row and is not a regular LINQ group aggregate. Define partition, ordering, frame, NULL handling and result type. Check provider support per aggregate/modifier; no SQL Server DISTINCT window aggregates. Specify sample versus population statistics and numerical precision.
+Checks: Capability, Statistics, Nulls, NumericType, Window, Frame.
+Documentation: ef, pgagg, over, pgwindow.
+SqlFunctions.cs:1037 - VarpDistinct - Category 2
+public static decimal? VarpDistinct(object expr)
+Recommendation: DbAggregates.VariancePopulation(value)
+Caveat: Standard statistical aggregate, with explicit sample/population semantics; keep DISTINCT and window modifiers when present. Specify NULL/small-sample results and double versus decimal. PostgreSQL/MySQL-style names differ; SQLite may need an extension. Avoid a naive sum-of-squares expansion because of numerical cancellation.
+Checks: Capability, Statistics, Nulls, NumericType.
+Documentation: ef, pgagg.
+SqlFunctions.cs:1044 - Checksum_Agg - Category 3
+public static int? Checksum_Agg(object expr)
+Recommendation: Keep the SQL Server checksum API.
+Caveat: These are SQL Server checksum algorithms over SQL values/rows, not .NET GetHashCode and not a provider-neutral cryptographic digest. Matching exact results requires the same value serialization, collation and algorithm.
+Checks: Algorithm, StoreType, ExactSqlContract.
+SqlFunctions.cs:1052 - Checksum_AggDistinct - Category 3
+public static int? Checksum_AggDistinct(object expr)
+Recommendation: Keep the SQL Server checksum API.
+Caveat: These are SQL Server checksum algorithms over SQL values/rows, not .NET GetHashCode and not a provider-neutral cryptographic digest. Matching exact results requires the same value serialization, collation and algorithm.
+Checks: Algorithm, StoreType, ExactSqlContract.
+SqlFunctions.cs - Analytical Functions
+SqlFunctions.cs:1074 - Cume_Dist - Category 2
+public static decimal Cume_Dist(OverClause overClause)
+Recommendation: DbWindow.CumulativeDistribution(window) / DbWindow.PercentRank(window)
+Caveat: Portable ranking/distribution concepts with explicit partitioning and ordering. Define NULL ordering and numeric output type; reject unsupported window clauses instead of silently changing semantics.
+Checks: Window, Ordering, Capability, NumericType.
+Documentation: pgwindow, mysqlwindow, oraclewindow, sqlitewindow.
+SqlFunctions.cs:1091 - First_Value - Category 2
+public static T First_Value<T>(T exp, OverClause overClause)
+Recommendation: DbWindow.FirstValue(value, window) / DbWindow.LastValue(value, window)
+Caveat: These select a value within the window frame, not simply the first/last row of the entire partition. Include an explicit frame API and NULL policy. The overload without OverClause needs a defined mechanism to obtain a valid ordered window.
+Checks: Window, Frame, Nulls, Capability.
+Documentation: pgwindow, over.
+SqlFunctions.cs:1099 - First_Value - Category 2
+public static T First_Value<T>(T exp)
+Recommendation: DbWindow.FirstValue(value, window) / DbWindow.LastValue(value, window)
+Caveat: These select a value within the window frame, not simply the first/last row of the entire partition. Include an explicit frame API and NULL policy. The overload without OverClause needs a defined mechanism to obtain a valid ordered window.
+Existing issue: Incomplete standalone SQL shape: FIRST_VALUE requires OVER with ordering unless another translator supplies it.
+Checks: Window, Frame, Nulls, Capability.
+Documentation: pgwindow, over.
+SqlFunctions.cs:1119 - Lag - Category 2
+public static T Lag<T>(T exp, OverClause overClause)
+Recommendation: DbWindow.Lag/Lead(value, offset, defaultValue, window)
+Caveat: Standard window concept, but permitted offset expressions/defaults differ by provider. NULL for an absent row must be representable when no explicit default is supplied. Do not confuse an absent row with an existing row whose value is NULL.
+Checks: Window, Nulls, Capability, Ordering.
+Documentation: pgwindow, mysqlwindow.
+SqlFunctions.cs:1144 - Lag - Category 2
+public static T Lag<T>(T exp, int offset, OverClause overClause)
+Recommendation: DbWindow.Lag/Lead(value, offset, defaultValue, window)
+Caveat: Standard window concept, but permitted offset expressions/defaults differ by provider. NULL for an absent row must be representable when no explicit default is supplied. Do not confuse an absent row with an existing row whose value is NULL.
+Checks: Window, Nulls, Capability, Ordering.
+Documentation: pgwindow, mysqlwindow.
+SqlFunctions.cs:1174 - Lag - Category 2
+public static T Lag<T>(T exp, int offset, T defaultValue, OverClause overClause)
+Recommendation: DbWindow.Lag/Lead(value, offset, defaultValue, window)
+Caveat: Standard window concept, but permitted offset expressions/defaults differ by provider. NULL for an absent row must be representable when no explicit default is supplied. Do not confuse an absent row with an existing row whose value is NULL.
+Checks: Window, Nulls, Capability, Ordering.
+Documentation: pgwindow, mysqlwindow.
+SqlFunctions.cs:1191 - Last_Value - Category 2
+public static T Last_Value<T>(T exp, OverClause overClause)
+Recommendation: DbWindow.FirstValue(value, window) / DbWindow.LastValue(value, window)
+Caveat: These select a value within the window frame, not simply the first/last row of the entire partition. Include an explicit frame API and NULL policy. The overload without OverClause needs a defined mechanism to obtain a valid ordered window.
+Checks: Window, Frame, Nulls, Capability.
+Documentation: pgwindow, over.
+SqlFunctions.cs:1199 - Last_Value - Category 2
+public static T Last_Value<T>(T exp)
+Recommendation: DbWindow.FirstValue(value, window) / DbWindow.LastValue(value, window)
+Caveat: These select a value within the window frame, not simply the first/last row of the entire partition. Include an explicit frame API and NULL policy. The overload without OverClause needs a defined mechanism to obtain a valid ordered window.
+Existing issue: Incomplete standalone SQL shape: LAST_VALUE requires OVER with ordering unless another translator supplies it.
+Checks: Window, Frame, Nulls, Capability.
+Documentation: pgwindow, over.
+SqlFunctions.cs:1220 - Lead - Category 2
+public static T Lead<T>(T exp, OverClause overClause)
+Recommendation: DbWindow.Lag/Lead(value, offset, defaultValue, window)
+Caveat: Standard window concept, but permitted offset expressions/defaults differ by provider. NULL for an absent row must be representable when no explicit default is supplied. Do not confuse an absent row with an existing row whose value is NULL.
+Checks: Window, Nulls, Capability, Ordering.
+Documentation: pgwindow, mysqlwindow.
+SqlFunctions.cs:1246 - Lead - Category 2
+public static T Lead<T>(T exp, int offset, OverClause overClause)
+Recommendation: DbWindow.Lag/Lead(value, offset, defaultValue, window)
+Caveat: Standard window concept, but permitted offset expressions/defaults differ by provider. NULL for an absent row must be representable when no explicit default is supplied. Do not confuse an absent row with an existing row whose value is NULL.
+Checks: Window, Nulls, Capability, Ordering.
+Documentation: pgwindow, mysqlwindow.
+SqlFunctions.cs:1278 - Lead - Category 2
+public static T Lead<T>(T exp, int offset, T defaultValue, OverClause overClause)
+Recommendation: DbWindow.Lag/Lead(value, offset, defaultValue, window)
+Caveat: Standard window concept, but permitted offset expressions/defaults differ by provider. NULL for an absent row must be representable when no explicit default is supplied. Do not confuse an absent row with an existing row whose value is NULL.
+Checks: Window, Nulls, Capability, Ordering.
+Documentation: pgwindow, mysqlwindow.
+SqlFunctions.cs:1298 - Percentile_Cont - Category 2
+public static decimal Percentile_Cont(decimal num_litr, OrderByClause orderByClause, OverClause overClause)
+Recommendation: DbAggregates/DbWindow.PercentileContinuous or PercentileDiscrete with a typed sort value.
+Caveat: Define the interpolation/discrete-rank algorithm, ordering and NULL policy. The same percentile concept can be shared, but ordered-set aggregate versus window syntax differs: PostgreSQL ordered-set aggregates are not directly window aggregates. Partition-wide window output can require aggregation plus a join, not a template substitution. Capability/extension support varies.
+Checks: OrderedSet, Window, QueryRewrite, Capability, NumericType.
+Documentation: pgwindow, pgagg, sqlitepercent.
+SqlFunctions.cs:1324 - Percentile_Disc - Category 2
+public static decimal Percentile_Disc(decimal num_litr, OrderByClause orderByClause, OverClause overClause)
+Recommendation: DbAggregates/DbWindow.PercentileContinuous or PercentileDiscrete with a typed sort value.
+Caveat: Define the interpolation/discrete-rank algorithm, ordering and NULL policy. The same percentile concept can be shared, but ordered-set aggregate versus window syntax differs: PostgreSQL ordered-set aggregates are not directly window aggregates. Partition-wide window output can require aggregation plus a join, not a template substitution. Capability/extension support varies.
+Existing issue: Return-type design issue: PERCENTILE_DISC returns the ordered expression type, not inherently decimal; also nullable for an empty/all-NULL input.
+Checks: OrderedSet, Window, QueryRewrite, Capability, NumericType.
+Documentation: pgwindow, pgagg, sqlitepercent.
+SqlFunctions.cs:1341 - Percentile_Rank - Category 2
+public static decimal Percentile_Rank(OverClause overClause)
+Recommendation: DbWindow.CumulativeDistribution(window) / DbWindow.PercentRank(window)
+Caveat: Portable ranking/distribution concepts with explicit partitioning and ordering. Define NULL ordering and numeric output type; reject unsupported window clauses instead of silently changing semantics.
+Existing issue: Translation defect: percentile_rank() must be percent_rank().
+Checks: Window, Ordering, Capability, NumericType.
+Documentation: pgwindow, mysqlwindow, oraclewindow, sqlitewindow.
+SqlFunctions.cs - conversion functions
+SqlFunctions.cs:1351 - CastToVarchar - Category 3
+public static string CastToVarchar(object expr)
+Recommendation: Keep explicit SQL Server store-type casts; offer a separate neutral ToText/CastToString contract.
+Caveat: The current API promises varchar/nvarchar, optional length or MAX, encoding and SQL conversion/truncation behavior. A common string conversion can be category 1, and an abstract text-type cast category 2, but neither preserves all of this store-type-specific contract.
+Checks: StoreType, Encoding, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1359 - CastToVarchar - Category 3
+public static string CastToVarchar(object expr, int length)
+Recommendation: Keep explicit SQL Server store-type casts; offer a separate neutral ToText/CastToString contract.
+Caveat: The current API promises varchar/nvarchar, optional length or MAX, encoding and SQL conversion/truncation behavior. A common string conversion can be category 1, and an abstract text-type cast category 2, but neither preserves all of this store-type-specific contract.
+Checks: StoreType, Encoding, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1366 - CastToNvarchar - Category 3
+public static string CastToNvarchar(object expr)
+Recommendation: Keep explicit SQL Server store-type casts; offer a separate neutral ToText/CastToString contract.
+Caveat: The current API promises varchar/nvarchar, optional length or MAX, encoding and SQL conversion/truncation behavior. A common string conversion can be category 1, and an abstract text-type cast category 2, but neither preserves all of this store-type-specific contract.
+Checks: StoreType, Encoding, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1374 - CastToNvarchar - Category 3
+public static string CastToNvarchar(object expr, int length)
+Recommendation: Keep explicit SQL Server store-type casts; offer a separate neutral ToText/CastToString contract.
+Caveat: The current API promises varchar/nvarchar, optional length or MAX, encoding and SQL conversion/truncation behavior. A common string conversion can be category 1, and an abstract text-type cast category 2, but neither preserves all of this store-type-specific contract.
+Checks: StoreType, Encoding, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1381 - CastToInt - Category 1
+public static int? CastToInt(object expr)
+Recommendation: Typed numeric casts or an explicitly supported Convert/Parse expression.
+Caveat: Select the operation by source CLR type. (int)obj is an unboxing operation, not SQL CAST, and Convert.ToInt32(decimal) rounds while a numeric cast truncates. Parsing, NULL, overflow and permitted input conversions need a supported conversion matrix.
+Checks: TypeMatrix, Nulls, Rounding, StoreType.
+Documentation: cast, ef.
+SqlFunctions.cs:1388 - CastToDecimal - Category 2
+public static decimal? CastToDecimal(object expr)
+Recommendation: DbFunctions.CastDecimal(value, precision, scale)
+Caveat: Precision/scale is a database numeric-type facet not expressible in a plain CLR decimal cast. The no-facets overload explicitly means decimal(19,5). Validate provider limits and rounding/overflow; a plain (decimal)value is category 1 only after dropping the fixed-store-type promise.
+Checks: StoreType, Precision, Capability, Nulls.
+Documentation: cast.
+SqlFunctions.cs:1397 - CastToDecimal - Category 2
+public static decimal? CastToDecimal(object expr, int precision, int scale)
+Recommendation: DbFunctions.CastDecimal(value, precision, scale)
+Caveat: Precision/scale is a database numeric-type facet not expressible in a plain CLR decimal cast. The no-facets overload explicitly means decimal(19,5). Validate provider limits and rounding/overflow; a plain (decimal)value is category 1 only after dropping the fixed-store-type promise.
+Checks: StoreType, Precision, Capability, Nulls.
+Documentation: cast.
+SqlFunctions.cs:1404 - CastToBit - Category 1
+public static bool? CastToBit(object expr)
+Recommendation: Typed Boolean conversion; for numeric inputs, a normalized nonzero test.
+Caveat: No single object-to-bool CLR cast implements every SQL conversion. Define accepted source types, string spellings, NULLs and overflow; translating the Boolean intent does not require exposing SQL bit in the common API.
+Checks: TypeMatrix, Nulls, StoreType.
+Documentation: cast, ef.
+SqlFunctions.cs:1411 - CastToVarbinary - Category 3
+public static byte[] CastToVarbinary(object expr)
+Recommendation: Keep SqlServerFunctions.CastToVarbinary.
+Caveat: Casting arbitrary SQL values to their SQL binary representation is not Encoding.GetBytes or a CLR byte[] cast. Padding, truncation, byte order and serialized representation require SQL Server-specific rules.
+Checks: StoreType, Encoding, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1419 - CastToVarbinary - Category 3
+public static byte[] CastToVarbinary(object expr, int length)
+Recommendation: Keep SqlServerFunctions.CastToVarbinary.
+Caveat: Casting arbitrary SQL values to their SQL binary representation is not Encoding.GetBytes or a CLR byte[] cast. Padding, truncation, byte order and serialized representation require SQL Server-specific rules.
+Checks: StoreType, Encoding, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1426 - CastToDateTime - Category 3
+public static DateTime? CastToDateTime(object expr)
+Recommendation: Keep the explicit legacy SQL datetime cast; expose ordinary typed temporal conversion separately.
+Caveat: The current method explicitly requests SQL Server datetime, with its range and fractional-second rounding. A C# DateTime conversion or a generic timestamp cast does not preserve that concrete store-type contract.
+Checks: StoreType, Precision, ExactSqlContract.
+Documentation: cast, datetime.
+SqlFunctions.cs:1433 - CastToDate - Category 1
+public static DateTime? CastToDate(object expr)
+Recommendation: dateTime.Date for a typed temporal input; separately specified parsing for text.
+Caveat: The natural date-only frontend is built in. The current object signature also admits SQL conversions for which DateTime.Date is not a replacement; constrain supported source types, parsing and NULL handling.
+Checks: TypeMatrix, Nulls, StoreType.
+Documentation: cast, ef.
+SqlFunctions.cs:1443 - ConvertToVarchar - Category 3
+public static string ConvertToVarchar(object expr, int? style, int length)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1452 - ConvertToVarchar - Category 3
+public static string ConvertToVarchar(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1462 - ConvertToNvarchar - Category 3
+public static string ConvertToNvarchar(object expr, int? style, int length)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1471 - ConvertToNvarchar - Category 3
+public static string ConvertToNvarchar(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1480 - ConvertToInt - Category 3
+public static int? ConvertToInt(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1491 - ConvertToDecimal - Category 3
+public static decimal? ConvertToDecimal(object expr, int? style, int precision, int scale)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1500 - ConvertToDecimal - Category 3
+public static decimal? ConvertToDecimal(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1509 - ConvertToBit - Category 3
+public static bool? ConvertToBit(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1518 - ConvertToVarbinary - Category 3
+public static byte[] ConvertToVarbinary(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1528 - ConvertToVarbinary - Category 3
+public static byte[] ConvertToVarbinary(object expr, int? style, int length)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1537 - ConvertToDateTime - Category 3
+public static DateTime? ConvertToDateTime(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1546 - ConvertToDate - Category 3
+public static DateTime? ConvertToDate(object expr, int? style)
+Recommendation: Keep the style-code overloads in SqlServerFunctions.
+Caveat: The style integer and its interaction with source/target SQL types belongs to SQL Server CONVERT. Some conversions ignore particular style values, but retaining the general style-code API centrally would import a SQL Server dialect contract. Introduce typed parsing/formatting or abstract casts as separate APIs.
+Checks: StyleCode, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs - Helpers
+SqlFunctions.cs:1554 - DataLength - Category 3
+public static long? DataLength(object exp)
+Recommendation: Keep DataLength(object) as an explicit SQL Server representation-size operation.
+Caveat: For arbitrary SQL values this measures representation bytes and depends on the store type/encoding, not CLR object size or string.Length. A new byte[].Length expression is category 1; a typed text OctetLength with a declared encoding/storage policy can be category 2.
+Checks: StoreType, Encoding, ExactSqlContract.
+Documentation: len, ef.
+SqlFunctions.cs - Date and Time Functions
+SqlFunctions.cs:1568 - DateAdd - Category 1
+public static DateTime? DateAdd(DatePart datepart, int? number, DateTime? date)
+Recommendation: DateTime.AddYears/AddMonths/AddDays/AddHours/... or a carefully defined AddTicks composition.
+Caveat: Map each supported date unit explicitly; a runtime unit may require a conditional rewrite. Define month-end behavior, integer truncation, overflow and representable subsecond units. SQL nanosecond increments and rounding are not an arbitrary-precision DateTime operation.
+Checks: DateUnit, Precision, Nulls, Bounds.
+Documentation: ef.
+SqlFunctions.cs:1577 - DateDiff - Category 2
+public static int? DateDiff(DatePart datepart, DateTime? startDate, DateTime? endDate)
+Recommendation: DbFunctions.CountDateBoundaries(unit, start, end), with 32-bit/64-bit result variants.
+Caveat: This counts crossed calendar/unit boundaries, not elapsed TimeSpan.TotalX. Specify week anchoring, time-zone assumptions, negative differences and overflow/precision. Do not directly map to a provider TIMESTAMPDIFF/age/duration function without matching the boundary definition.
+Checks: BoundaryCounting, DateUnit, Capability, NumericType.
+Documentation: datediff.
+SqlFunctions.cs:1586 - DateDiff_Big - Category 2
+public static long? DateDiff_Big(DatePart datepart, DateTime? startDate, DateTime? endDate)
+Recommendation: DbFunctions.CountDateBoundaries(unit, start, end), with 32-bit/64-bit result variants.
+Caveat: This counts crossed calendar/unit boundaries, not elapsed TimeSpan.TotalX. Specify week anchoring, time-zone assumptions, negative differences and overflow/precision. Do not directly map to a provider TIMESTAMPDIFF/age/duration function without matching the boundary definition.
+Checks: BoundaryCounting, DateUnit, Capability, NumericType.
+Documentation: datediff.
+SqlFunctions.cs:1594 - DateFromParts - Category 1
+public static DateTime? DateFromParts(int? year, int? month, int? day)
+Recommendation: new DateTime(year, month, day)
+Caveat: Natural constructor frontend. Preserve nullable-argument behavior where required; .NET constructors do not accept nullable values. Provider temporal ranges, SQL date result metadata and invalid dates require checks.
+Checks: Nulls, StoreType, Bounds.
+Documentation: ef.
+SqlFunctions.cs:1602 - DateName - Category 3
+public static string DateName(DatePart datePart, DateTime? date)
+Recommendation: Keep the generic SQL Server DATENAME contract; use .NET formatting for separately specified labels.
+Caveat: Names/numeric text depend on the selected SQL date part, session language and calendar/week conventions. A fixed month-name formatting API could be category 1, but that is not the complete current DatePart-driven session-dependent function.
+Checks: Culture, DateUnit, SessionState, ExactSqlContract.
+Documentation: format, datediff.
+SqlFunctions.cs:1610 - DatePart - Category 2
+public static int? DatePart(DatePart datePart, DateTime? date)
+Recommendation: DbFunctions.ExtractDatePart(unit, value), with explicitly specified week/fraction semantics.
+Caveat: Year/Month/Day/etc. should normally be .NET properties (category 1). The generic method needs a common unit contract: SQL weekday/week depends on session rules, and SQL micro/nanosecond fields are not necessarily the .NET sub-millisecond component values.
+Existing issue: Translation defect: datename([0], {1}) must be datepart([0], {1}).
+Checks: DateUnit, SessionState, Precision, Capability.
+Documentation: ef, datediff.
+SqlFunctions.cs:1623 - DateTime2FromParts - Category 2
+public static DateTime? DateTime2FromParts(int? year, int? month, int? day, int? hour, int? minute, int? seconds, int? fractions, int? precision)
+Recommendation: DbFunctions.MakeTimestamp(parts, fractionalSeconds, precision)
+Caveat: Share timestamp construction with explicit fractional precision, not the SQL Server datetime2 name. Normalize how fractions are scaled, validate argument ranges and provider precision limits, and fail when exact requested precision is unavailable. Without store precision requirements a DateTime constructor/AddTicks expression is category 1.
+Checks: Precision, StoreType, Capability, Nulls.
+Documentation: cast, ef.
+SqlFunctions.cs:1635 - DateTimeFromParts - Category 1
+public static DateTime? DateTimeFromParts(int? year, int? month, int? day, int? hour, int? minute, int? seconds, int? milliseconds)
+Recommendation: new DateTime(year, month, day, hour, minute, second, millisecond)
+Caveat: Natural constructor frontend, but SQL legacy datetime rounds to its own fractional increments and has a narrower range. Keep the existing SQL Server method for callers requiring exactly that store type; do not silently treat the constructor as an exact legacy-datetime emulator.
+Checks: Precision, StoreType, Nulls, SemanticMismatch.
+Documentation: datetime.
+SqlFunctions.cs:1641 - Day - Category 1
+public static int? Day(DateTime? date)
+Recommendation: date.Day / date.Month / date.Year
+Caveat: Use member translation rather than database-named public functions. Nullable DateTime needs an explicitly lifted result; preserve SQL NULL propagation when that is the chosen contract.
+Checks: Nulls.
+Documentation: ef.
+SqlFunctions.cs:1647 - EOMonth - Category 1
+public static DateTime? EOMonth(DateTime? date)
+Recommendation: After AddMonths(offset), construct new DateTime(y, m, DateTime.DaysInMonth(y, m)).
+Caveat: A short built-in composition gives the calendar month end at midnight. Lift nullable inputs and validate offset overflow. Constructing the final day directly avoids an unnecessary next-month overflow at December 9999.
+Checks: Composition, Nulls, Bounds.
+Documentation: ef.
+SqlFunctions.cs:1654 - EOMonth - Category 1
+public static DateTime? EOMonth(DateTime? date, int? month_offset)
+Recommendation: After AddMonths(offset), construct new DateTime(y, m, DateTime.DaysInMonth(y, m)).
+Caveat: A short built-in composition gives the calendar month end at midnight. Lift nullable inputs and validate offset overflow. Constructing the final day directly avoids an unnecessary next-month overflow at December 9999.
+Checks: Composition, Nulls, Bounds.
+Documentation: ef.
+SqlFunctions.cs:1661 - GetDate - Category 1
+public static DateTime GetDate()
+Recommendation: A provider-recognized DateTime.Now expression.
+Caveat: Must execute on the database for database-clock semantics, not be captured as a client parameter. Define time-zone and statement/transaction evaluation scope. The distinction between GETDATE datetime and SYSDATETIME datetime2 precision is not represented by DateTime.Now alone; retain raw wrappers for that distinction.
+Checks: Volatile, EvaluationScope, TimeZone, Precision.
+Documentation: ef, datetime.
+SqlFunctions.cs:1669 - GetUTCDate - Category 1
+public static DateTime GetUTCDate()
+Recommendation: A provider-recognized DateTime.UtcNow expression.
+Caveat: Must execute on the database for database-clock semantics, not be captured as a client parameter. Define UTC conversion and statement/transaction evaluation scope. GETUTCDATE and SYSUTCDATETIME return different SQL precisions; retain raw wrappers when that distinction matters.
+Checks: Volatile, EvaluationScope, TimeZone, Precision.
+Documentation: ef, datetime.
+SqlFunctions.cs:1678 - IsDate - Category 3
+public static int? IsDate(object expr)
+Recommendation: Keep SqlServerFunctions.IsDate; offer typed, format-specific TryParse APIs separately.
+Caveat: This tests SQL Server date/time acceptance, not .NET DateTime.TryParse acceptance. Session date/language settings and the SQL temporal type/range are part of the behavior.
+Checks: Parsing, SessionState, StoreType, ExactSqlContract.
+Documentation: cast.
+SqlFunctions.cs:1684 - Month - Category 1
+public static int? Month(DateTime? date)
+Recommendation: date.Day / date.Month / date.Year
+Caveat: Use member translation rather than database-named public functions. Nullable DateTime needs an explicitly lifted result; preserve SQL NULL propagation when that is the chosen contract.
+Checks: Nulls.
+Documentation: ef.
+SqlFunctions.cs:1689 - SysDateTime - Category 1
+public static DateTime SysDateTime()
+Recommendation: A provider-recognized DateTime.Now expression.
+Caveat: Must execute on the database for database-clock semantics, not be captured as a client parameter. Define time-zone and statement/transaction evaluation scope. The distinction between GETDATE datetime and SYSDATETIME datetime2 precision is not represented by DateTime.Now alone; retain raw wrappers for that distinction.
+Checks: Volatile, EvaluationScope, TimeZone, Precision.
+Documentation: ef, datetime.
+SqlFunctions.cs:1697 - SysUTCDateTime - Category 1
+public static DateTime SysUTCDateTime()
+Recommendation: A provider-recognized DateTime.UtcNow expression.
+Caveat: Must execute on the database for database-clock semantics, not be captured as a client parameter. Define UTC conversion and statement/transaction evaluation scope. GETUTCDATE and SYSUTCDATETIME return different SQL precisions; retain raw wrappers when that distinction matters.
+Checks: Volatile, EvaluationScope, TimeZone, Precision.
+Documentation: ef, datetime.
+SqlFunctions.cs:1707 - TimeFromParts - Category 2
+public static TimeSpan? TimeFromParts(int? hour, int? minute, int? seconds, int? fractions, int? precision)
+Recommendation: DbFunctions.MakeTime(hour, minute, second, fractions, precision)
+Caveat: Define a time-of-day contract and fractional precision. TimeSpan can express durations outside one day and does not specify SQL time(p) metadata. A simple fixed-precision CLR construction can be category 1, but this precision-bearing database contract belongs in a common type-aware helper.
+Checks: Precision, StoreType, Capability, Bounds, Nulls.
+Documentation: cast, ef.
+SqlFunctions.cs:1713 - Year - Category 1
+public static int? Year(DateTime? date)
+Recommendation: date.Day / date.Month / date.Year
+Caveat: Use member translation rather than database-named public functions. Nullable DateTime needs an explicitly lifted result; preserve SQL NULL propagation when that is the chosen contract.
+Checks: Nulls.
+Documentation: ef.
+SqlFunctions.cs - Ranking Functions
+SqlFunctions.cs:1734 - Row_Number - Category 2
+public static long Row_Number(OverClause overPart)
+Recommendation: DbWindow.RowNumber/DenseRank/NTile/Rank(window)
+Caveat: Standard window concepts, not ordinary indexed Select or collection sorting. Specify partition/order, NULL ordering and deterministic tie breakers when needed. Validate required ORDER BY, permitted arguments/frames and return-width differences.
+Checks: Window, Ordering, Capability, NumericType.
+Documentation: pgwindow, mysqlwindow, oraclewindow, sqlitewindow.
+SqlFunctions.cs:1754 - Dense_Rank - Category 2
+public static long Dense_Rank(OverClause overPart)
+Recommendation: DbWindow.RowNumber/DenseRank/NTile/Rank(window)
+Caveat: Standard window concepts, not ordinary indexed Select or collection sorting. Specify partition/order, NULL ordering and deterministic tie breakers when needed. Validate required ORDER BY, permitted arguments/frames and return-width differences.
+Checks: Window, Ordering, Capability, NumericType.
+Documentation: pgwindow, mysqlwindow, oraclewindow, sqlitewindow.
+SqlFunctions.cs:1775 - Ntile - Category 2
+public static long Ntile(int num, OverClause overPart)
+Recommendation: DbWindow.RowNumber/DenseRank/NTile/Rank(window)
+Caveat: Standard window concepts, not ordinary indexed Select or collection sorting. Specify partition/order, NULL ordering and deterministic tie breakers when needed. Validate required ORDER BY, permitted arguments/frames and return-width differences.
+Existing issue: Translation defect: ntile() {0} must be ntile({0}) {1}.
+Checks: Window, Ordering, Capability, NumericType.
+Documentation: pgwindow, mysqlwindow, oraclewindow, sqlitewindow.
+SqlFunctions.cs:1793 - Rank - Category 2
+public static long Rank(OverClause overPart)
+Recommendation: DbWindow.RowNumber/DenseRank/NTile/Rank(window)
+Caveat: Standard window concepts, not ordinary indexed Select or collection sorting. Specify partition/order, NULL ordering and deterministic tie breakers when needed. Validate required ORDER BY, permitted arguments/frames and return-width differences.
+Checks: Window, Ordering, Capability, NumericType.
+Documentation: pgwindow, mysqlwindow, oraclewindow, sqlitewindow.
+SqlFunctions.cs - Security Function
+SqlFunctions.cs:1801 - Current_User - Category 2
+public static string Current_User()
+Recommendation: DbFunctions.CurrentDatabaseUser()
+Caveat: Use an explicitly documented effective database-principal concept, not the application user or OS account. Provider authentication/execution-context models differ; providers without this concept should report unsupported rather than invent an identity.
+Checks: SecurityContext, Capability.
+Documentation: pguser.
+SqlFunctions.cs:1809 - Database_Principal_ID - Category 3
+public static int? Database_Principal_ID(string principal_name)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1815 - Has_DBAccess - Category 3
+public static int? Has_DBAccess(string db_name)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1829 - Is_Member - Category 3
+public static int? Is_Member(string group_role)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1835 - Is_RoleMember - Category 3
+public static int? Is_RoleMember(string role)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1844 - Is_RoleMember - Category 3
+public static int? Is_RoleMember(string role, string database_principal)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1850 - Is_SrvRoleMember - Category 3
+public static int? Is_SrvRoleMember(string role)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1859 - Is_SrvRoleMember - Category 3
+public static int? Is_SrvRoleMember(string role, string login)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1866 - Original_Login - Category 3
+public static string Original_Login()
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1883 - Permissions - Category 3
+public static int? Permissions(int? object_id)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1903 - Permissions - Category 3
+public static int? Permissions(int? object_id, string column)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1908 - Session_User - Category 3
+public static string Session_User()
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1913 - SUser_Id - Category 3
+public static string SUser_Id()
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Existing issue: Return-type mismatch: SUSER_ID returns an integer, not string.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1923 - SUser_Id - Category 3
+public static string SUser_Id(string login)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Existing issue: Return-type mismatch: SUSER_ID returns an integer, not string.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1935 - SUser_Name - Category 3
+public static string SUser_Name(int? server_user_id)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1940 - SUser_SID - Category 3
+public static byte[] SUser_SID()
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1951 - SUser_SID - Category 3
+public static byte[] SUser_SID(string login)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1970 - SUser_SID - Category 3
+public static byte[] SUser_SID(string login, int? param2)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1975 - SUser_SName - Category 3
+public static string SUser_SName()
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1988 - SUser_SName - Category 3
+public static string SUser_SName(byte[] server_user_id)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:1994 - System_User - Category 3
+public static string System_User()
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs:2000 - User - Category 2
+public static string User()
+Recommendation: DbFunctions.CurrentDatabaseUser()
+Caveat: Use an explicitly documented effective database-principal concept, not the application user or OS account. Provider authentication/execution-context models differ; providers without this concept should report unsupported rather than invent an identity.
+Checks: SecurityContext, Capability.
+Documentation: pguser.
+SqlFunctions.cs:2005 - User_Name - Category 2
+public static string User_Name()
+Recommendation: DbFunctions.CurrentDatabaseUser()
+Caveat: The parameterless overload is a current effective database-user alias and can share the neutral current-user concept. The overload taking a SQL Server numeric user ID remains provider-specific.
+Checks: SecurityContext, Capability.
+Documentation: pguser.
+SqlFunctions.cs:2011 - User_Name - Category 3
+public static string User_Name(int? id)
+Recommendation: Keep the existing SQL Server security/context lookup contract.
+Caveat: Login versus database user, original versus impersonated identity, role membership, numeric IDs/SIDs and permission bitmaps are provider-specific. Similar-looking session/system-user names on other engines are not enough to prove equivalent security semantics.
+Checks: SecurityContext, SessionState, ExactSqlContract.
+Documentation: pguser.
+SqlFunctions.cs - System Functions
+SqlFunctions.cs:2020 - Binary_Checksum - Category 3
+public static int? Binary_Checksum()
+Recommendation: Keep the SQL Server checksum API.
+Caveat: These are SQL Server checksum algorithms over SQL values/rows, not .NET GetHashCode and not a provider-neutral cryptographic digest. Matching exact results requires the same value serialization, collation and algorithm.
+Checks: Algorithm, StoreType, ExactSqlContract.
+SqlFunctions.cs:2027 - Binary_Checksum - Category 3
+public static int? Binary_Checksum(object expr1, params object[] otherexprs)
+Recommendation: Keep the SQL Server checksum API.
+Caveat: These are SQL Server checksum algorithms over SQL values/rows, not .NET GetHashCode and not a provider-neutral cryptographic digest. Matching exact results requires the same value serialization, collation and algorithm.
+Checks: Algorithm, StoreType, ExactSqlContract.
+SqlFunctions.cs:2033 - Checksum - Category 3
+public static int? Checksum()
+Recommendation: Keep the SQL Server checksum API.
+Caveat: These are SQL Server checksum algorithms over SQL values/rows, not .NET GetHashCode and not a provider-neutral cryptographic digest. Matching exact results requires the same value serialization, collation and algorithm.
+Checks: Algorithm, StoreType, ExactSqlContract.
+SqlFunctions.cs:2040 - Checksum - Category 3
+public static int? Checksum(object expr1, params object[] otherexprs)
+Recommendation: Keep the SQL Server checksum API.
+Caveat: These are SQL Server checksum algorithms over SQL values/rows, not .NET GetHashCode and not a provider-neutral cryptographic digest. Matching exact results requires the same value serialization, collation and algorithm.
+Checks: Algorithm, StoreType, ExactSqlContract.
+SqlFunctions.cs:2052 - IsNull - Category 1
+public static T IsNull<T>(T check_expr, T repl_expr)
+Recommendation: value ?? replacement
+Caveat: Use a typed coalesce expression. Exact SQL ISNULL selects the first argument's SQL type and can truncate the replacement; a CLR coalesce or SQL COALESCE may infer a different type/length. Keep the SQL Server wrapper if those exact type rules are intended.
+Checks: Nulls, TypeInference, StoreType.
+Documentation: isnull, ef.
+SqlFunctions.cs:2058 - IsNumeric - Category 3
+public static int IsNumeric(object expr)
+Recommendation: Keep SqlServerFunctions.IsNumeric; use a separately specified numeric TryParse contract.
+Caveat: SQL ISNUMERIC asks whether an input is acceptable as some SQL numeric type, not specifically decimal, double or int under .NET parsing rules. Currency signs, exponent forms, culture and accepted types prevent treating one TryParse overload as a faithful replacement.
+Checks: Parsing, StoreType, ExactSqlContract.
+Documentation: cast, ef.
+SqlFunctions.cs:2063 - NewID - Category 1
+public static Guid NewID()
+Recommendation: A provider-recognized Guid.NewGuid() expression.
+Caveat: Keep database-side evaluation at the intended scope; do not precompute one Guid and reuse it for all rows. UUID version/generation capability and SQL storage/ordering remain provider concerns.
+Checks: Volatile, EvaluationScope, Capability.
+Documentation: ef.
+SqlFunctions.cs - Helpers
+SqlFunctions.cs:2070 - Over - Category 2
+public static OverClause Over()
+Recommendation: A provider-neutral window/ordered-set clause builder.
+Caveat: This is query syntax infrastructure, not an ordinary LINQ OrderBy operating on a collection. Keep partition/order/frame metadata in a provider-neutral representation and render through provider-aware translators.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+SqlFunctions.cs:2077 - Over - Category 2
+public static OverClause Over(object orderBy, params object[] otherOrderBy)
+Recommendation: A provider-neutral window/ordered-set clause builder.
+Caveat: This is query syntax infrastructure, not an ordinary LINQ OrderBy operating on a collection. Keep partition/order/frame metadata in a provider-neutral representation and render through provider-aware translators.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+SqlFunctions.cs:2084 - OrderBy - Category 2
+public static OrderByClause OrderBy(object orderBy, params object[] otherOrderBy)
+Recommendation: A provider-neutral window/ordered-set clause builder.
+Caveat: This is query syntax infrastructure, not an ordinary LINQ OrderBy operating on a collection. Keep partition/order/frame metadata in a provider-neutral representation and render through provider-aware translators.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+SqlFunctions.cs:2094 - In - Category 1
+public static bool In(object leftSide, object righSide)
+Recommendation: values.Contains(value) / subquery.Select(x => x.Key).Contains(value)
+Caveat: Replace the untyped object/object API with an explicitly typed collection/query membership expression. Normalize SQL three-valued NULL logic, empty sets, item conversions and provider parameter limits. Tuple/row-value membership requires a separately supported contract.
+Checks: CollectionRewrite, Nulls, TypeMatrix.
+Documentation: ef.
+OverQueryPart.cs - OverClause
+OverQueryPart.cs:25 - OrderBy - Category 2
+public OverClause OrderBy(object orderByObj, params object[] otherOrderBy)
+Recommendation: Provider-neutral OverClause.OrderBy clause builder.
+Caveat: These members build query metadata, not client-side ordering/grouping. Keep them in the common window/ordered-set model; validate function-specific ordering, frame and NULL-ordering capabilities in each provider.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+OverQueryPart.cs:37 - OrderByDesc - Category 2
+public OverClause OrderByDesc(object orderByexp, params object[] otherOrderBy)
+Recommendation: Provider-neutral OverClause.OrderByDesc clause builder.
+Caveat: These members build query metadata, not client-side ordering/grouping. Keep them in the common window/ordered-set model; validate function-specific ordering, frame and NULL-ordering capabilities in each provider.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+OverQueryPart.cs:44 - PartitionBy - Category 2
+public OverClause PartitionBy(object orderByObj, params object[] otherPartitionBy)
+Recommendation: Provider-neutral OverClause.PartitionBy clause builder.
+Caveat: These members build query metadata, not client-side ordering/grouping. Keep them in the common window/ordered-set model; validate function-specific ordering, frame and NULL-ordering capabilities in each provider.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+OverQueryPart.cs - OrderByClause
+OverQueryPart.cs:62 - OrderBy - Category 2
+public OrderByClause OrderBy(object orderByObj, params object[] otherOrderBy)
+Recommendation: Provider-neutral OrderByClause.OrderBy clause builder.
+Caveat: These members build query metadata, not client-side ordering/grouping. Keep them in the common window/ordered-set model; validate function-specific ordering, frame and NULL-ordering capabilities in each provider.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+OverQueryPart.cs:73 - OrderByDesc - Category 2
+public OrderByClause OrderByDesc(object orderByexp, params object[] otherOrderBy)
+Recommendation: Provider-neutral OrderByClause.OrderByDesc clause builder.
+Caveat: These members build query metadata, not client-side ordering/grouping. Keep them in the common window/ordered-set model; validate function-specific ordering, frame and NULL-ordering capabilities in each provider.
+Checks: QueryInfrastructure, Window, Ordering.
+Documentation: over, pgwindow.
+Review sources
+The local source files are authoritative for signatures, attributes and comments. External primary documentation was consulted for semantics and provider differences. These links are documentation references, not dependencies added to the ORM.
+- ef
+- len
+- netlength
+- charindex
+- format
+- round
+- netround
+- rand
+- datediff
+- cast
+- datetime
+- over
+- avg
+- countbig
+- percent
+- ntile
+- ascii
+- split
+- stringagg
+- isnull
+- pgstring
+- pgwindow
+- pgagg
+- pguser
+- pgsoundex
+- mysqlstring
+- mysqlwindow
+- oraclewindow
+- oracleapprox
+- sqlitewindow
+- sqlitepercent
+- sqlitecore
+- json
+- jsontostring

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.Functions;
 using Atis.Orm.Querying;
 namespace Atis.Orm.Translation
 {
@@ -508,7 +509,13 @@ namespace Atis.Orm.Translation
                 this.TranslateCteReference(cteReference);
             else if (node is SqlAliasExpression alias)
                 this.TranslateAlias(alias);
-            else if (node is SqlFunctionCallExpression functionCall)
+            else if (node is SqlTemplateFunctionExpression templateFunction)
+                this.TranslateTemplateFunction(templateFunction);
+            else if (node is SqlWindowFunctionExpression windowFunction)
+                this.TranslateWindowFunction(windowFunction);
+            else if (node is SqlOverClauseExpression overClause)
+                this.TranslateOverClause(overClause);
+            else if (node is SqlFunctionExpression functionCall)
                 this.TranslateFunctionCall(functionCall);
             else if (node is SqlExistsExpression exists)
                 this.TranslateExists(exists);
@@ -813,7 +820,9 @@ namespace Atis.Orm.Translation
                    // Emitted as `(1 = 1 [AND ...])`, which is already a boolean group in both states.
                    nt == SqlExpressionType.OptionalPredicate ||
                    nt == SqlExpressionType.Not ||
-                   nt == SqlExpressionType.Exists;
+                   nt == SqlExpressionType.Exists ||
+                   // A function marked as a condition (for example `a IN b`) is a boolean already.
+                   (node is SqlTemplateFunctionExpression templateFunction && templateFunction.IsCondition);
         }
 
         /// <summary>
@@ -1280,10 +1289,100 @@ namespace Atis.Orm.Translation
 
         /// <summary>
         ///     <para>
+        ///         Translates a function written from a text template: the text is copied and every argument
+        ///         piece is translated in place, in the order it is written. An argument written twice is
+        ///         translated twice, so each place gets its own parameter.
+        ///     </para>
+        /// </summary>
+        protected virtual void TranslateTemplateFunction(SqlTemplateFunctionExpression node)
+        {
+            foreach (var part in node.Parts)
+            {
+                if (part.Kind == SqlFunctionTemplatePartKind.Text)
+                    this.Append(part.Text);
+                else
+                    this.TranslateAsNonLogicalExpression(node.Arguments[part.ArgumentIndex]);
+            }
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Translates a window function as <c>name(args) OVER (...)</c>, the standard spelling.
+        ///     </para>
+        ///     <para>
+        ///         Override this method where the database spells one differently or does not have it; throw
+        ///         <see cref="NotSupportedException"/> naming the function in the second case.
+        ///     </para>
+        /// </summary>
+        protected virtual void TranslateWindowFunction(SqlWindowFunctionExpression node)
+        {
+            this.Append(this.GetWindowFunctionName(node.Function));
+            this.Append("(");
+            for (var i = 0; i < node.Arguments.Count; i++)
+            {
+                if (i > 0)
+                    this.Append(", ");
+                this.TranslateAsNonLogicalExpression(node.Arguments[i]);
+            }
+            this.Append(") ");
+            this.TranslateOverClause(node.Over);
+        }
+
+        /// <summary>The SQL name of a window function. The standard names are used unless a provider overrides this.</summary>
+        protected virtual string GetWindowFunctionName(SqlWindowFunction function)
+        {
+            switch (function)
+            {
+                case SqlWindowFunction.RowNumber: return "ROW_NUMBER";
+                case SqlWindowFunction.Rank: return "RANK";
+                case SqlWindowFunction.DenseRank: return "DENSE_RANK";
+                case SqlWindowFunction.Ntile: return "NTILE";
+                case SqlWindowFunction.PercentRank: return "PERCENT_RANK";
+                case SqlWindowFunction.CumeDist: return "CUME_DIST";
+                case SqlWindowFunction.Lag: return "LAG";
+                case SqlWindowFunction.Lead: return "LEAD";
+                case SqlWindowFunction.FirstValue: return "FIRST_VALUE";
+                case SqlWindowFunction.LastValue: return "LAST_VALUE";
+                default: throw new NotSupportedException($"Window function '{function}' is not supported.");
+            }
+        }
+
+        /// <summary>Translates <c>OVER (PARTITION BY ... ORDER BY ...)</c>.</summary>
+        protected virtual void TranslateOverClause(SqlOverClauseExpression node)
+        {
+            this.Append("OVER (");
+            if (node.PartitionBy.Count > 0)
+            {
+                this.Append("PARTITION BY ");
+                for (var i = 0; i < node.PartitionBy.Count; i++)
+                {
+                    if (i > 0)
+                        this.Append(", ");
+                    this.TranslateAsNonLogicalExpression(node.PartitionBy[i]);
+                }
+            }
+            if (node.OrderBy.Count > 0)
+            {
+                if (node.PartitionBy.Count > 0)
+                    this.Append(" ");
+                this.Append("ORDER BY ");
+                for (var i = 0; i < node.OrderBy.Count; i++)
+                {
+                    if (i > 0)
+                        this.Append(", ");
+                    this.TranslateAsNonLogicalExpression(node.OrderBy[i].ColumnExpression);
+                    this.Append(node.OrderBy[i].Direction == SortDirection.Ascending ? " ASC" : " DESC");
+                }
+            }
+            this.Append(")");
+        }
+
+        /// <summary>
+        ///     <para>
         ///         Translates a function call expression.
         ///     </para>
         /// </summary>
-        protected virtual void TranslateFunctionCall(SqlFunctionCallExpression node)
+        protected virtual void TranslateFunctionCall(SqlFunctionExpression node)
         {
             var arguments = node.Arguments?.ToList();
             var hasArgs = arguments != null && arguments.Count > 0;
