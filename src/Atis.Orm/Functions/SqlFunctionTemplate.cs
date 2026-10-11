@@ -10,6 +10,8 @@ namespace Atis.Orm.Functions
         Text,
         /// <summary><c>{n}</c>: an argument the engine translates.</summary>
         Argument,
+        /// <summary><c>{?n}</c>: an argument the engine translates as a condition (a predicate), for example the first argument of <c>iif</c>.</summary>
+        Condition,
         /// <summary><c>[n]</c>: an argument written into the SQL text.</summary>
         Literal,
     }
@@ -66,7 +68,7 @@ namespace Atis.Orm.Functions
             while (i < template.Length)
             {
                 var c = template[i];
-                if ((c == '{' || c == '[') && TryReadPlaceholder(template, i, out var index, out var length))
+                if ((c == '{' || c == '[') && TryReadPlaceholder(template, i, out var index, out var length, out var isCondition))
                 {
                     if (index >= argumentCount)
                         throw new InvalidOperationException(
@@ -78,7 +80,7 @@ namespace Atis.Orm.Functions
                         text.Clear();
                     }
                     parts.Add(new SqlFunctionTemplatePart(
-                        c == '{' ? SqlFunctionTemplatePartKind.Argument : SqlFunctionTemplatePartKind.Literal, null, index));
+                        c == '[' ? SqlFunctionTemplatePartKind.Literal : isCondition ? SqlFunctionTemplatePartKind.Condition : SqlFunctionTemplatePartKind.Argument, null, index));
                     i += length;
                     continue;
                 }
@@ -91,12 +93,18 @@ namespace Atis.Orm.Functions
             return new SqlFunctionTemplate(parts);
         }
 
-        private static bool TryReadPlaceholder(string template, int start, out int index, out int length)
+        private static bool TryReadPlaceholder(string template, int start, out int index, out int length, out bool isCondition)
         {
             index = 0;
             length = 0;
+            isCondition = false;
             var close = template[start] == '{' ? '}' : ']';
             var pos = start + 1;
+            if (template[start] == '{' && pos < template.Length && template[pos] == '?')
+            {
+                isCondition = true;
+                pos++;
+            }
             var digits = 0;
             while (pos < template.Length && template[pos] >= '0' && template[pos] <= '9')
             {

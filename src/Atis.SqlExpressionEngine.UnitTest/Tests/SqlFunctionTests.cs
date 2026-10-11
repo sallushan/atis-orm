@@ -186,6 +186,37 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void SqlServer_ported_functions_render_their_exact_sql_shapes()
+        {
+            var students = new Queryable<Student>(queryProvider);
+            var q = students.Select(x => new
+            {
+                Iif = SqlServerFunctions.Iif(x.Age > 18, "adult", "minor"),
+                Choose = SqlServerFunctions.Choose(2, "a", "b", "c"),
+                IsNull = SqlServerFunctions.IsNull(x.Name, "none"),
+                Trim = SqlServerFunctions.Trim("x", x.Name),
+                Current = SqlServerFunctions.Current_User(),
+                User = SqlServerFunctions.User(),
+                UserName = SqlServerFunctions.User_Name(),
+                Rand = SqlServerFunctions.Rand(),
+                Pi = SqlServerFunctions.Pi(),
+                Now = SqlServerFunctions.GetDate(),
+            });
+
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "iif((t1.Age > @p");
+            StringAssert.Contains(sql, "Choose(@p");
+            StringAssert.Contains(sql, "IsNull(t1.Name, @p");
+            StringAssert.Contains(sql, "trim(@p");
+            StringAssert.Contains(sql, " from t1.Name)");
+            StringAssert.Contains(sql, "current_user");
+            StringAssert.Contains(sql, "User_Name()");
+            StringAssert.Contains(sql, "Rand()");
+            StringAssert.Contains(sql, "Pi()");
+            StringAssert.Contains(sql, "GetDate()");
+        }
+
+        [TestMethod]
         public void SqlServer_variadic_checksum_arguments_are_flattened()
         {
             var students = new Queryable<Student>(queryProvider);

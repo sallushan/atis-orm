@@ -13,7 +13,7 @@ namespace Atis.Orm.Functions
     ///         <c>dateadd(day, {1}, {2})</c> after the <c>[0]</c> piece was already turned into text.
     ///     </para>
     ///     <para>
-    ///         The pieces are only <see cref="SqlFunctionTemplatePartKind.Text"/> and
+    ///         The pieces are only <see cref="SqlFunctionTemplatePartKind.Text"/>, <see cref="SqlFunctionTemplatePartKind.Condition"/> and
     ///         <see cref="SqlFunctionTemplatePartKind.Argument"/>. An <c>Argument</c> piece's
     ///         <see cref="SqlFunctionTemplatePart.ArgumentIndex"/> points into <see cref="Arguments"/>, which
     ///         holds only the arguments the template actually writes. The same argument can be pointed at
@@ -37,7 +37,7 @@ namespace Atis.Orm.Functions
             {
                 if (part.Kind == SqlFunctionTemplatePartKind.Literal)
                     throw new ArgumentException("A literal piece must be turned into text before the node is built.", nameof(parts));
-                if (part.Kind == SqlFunctionTemplatePartKind.Argument && (part.ArgumentIndex < 0 || part.ArgumentIndex >= arguments.Count))
+                if (part.Kind != SqlFunctionTemplatePartKind.Text && (part.ArgumentIndex < 0 || part.ArgumentIndex >= arguments.Count))
                     throw new ArgumentException($"A piece points at argument {part.ArgumentIndex}, but there are {arguments.Count}.", nameof(parts));
             }
         }

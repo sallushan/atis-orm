@@ -213,6 +213,239 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void String_functions_run_on_the_server()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);
+
+                var r = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker && x.FirstName == "Ann")
+                          .Select(x => new
+                          {
+                              Up = SqlServerFunctions.Upper(x.FirstName),
+                              Lo = SqlServerFunctions.Lower(x.FirstName),
+                              L = SqlServerFunctions.Left(x.FirstName, 2),
+                              R = SqlServerFunctions.Right(x.FirstName, 2),
+                              Sub = SqlServerFunctions.SubString(x.FirstName, 2, 2),
+                              Rep = SqlServerFunctions.Replace(x.FirstName, "n", "m"),
+                              Rev = SqlServerFunctions.Reverse(x.FirstName),
+                              Rpt = SqlServerFunctions.Replicate(x.FirstName, 2),
+                              Sp = SqlServerFunctions.Space(2),
+                              Cat = SqlServerFunctions.Concat(x.FirstName, "-", x.LastName),
+                              CatWs = SqlServerFunctions.Concat_WS("/", x.FirstName, x.LastName),
+                              Lt = SqlServerFunctions.LTrim("  a "),
+                              Rt = SqlServerFunctions.RTrim(" a  "),
+                              Tr = SqlServerFunctions.Trim("  a  "),
+                              TrC = SqlServerFunctions.Trim("x", "xxaxx"),
+                              Stf = SqlServerFunctions.Stuff(x.FirstName, 1, 1, "Z"),
+                              Tl = SqlServerFunctions.Translate(x.FirstName, "A", "B"),
+                              Nc = SqlServerFunctions.NChar(65),
+                              Un = SqlServerFunctions.Unicode(x.FirstName),
+                              Esc = SqlServerFunctions.String_Escape("a\"b", "json"),
+                          })
+                          .ToList()
+                          .Single();
+
+                Assert.AreEqual("ANN", r.Up);
+                Assert.AreEqual("ann", r.Lo);
+                Assert.AreEqual("An", r.L);
+                Assert.AreEqual("nn", r.R);
+                Assert.AreEqual("nn", r.Sub);
+                Assert.AreEqual("Amm", r.Rep);
+                Assert.AreEqual("nnA", r.Rev);
+                Assert.AreEqual("AnnAnn", r.Rpt);
+                Assert.AreEqual("  ", r.Sp);
+                Assert.AreEqual("Ann-SqlFunctions", r.Cat);
+                Assert.AreEqual("Ann/SqlFunctions", r.CatWs);
+                Assert.AreEqual("a ", r.Lt);
+                Assert.AreEqual(" a", r.Rt);
+                Assert.AreEqual("a", r.Tr);
+                Assert.AreEqual("a", r.TrC);
+                Assert.AreEqual("Znn", r.Stf);
+                Assert.AreEqual("Bnn", r.Tl);
+                Assert.AreEqual("A", r.Nc);
+                Assert.AreEqual(65, r.Un);
+                Assert.AreEqual("a\\\"b", r.Esc);
+            });
+        }
+
+        [TestMethod]
+        public void Math_functions_run_on_the_server()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);
+
+                var r = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker && x.FirstName == "Cid")   // salary 200
+                          .Select(x => new
+                          {
+                              AbsInt = SqlServerFunctions.Abs(-3),
+                              AbsDec = SqlServerFunctions.Abs(x.Salary),
+                              Ceil = SqlServerFunctions.Ceiling(x.Salary),
+                              Floor = SqlServerFunctions.Floor(x.Salary),
+                              Sign = SqlServerFunctions.Sign(-5L),
+                              Round = SqlServerFunctions.Round(x.Salary, -2),
+                              RoundD = SqlServerFunctions.Round(2.567, 1),
+                              Pow = SqlServerFunctions.Power(x.Salary, 2m),
+                              Sqrt = SqlServerFunctions.Sqrt(16.0),
+                              Sq = SqlServerFunctions.Square(3.0),
+                              Log10 = SqlServerFunctions.Log10(1000.0),
+                              LogB = SqlServerFunctions.Log(8.0, 2),
+                              Pi = SqlServerFunctions.Pi(),
+                              Atn2 = SqlServerFunctions.Atn2(1.0, 1.0),
+                              Deg = SqlServerFunctions.Degrees(3.141592653589793),
+                              Rnd = SqlServerFunctions.Rand(),
+                          })
+                          .ToList()
+                          .Single();
+
+                Assert.AreEqual(3, r.AbsInt);
+                Assert.AreEqual(200m, r.AbsDec);
+                Assert.AreEqual(200m, r.Ceil);
+                Assert.AreEqual(200m, r.Floor);
+                Assert.AreEqual(-1L, r.Sign);
+                Assert.AreEqual(200m, r.Round);
+                Assert.AreEqual(2.6, r.RoundD.Value, 1e-9);
+                Assert.AreEqual(40000m, r.Pow);
+                Assert.AreEqual(4.0, r.Sqrt.Value, 1e-9);
+                Assert.AreEqual(9.0, r.Sq.Value, 1e-9);
+                Assert.AreEqual(3.0, r.Log10.Value, 1e-9);
+                Assert.AreEqual(3.0, r.LogB.Value, 1e-9);
+                Assert.AreEqual(Math.PI, r.Pi.Value, 1e-9);
+                Assert.AreEqual(Math.PI / 4, r.Atn2.Value, 1e-9);
+                Assert.AreEqual(180.0, r.Deg.Value, 1e-9);
+                Assert.IsTrue(r.Rnd >= 0 && r.Rnd < 1);
+            });
+        }
+
+        [TestMethod]
+        public void Logical_date_and_system_functions_run_on_the_server()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);
+
+                DateTime? fallback = new DateTime(1999, 1, 1);
+                var rows = db.CreateQuery<TestEntities.Employee>()
+                             .Where(x => x.LastName == Marker && x.HireDate < SqlServerFunctions.GetDate())
+                             .Select(x => new
+                             {
+                                 x.FirstName,
+                                 Big = SqlServerFunctions.Iif(x.Salary > 250m, "high", "low"),
+                                 Pick = SqlServerFunctions.Choose(2, "a", "b", "c"),
+                                 Nn = SqlServerFunctions.IsNull(x.HireDate, fallback),
+                                 Y = SqlServerFunctions.Year(x.HireDate),
+                                 M = SqlServerFunctions.Month(x.HireDate),
+                                 D = SqlServerFunctions.Day(x.HireDate),
+                                 Eom = SqlServerFunctions.EOMonth(x.HireDate),
+                                 Eom2 = SqlServerFunctions.EOMonth(x.HireDate, 1),
+                                 Df = SqlServerFunctions.DateFromParts(2024, 2, 29),
+                                 Dtf = SqlServerFunctions.DateTimeFromParts(2024, 2, 29, 13, 14, 15, 0),
+                                 Dt2 = SqlServerFunctions.DateTime2FromParts(2024, 2, 29, 13, 14, 15, 0, 0),
+                                 Tf = SqlServerFunctions.TimeFromParts(13, 14, 15, 0, 0),
+                                 Now = SqlServerFunctions.GetDate(),
+                                 Utc = SqlServerFunctions.SysUTCDateTime(),
+                                 Id = SqlServerFunctions.NewID(),
+                                 Cu = SqlServerFunctions.Current_User(),
+                                 U = SqlServerFunctions.User(),
+                                 Un = SqlServerFunctions.User_Name(),
+                                 Bit = SqlServerFunctions.CastToBit(1),
+                                 Date = SqlServerFunctions.CastToDate(x.HireDate),
+                             })
+                             .ToList()
+                             .OrderBy(r => r.FirstName)
+                             .ToList();
+
+                CollectionAssert.AreEqual(new[] { "high", "high", "low", "low" }, rows.Select(r => r.Big).ToArray());
+                Assert.AreEqual("b", rows[0].Pick);
+                Assert.AreEqual(new DateTime(2020, 1, 1), rows[0].Nn);
+                Assert.AreEqual(2020, rows[0].Y);
+                Assert.AreEqual(1, rows[0].M);
+                Assert.AreEqual(1, rows[0].D);
+                Assert.AreEqual(new DateTime(2020, 1, 31), rows[0].Eom);
+                Assert.AreEqual(new DateTime(2020, 2, 29), rows[0].Eom2);
+                Assert.AreEqual(new DateTime(2024, 2, 29), rows[0].Df);
+                Assert.AreEqual(new DateTime(2024, 2, 29, 13, 14, 15), rows[0].Dtf);
+                Assert.AreEqual(new DateTime(2024, 2, 29, 13, 14, 15), rows[0].Dt2);
+                Assert.AreEqual(new TimeSpan(13, 14, 15), rows[0].Tf);
+                Assert.IsTrue(rows[0].Now.Year >= 2026);
+                Assert.IsTrue(rows[0].Utc.Year >= 2026);
+                Assert.AreNotEqual(rows[0].Id, rows[1].Id, "NEWID must be evaluated per row, not once.");
+                Assert.AreEqual(rows[0].Cu, rows[0].U);
+                Assert.AreEqual(rows[0].Cu, rows[0].Un);
+                Assert.AreEqual(true, rows[0].Bit);
+                Assert.AreEqual(new DateTime(2020, 1, 1), rows[0].Date);
+            });
+        }
+
+        [TestMethod]
+        public void Aggregate_functions_run_on_the_server_without_a_group_by()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);   // salaries 300, 300, 200, 100
+
+                // Every column is an aggregate, so the whole filtered set is one group.
+                var r = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker)
+                          .Select(x => new
+                          {
+                              Rows = SqlServerFunctions.Count(),
+                              Named = SqlServerFunctions.Count(x.FirstName),
+                              DistinctCount = SqlServerFunctions.CountDistinct(x.Salary),
+                              Big = SqlServerFunctions.Count_Big(),
+                              BigDistinct = SqlServerFunctions.Count_BigDistinct(x.Salary),
+                              Approx = SqlServerFunctions.Approx_Count_Distinct(x.Salary),
+                              Sum = SqlServerFunctions.Sum(x.Salary),
+                              SumDistinct = SqlServerFunctions.SumDistinct(x.Salary),
+                              Avg = SqlServerFunctions.Avg(x.Salary),
+                              AvgDistinct = SqlServerFunctions.AvgDistinct(x.Salary),
+                              AvgInt = SqlServerFunctions.Avg(x.EmployeeId),
+                              SumInt = SqlServerFunctions.Sum(x.EmployeeId),
+                              Min = SqlServerFunctions.Min(x.Salary),
+                              Max = SqlServerFunctions.Max(x.Salary),
+                              MaxName = SqlServerFunctions.Max(x.FirstName),
+                              MinDistinct = SqlServerFunctions.MinDistinct(x.Salary),
+                              Stdev = SqlServerFunctions.Stdev(x.Salary),
+                              Stdevp = SqlServerFunctions.Stdevp(x.Salary),
+                              Var = SqlServerFunctions.Var(x.Salary),
+                              Varp = SqlServerFunctions.Varp(x.Salary),
+                              VarDistinct = SqlServerFunctions.VarDistinct(x.Salary),
+                          })
+                          .ToList()
+                          .Single();
+
+                Assert.AreEqual(4, r.Rows);
+                Assert.AreEqual(4, r.Named);
+                Assert.AreEqual(3, r.DistinctCount);
+                Assert.AreEqual(4L, r.Big);
+                Assert.AreEqual(3L, r.BigDistinct);
+                Assert.AreEqual(3L, r.Approx);
+                Assert.AreEqual(900m, r.Sum);
+                Assert.AreEqual(600m, r.SumDistinct);
+                Assert.AreEqual(225m, r.Avg);
+                Assert.AreEqual(200m, r.AvgDistinct);
+                Assert.IsNotNull(r.AvgInt);
+                Assert.IsNotNull(r.SumInt);
+                Assert.AreEqual(100m, r.Min);
+                Assert.AreEqual(300m, r.Max);
+                Assert.AreEqual("Dee", r.MaxName);
+                Assert.AreEqual(100m, r.MinDistinct);
+                Assert.AreEqual(Math.Sqrt(27500.0 / 3), r.Stdev.Value, 1e-6);
+                Assert.AreEqual(Math.Sqrt(27500.0 / 4), r.Stdevp.Value, 1e-6);
+                Assert.AreEqual(27500.0 / 3, r.Var.Value, 1e-6);
+                Assert.AreEqual(27500.0 / 4, r.Varp.Value, 1e-6);
+                Assert.AreEqual(10000.0, r.VarDistinct.Value, 1e-6);
+            });
+        }
+
+        [TestMethod]
         public void A_captured_variable_in_a_brace_argument_rebinds_on_the_second_run()
         {
             var db = new OrmDbContext();

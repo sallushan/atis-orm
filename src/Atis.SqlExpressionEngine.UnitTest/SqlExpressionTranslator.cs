@@ -821,6 +821,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 if (part.Kind == Atis.Orm.Functions.SqlFunctionTemplatePartKind.Text)
                     text.Append(part.Text);
+                else if (part.Kind == Atis.Orm.Functions.SqlFunctionTemplatePartKind.Condition)
+                    text.Append(this.TranslateLogicalExpression(node.Arguments[part.ArgumentIndex]));
                 else
                     text.Append(this.TranslateNonLogicalExpression(node.Arguments[part.ArgumentIndex]));
             }

@@ -1300,6 +1300,8 @@ namespace Atis.Orm.Translation
             {
                 if (part.Kind == SqlFunctionTemplatePartKind.Text)
                     this.Append(part.Text);
+                else if (part.Kind == SqlFunctionTemplatePartKind.Condition)
+                    this.TranslateAsLogicalExpression(node.Arguments[part.ArgumentIndex]);
                 else
                     this.TranslateAsNonLogicalExpression(node.Arguments[part.ArgumentIndex]);
             }

@@ -88,7 +88,7 @@ namespace Atis.Orm.Functions
                     case SqlFunctionTemplatePartKind.Literal:
                         text.Append(this.LiteralText(convertedChildren[part.ArgumentIndex], part.ArgumentIndex));
                         break;
-                    default:
+                    default: // Argument or Condition
                         FlushText();
                         if (!argumentSlot.TryGetValue(part.ArgumentIndex, out var slot))
                         {
@@ -96,7 +96,7 @@ namespace Atis.Orm.Functions
                             arguments.Add(convertedChildren[part.ArgumentIndex]);
                             argumentSlot.Add(part.ArgumentIndex, slot);
                         }
-                        parts.Add(new SqlFunctionTemplatePart(SqlFunctionTemplatePartKind.Argument, null, slot));
+                        parts.Add(new SqlFunctionTemplatePart(part.Kind, null, slot));
                         break;
                 }
             }
@@ -183,7 +183,7 @@ namespace Atis.Orm.Functions
                         return this.RequireOver(convertedChildren[0]).AddOrderBy(convertedChildren[1], SortDirection.Ascending);
                     case SqlWindowClauseOperation.OrderByDescending:
                         return this.RequireOver(convertedChildren[0]).AddOrderBy(convertedChildren[1], SortDirection.Descending);
-                    default:
+                    default: // Argument or Condition
                         throw new NotSupportedException($"OVER-clause operation '{clause.Operation}' is not supported.");
                 }
             }

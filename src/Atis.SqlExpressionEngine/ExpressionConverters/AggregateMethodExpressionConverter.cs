@@ -20,7 +20,10 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
             var aggregateMethodNames = new[] { nameof(Queryable.Count), nameof(Queryable.Max), nameof(Queryable.Min), nameof(Queryable.Sum) };
+            // The declaring type matters: a provider function that happens to be called Sum or Count
+            // (e.g. SqlServerFunctions.Sum(x)) takes a value, not a query, and must not be claimed here.
             if (expression is MethodCallExpression methodCallExpr &&
+                    (methodCallExpr.Method.DeclaringType == typeof(Queryable) || methodCallExpr.Method.DeclaringType == typeof(Enumerable)) &&
                     aggregateMethodNames.Contains(methodCallExpr.Method.Name))
             {
                 var dependencies = this.GetConverterDependencies(converterDependencies);
