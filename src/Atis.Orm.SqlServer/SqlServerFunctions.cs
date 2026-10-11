@@ -252,6 +252,33 @@ namespace Atis.Orm.SqlServer
         [SqlFunction(Template = "min(distinct {0})")]
         public static T MinDistinct<T>(T expr) => throw new DirectCallNotSupportedException(nameof(MinDistinct));
 
+        /// <summary>Joins the non-NULL values of a group into one string, separated by <paramref name="separator"/>. SQL Server 2017 and later.</summary>
+        public static string String_Agg(string expr, string separator) => throw new DirectCallNotSupportedException(nameof(String_Agg));
+
+        /// <summary>
+        ///     Joins the non-NULL values of a group into one string in the given order:
+        ///     <c>String_Agg(x.Name, ", ", Sql.Over().OrderBy(x.Name))</c>. The clause must be built inline and
+        ///     cannot have a <c>PartitionBy</c>. SQL Server 2017 and later.
+        /// </summary>
+        [SqlFunction(Template = "string_agg({0}, {1}) within group ({~2})")]
+        public static string String_Agg(string expr, string separator, OverClause withinGroupOrder) => throw new DirectCallNotSupportedException(nameof(String_Agg));
+
+        /// <summary>
+        ///     Returns the interpolated value at <paramref name="percentile"/> (0 to 1) of the ordered group, as float:
+        ///     <c>Percentile_Cont(0.5, Sql.Over().OrderBy(x.Salary), Sql.Over().PartitionBy(x.DepartmentId))</c>.
+        ///     SQL Server evaluates it as a window function, so the second clause is required and may only partition.
+        /// </summary>
+        [SqlFunction(Template = "percentile_cont({0}) within group ({~1}) {2}")]
+        public static double? Percentile_Cont(double percentile, OverClause withinGroupOrder, OverClause over) => throw new DirectCallNotSupportedException(nameof(Percentile_Cont));
+
+        /// <summary>
+        ///     Returns the value at <paramref name="percentile"/> (0 to 1) of the ordered group, picked from the group itself.
+        ///     The result has the type of the ordering expression, which cannot be worked out from the arguments, so
+        ///     name it: <c>Percentile_Disc&lt;decimal?&gt;(0.5, Sql.Over().OrderBy(x.Salary), Sql.Over())</c>.
+        /// </summary>
+        [SqlFunction(Template = "percentile_disc({0}) within group ({~1}) {2}")]
+        public static T Percentile_Disc<T>(double percentile, OverClause withinGroupOrder, OverClause over) => throw new DirectCallNotSupportedException(nameof(Percentile_Disc));
+
         /// <summary>Returns the statistical standard deviation of the values in a group (a sample).</summary>
         public static double? Stdev(object expr) => throw new DirectCallNotSupportedException(nameof(Stdev));
 

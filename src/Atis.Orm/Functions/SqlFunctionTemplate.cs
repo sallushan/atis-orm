@@ -12,6 +12,8 @@ namespace Atis.Orm.Functions
         Argument,
         /// <summary><c>{?n}</c>: an argument the engine translates as a condition (a predicate), for example the first argument of <c>iif</c>.</summary>
         Condition,
+        /// <summary><c>{~n}</c>: the ORDER BY list of an OVER clause argument (<c>Sql.Over().OrderBy(...)</c>), without the OVER keyword, for <c>WITHIN GROUP (...)</c>.</summary>
+        OrderByList,
         /// <summary><c>[n]</c>: an argument written into the SQL text.</summary>
         Literal,
     }
@@ -68,7 +70,7 @@ namespace Atis.Orm.Functions
             while (i < template.Length)
             {
                 var c = template[i];
-                if ((c == '{' || c == '[') && TryReadPlaceholder(template, i, out var index, out var length, out var isCondition))
+                if ((c == '{' || c == '[') && TryReadPlaceholder(template, i, out var index, out var length, out var kind))
                 {
                     if (index >= argumentCount)
                         throw new InvalidOperationException(
@@ -80,7 +82,7 @@ namespace Atis.Orm.Functions
                         text.Clear();
                     }
                     parts.Add(new SqlFunctionTemplatePart(
-                        c == '[' ? SqlFunctionTemplatePartKind.Literal : isCondition ? SqlFunctionTemplatePartKind.Condition : SqlFunctionTemplatePartKind.Argument, null, index));
+                        kind, null, index));
                     i += length;
                     continue;
                 }
@@ -93,16 +95,16 @@ namespace Atis.Orm.Functions
             return new SqlFunctionTemplate(parts);
         }
 
-        private static bool TryReadPlaceholder(string template, int start, out int index, out int length, out bool isCondition)
+        private static bool TryReadPlaceholder(string template, int start, out int index, out int length, out SqlFunctionTemplatePartKind kind)
         {
             index = 0;
             length = 0;
-            isCondition = false;
+            kind = template[start] == '[' ? SqlFunctionTemplatePartKind.Literal : SqlFunctionTemplatePartKind.Argument;
             var close = template[start] == '{' ? '}' : ']';
             var pos = start + 1;
-            if (template[start] == '{' && pos < template.Length && template[pos] == '?')
+            if (template[start] == '{' && pos < template.Length && (template[pos] == '?' || template[pos] == '~'))
             {
-                isCondition = true;
+                kind = template[pos] == '?' ? SqlFunctionTemplatePartKind.Condition : SqlFunctionTemplatePartKind.OrderByList;
                 pos++;
             }
             var digits = 0;

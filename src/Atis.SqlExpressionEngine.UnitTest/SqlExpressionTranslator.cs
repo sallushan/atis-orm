@@ -823,6 +823,13 @@ namespace Atis.SqlExpressionEngine.UnitTest
                     text.Append(part.Text);
                 else if (part.Kind == Atis.Orm.Functions.SqlFunctionTemplatePartKind.Condition)
                     text.Append(this.TranslateLogicalExpression(node.Arguments[part.ArgumentIndex]));
+                else if (part.Kind == Atis.Orm.Functions.SqlFunctionTemplatePartKind.OrderByList)
+                {
+                    if (!(node.Arguments[part.ArgumentIndex] is Atis.Orm.Functions.SqlOverClauseExpression over) || over.OrderBy.Count == 0 || over.PartitionBy.Count > 0)
+                        throw new InvalidOperationException($"'{node.FunctionName}' needs an ordering built inline in the query: Sql.Over().OrderBy(...).");
+                    text.Append("ORDER BY ").Append(string.Join(", ", over.OrderBy.Select(o =>
+                        this.TranslateNonLogicalExpression(o.ColumnExpression) + (o.Direction == SortDirection.Ascending ? " ASC" : " DESC"))));
+                }
                 else
                     text.Append(this.TranslateNonLogicalExpression(node.Arguments[part.ArgumentIndex]));
             }

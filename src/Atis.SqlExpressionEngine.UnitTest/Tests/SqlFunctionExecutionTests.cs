@@ -446,6 +446,39 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void String_Agg_and_Percentile_run_on_the_server()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);   // Ann 300, Bob 300, Cid 200, Dee 100
+
+                var r = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker)
+                          .Select(x => new
+                          {
+                              Names = SqlServerFunctions.String_Agg(x.FirstName, ", ", Sql.Over().OrderByDescending(x.Salary).OrderBy(x.FirstName)),
+                          })
+                          .ToList()
+                          .Single();
+                Assert.AreEqual("Ann, Bob, Cid, Dee", r.Names);
+
+                var rows = db.CreateQuery<TestEntities.Employee>()
+                             .Where(x => x.LastName == Marker)
+                             .Select(x => new
+                             {
+                                 Cont = SqlServerFunctions.Percentile_Cont(0.5, Sql.Over().OrderBy(x.Salary), Sql.Over()),
+                                 Disc = SqlServerFunctions.Percentile_Disc<decimal?>(0.5, Sql.Over().OrderBy(x.Salary), Sql.Over()),
+                             })
+                             .ToList();
+
+                Assert.AreEqual(4, rows.Count, "A window function keeps every row.");
+                Assert.AreEqual(250.0, rows[0].Cont.Value, 1e-9);   // between 200 and 300
+                Assert.AreEqual(200m, rows[0].Disc);
+            });
+        }
+
+        [TestMethod]
         public void A_captured_variable_in_a_brace_argument_rebinds_on_the_second_run()
         {
             var db = new OrmDbContext();

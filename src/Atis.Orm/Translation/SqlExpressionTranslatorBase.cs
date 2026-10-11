@@ -1302,8 +1302,31 @@ namespace Atis.Orm.Translation
                     this.Append(part.Text);
                 else if (part.Kind == SqlFunctionTemplatePartKind.Condition)
                     this.TranslateAsLogicalExpression(node.Arguments[part.ArgumentIndex]);
+                else if (part.Kind == SqlFunctionTemplatePartKind.OrderByList)
+                    this.TranslateOrderByListOfOverClause(node.FunctionName, node.Arguments[part.ArgumentIndex]);
                 else
                     this.TranslateAsNonLogicalExpression(node.Arguments[part.ArgumentIndex]);
+            }
+        }
+
+        /// <summary>
+        ///     Translates only the <c>a ASC, b DESC</c> list of an OVER clause built with
+        ///     <c>Sql.Over().OrderBy(...)</c>, for a template that writes <c>WITHIN GROUP (ORDER BY ...)</c> itself.
+        /// </summary>
+        private void TranslateOrderByListOfOverClause(string functionName, SqlExpression argument)
+        {
+            if (!(argument is SqlOverClauseExpression over) || over.OrderBy.Count == 0 || over.PartitionBy.Count > 0)
+                throw new InvalidOperationException(
+                    $"'{functionName}' needs an ordering built inline in the query: Sql.Over().OrderBy(...). " +
+                    "It cannot have a PartitionBy, and a clause kept in a variable cannot be translated.");
+
+            this.Append("ORDER BY ");
+            for (var i = 0; i < over.OrderBy.Count; i++)
+            {
+                if (i > 0)
+                    this.Append(", ");
+                this.TranslateAsNonLogicalExpression(over.OrderBy[i].ColumnExpression);
+                this.Append(over.OrderBy[i].Direction == SortDirection.Ascending ? " ASC" : " DESC");
             }
         }
 
