@@ -126,17 +126,21 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 methodArguments[0] = this.SqlFactory.CreateCast(methodArguments[0], floatType);
             }
 
-            // C# and SQL spell two of these differently.
-            string functionName;
+            // The provider decides how each function is spelled; the engine only says which one it is.
+            SqlAggregateFunction function;
             switch (this.Expression.Method.Name)
             {
-                case nameof(Queryable.Average): functionName = "Avg"; break;
-                case nameof(Queryable.LongCount): functionName = "Count_Big"; break;
-                default: functionName = this.Expression.Method.Name; break;
+                case nameof(Queryable.Count): function = SqlAggregateFunction.Count; break;
+                case nameof(Queryable.LongCount): function = SqlAggregateFunction.CountBig; break;
+                case nameof(Queryable.Sum): function = SqlAggregateFunction.Sum; break;
+                case nameof(Queryable.Min): function = SqlAggregateFunction.Min; break;
+                case nameof(Queryable.Max): function = SqlAggregateFunction.Max; break;
+                case nameof(Queryable.Average): function = SqlAggregateFunction.Avg; break;
+                default: throw new NotSupportedException($"'{this.Expression.Method.Name}' is not a supported aggregate method.");
             }
 
             SqlExpression result;
-            var functionCallExpression = this.SqlFactory.CreateFunctionCall(functionName, methodArguments);
+            var functionCallExpression = this.SqlFactory.CreateAggregateFunctionCall(function, methodArguments);
             if (applyProjection)
             {
                 this.sourceQuery.ApplyProjection(functionCallExpression);

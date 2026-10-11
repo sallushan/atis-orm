@@ -169,6 +169,11 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlFunctionExpression(functionName, arguments);
         }
 
+        public virtual SqlAggregateFunctionExpression CreateAggregateFunctionCall(SqlAggregateFunction function, SqlExpression[] arguments)
+        {
+            return new SqlAggregateFunctionExpression(function, arguments);
+        }
+
         public SqlSelectExpression CreateSelectQueryFromStandaloneSelect(SqlStandaloneSelectExpression standaloneSelect)
         {
             if (standaloneSelect is null)

@@ -68,6 +68,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateOverClause(overClause);
             }
+            else if (sqlExpression is SqlAggregateFunctionExpression aggregateFunction)
+            {
+                return this.TranslateAggregateFunction(aggregateFunction);
+            }
             else if (sqlExpression is SqlFunctionExpression sqlFunctionExpression)
             {
                 return this.TranslateSqlFunctionExpression(sqlFunctionExpression);
@@ -862,11 +866,16 @@ namespace Atis.SqlExpressionEngine.UnitTest
         private string TranslateSqlFunctionExpression(SqlFunctionExpression sqlFunctionExpression)
         {
             var arguments = sqlFunctionExpression.Arguments != null ? this.TranslateSqlFunctionArguments(sqlFunctionExpression) : string.Empty;
-            if (sqlFunctionExpression.FunctionName == "Count" || sqlFunctionExpression.FunctionName == "Count_Big")
-            {
-                arguments = string.IsNullOrWhiteSpace(arguments) ? "1" : arguments;
-            }
             return $"{sqlFunctionExpression.FunctionName}({arguments})";
+        }
+
+        private string TranslateAggregateFunction(SqlAggregateFunctionExpression node)
+        {
+            var name = node.Function == SqlAggregateFunction.CountBig ? "Count_Big" : node.Function.ToString();
+            var arguments = this.TranslateSqlFunctionArguments(node);
+            if (string.IsNullOrWhiteSpace(arguments) && (node.Function == SqlAggregateFunction.Count || node.Function == SqlAggregateFunction.CountBig))
+                arguments = "1";
+            return $"{name}({arguments})";
         }
 
         private string TranslateSqlFunctionArguments(SqlFunctionExpression sqlFunctionCallExpression)

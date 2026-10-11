@@ -1,4 +1,4 @@
-using Atis.SqlExpressionEngine;
+﻿using Atis.SqlExpressionEngine;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
@@ -515,6 +515,8 @@ namespace Atis.Orm.Translation
                 this.TranslateWindowFunction(windowFunction);
             else if (node is SqlOverClauseExpression overClause)
                 this.TranslateOverClause(overClause);
+            else if (node is SqlAggregateFunctionExpression aggregateFunction)
+                this.TranslateAggregateFunction(aggregateFunction);
             else if (node is SqlFunctionExpression functionCall)
                 this.TranslateFunctionCall(functionCall);
             else if (node is SqlExistsExpression exists)
@@ -1412,15 +1414,6 @@ namespace Atis.Orm.Translation
             var arguments = node.Arguments?.ToList();
             var hasArgs = arguments != null && arguments.Count > 0;
 
-            // Special handling for COUNT with no arguments -> COUNT(1)
-            if ((node.FunctionName.Equals("Count", StringComparison.OrdinalIgnoreCase) ||
-                 node.FunctionName.Equals("Count_Big", StringComparison.OrdinalIgnoreCase)) && !hasArgs)
-            {
-                this.Append(node.FunctionName);
-                this.Append("(1)");
-                return;
-            }
-
             this.Append(node.FunctionName);
             this.Append("(");
             if (hasArgs)
@@ -1433,6 +1426,46 @@ namespace Atis.Orm.Translation
                 }
             }
             this.Append(")");
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Translates an aggregate function call. A count with no argument is written as <c>COUNT(1)</c>.
+        ///     </para>
+        /// </summary>
+        protected virtual void TranslateAggregateFunction(SqlAggregateFunctionExpression node)
+        {
+            this.Append(this.GetAggregateFunctionName(node.Function));
+            this.Append("(");
+            if (node.Arguments.Count == 0 && (node.Function == SqlAggregateFunction.Count || node.Function == SqlAggregateFunction.CountBig))
+            {
+                this.Append("1");
+            }
+            else
+            {
+                for (var i = 0; i < node.Arguments.Count; i++)
+                {
+                    if (i > 0)
+                        this.Append(", ");
+                    this.TranslateAsNonLogicalExpression(node.Arguments[i]);
+                }
+            }
+            this.Append(")");
+        }
+
+        /// <summary>The SQL name of an aggregate function. The SQL Server spellings are used unless a provider overrides this.</summary>
+        protected virtual string GetAggregateFunctionName(SqlAggregateFunction function)
+        {
+            switch (function)
+            {
+                case SqlAggregateFunction.Count: return "Count";
+                case SqlAggregateFunction.CountBig: return "Count_Big";
+                case SqlAggregateFunction.Sum: return "Sum";
+                case SqlAggregateFunction.Min: return "Min";
+                case SqlAggregateFunction.Max: return "Max";
+                case SqlAggregateFunction.Avg: return "Avg";
+                default: throw new NotSupportedException($"Aggregate function '{function}' is not supported.");
+            }
         }
 
         /// <summary>
