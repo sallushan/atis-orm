@@ -1413,7 +1413,8 @@ namespace Atis.Orm.Translation
             var hasArgs = arguments != null && arguments.Count > 0;
 
             // Special handling for COUNT with no arguments -> COUNT(1)
-            if (node.FunctionName.Equals("Count", StringComparison.OrdinalIgnoreCase) && !hasArgs)
+            if ((node.FunctionName.Equals("Count", StringComparison.OrdinalIgnoreCase) ||
+                 node.FunctionName.Equals("Count_Big", StringComparison.OrdinalIgnoreCase)) && !hasArgs)
             {
                 this.Append(node.FunctionName);
                 this.Append("(1)");

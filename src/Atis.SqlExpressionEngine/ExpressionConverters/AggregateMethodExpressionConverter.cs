@@ -19,7 +19,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <inheritdoc />
         public override bool TryCreate(IConverterDependencies converterDependencies, Expression expression, ExpressionConverterBase<Expression, SqlExpression>[] converterStack, out ExpressionConverterBase<Expression, SqlExpression> converter)
         {
-            var aggregateMethodNames = new[] { nameof(Queryable.Count), nameof(Queryable.Max), nameof(Queryable.Min), nameof(Queryable.Sum) };
+            var aggregateMethodNames = new[] { nameof(Queryable.Count), nameof(Queryable.LongCount), nameof(Queryable.Average), nameof(Queryable.Max), nameof(Queryable.Min), nameof(Queryable.Sum) };
             // The declaring type matters: a provider function that happens to be called Sum or Count
             // (e.g. SqlServerFunctions.Sum(x)) takes a value, not a query, and must not be claimed here.
             if (expression is MethodCallExpression methodCallExpr &&
@@ -102,8 +102,41 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 methodArguments[0] = this.SqlFactory.CreateCondition(methodArguments[0], this.SqlFactory.CreateLiteral(1), ifFalse: null);
             }
 
+            // q.Select(y => y.Age).Sum() has no selector: the value is the single column of the source query.
+            // Without this the function was written with no argument at all (Sum()).
+            if (methodArguments.Length == 0 && applyProjection &&
+                this.Expression.Method.Name != nameof(Queryable.Count) && this.Expression.Method.Name != nameof(Queryable.LongCount))
+            {
+                var shape = this.sourceQuery.GetQueryShapeForFieldMapping();
+                if (shape is SqlQueryShapeExpression queryShape)
+                {
+                    if (!queryShape.IsScalar)
+                        throw new InvalidOperationException($"{this.Expression.Method.Name}() without a selector needs a query that selects a single value, e.g. Select(x => x.Field).{this.Expression.Method.Name}().");
+                    shape = queryShape.GetScalarExpression();
+                }
+                methodArguments = new[] { shape };
+            }
+
+            // LINQ's Average of ints returns double, but SQL AVG of an int column is an int (it truncates),
+            // and the reader expects a double. Casting the argument to float makes SQL agree with LINQ.
+            if (this.Expression.Method.Name == nameof(Queryable.Average) && methodArguments.Length == 1 &&
+                (this.Expression.Method.ReturnType == typeof(double) || this.Expression.Method.ReturnType == typeof(double?)))
+            {
+                var floatType = new SqlDataType(typeof(double), "float", length: null, isNullable: false, isUnicode: false, precision: null, scale: null, useMaxLength: false);
+                methodArguments[0] = this.SqlFactory.CreateCast(methodArguments[0], floatType);
+            }
+
+            // C# and SQL spell two of these differently.
+            string functionName;
+            switch (this.Expression.Method.Name)
+            {
+                case nameof(Queryable.Average): functionName = "Avg"; break;
+                case nameof(Queryable.LongCount): functionName = "Count_Big"; break;
+                default: functionName = this.Expression.Method.Name; break;
+            }
+
             SqlExpression result;
-            var functionCallExpression = this.SqlFactory.CreateFunctionCall(this.Expression.Method.Name, methodArguments);
+            var functionCallExpression = this.SqlFactory.CreateFunctionCall(functionName, methodArguments);
             if (applyProjection)
             {
                 this.sourceQuery.ApplyProjection(functionCallExpression);

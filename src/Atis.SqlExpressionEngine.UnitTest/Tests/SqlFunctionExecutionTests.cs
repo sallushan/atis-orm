@@ -549,6 +549,36 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Average_LongCount_and_selector_less_aggregates_on_a_group_run()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);   // Ann 300, Bob 300, Cid 200, Dee 100
+
+                var r = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker)
+                          .GroupBy(x => x.LastName)
+                          .Select(g => new
+                          {
+                              AvgSalary = g.Average(y => y.Salary),
+                              AvgFlag = g.Average(y => y.FirstName == "Ann" ? 1 : 0),
+                              Big = g.LongCount(),
+                              Total = g.Select(y => y.Salary).Sum(),
+                              Highest = g.Select(y => y.Salary).Max(),
+                          })
+                          .ToList()
+                          .Single();
+
+                Assert.AreEqual(225m, r.AvgSalary);
+                Assert.AreEqual(0.25, r.AvgFlag, 1e-9, "Average of ints is a double in LINQ; SQL AVG of ints would truncate to 0.");
+                Assert.AreEqual(4L, r.Big);
+                Assert.AreEqual(900m, r.Total);
+                Assert.AreEqual(300m, r.Highest);
+            });
+        }
+
+        [TestMethod]
         public void A_captured_variable_in_a_brace_argument_rebinds_on_the_second_run()
         {
             var db = new OrmDbContext();

@@ -862,7 +862,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
         private string TranslateSqlFunctionExpression(SqlFunctionExpression sqlFunctionExpression)
         {
             var arguments = sqlFunctionExpression.Arguments != null ? this.TranslateSqlFunctionArguments(sqlFunctionExpression) : string.Empty;
-            if (sqlFunctionExpression.FunctionName == "Count")
+            if (sqlFunctionExpression.FunctionName == "Count" || sqlFunctionExpression.FunctionName == "Count_Big")
             {
                 arguments = string.IsNullOrWhiteSpace(arguments) ? "1" : arguments;
             }

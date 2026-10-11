@@ -65,6 +65,50 @@ group by a_1.Address
         }
 
         [TestMethod]
+        public void Average_and_LongCount_on_a_group()
+        {
+            Expression<Func<object>> queryExpression = () =>
+            queryProvider.DataSet<Student>()
+            .GroupBy(x => x.Address)
+            .Select(x => new { Add = x.Key, Avg = x.Average(y => y.Age), Big = x.LongCount() });
+            string expectedResult = @"
+select  a_1.Address as Add, avg(cast(a_1.Age as float)) as Avg, count_big(1) as Big
+from    Student as a_1
+group by a_1.Address
+";
+            Test("Group By Average And LongCount", queryExpression.Body, expectedResult);
+        }
+
+        [TestMethod]
+        public void Aggregate_without_selector_after_Select_on_a_group()
+        {
+            Expression<Func<object>> queryExpression = () =>
+            queryProvider.DataSet<Student>()
+            .GroupBy(x => x.Address)
+            .Select(x => new { Add = x.Key, Total = x.Select(y => y.Age).Sum(), Hi = x.Select(y => y.Age).Max() });
+            string expectedResult = @"
+select a_1.Address as Add, (
+		select sum(a_3.Col1) as Col1
+		from (
+				select a_2.Age as Col1
+				from Student as a_2
+				where (a_1.Address = a_2.Address)
+			) as a_3
+	) as Total, (
+		select max(a_5.Col1) as Col1
+		from (
+				select a_4.Age as Col1
+				from Student as a_4
+				where (a_1.Address = a_4.Address)
+			) as a_5
+	) as Hi
+from Student as a_1
+group by a_1.Address
+";
+            Test("Group By Select Then Sum", queryExpression.Body, expectedResult);
+        }
+
+        [TestMethod]
         public void GroupBy_on_single_column_then_join_the_result_with_other_table()
         {
             Expression<Func<object>> queryExpression = () =>
