@@ -113,6 +113,8 @@ namespace Atis.Orm.SqlServer
             builder.TryAdd<IDbCommunication>(sp => CreateDbCommunication(sp));
 
             builder.TryAdd<IDbParameterNameGenerator, SqlDbParameterNameGenerator>();
+            // Names are written the SQL Server way (bracketed). First-wins again, ahead of AddCoreServices' default.
+            builder.TryAdd<ISqlNaming, SqlServerNaming>();
             // Register the SQL Server dialect translator before AddCoreServices so it wins the
             // TryAdd<ISqlExpressionTranslator, SqlExpressionTranslatorBase>() default (first-wins).
             builder.TryAdd<ISqlExpressionTranslator, SqlServerSqlExpressionTranslator>();

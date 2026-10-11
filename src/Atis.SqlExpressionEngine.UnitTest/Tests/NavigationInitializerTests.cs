@@ -1,4 +1,4 @@
-﻿using Atis.Orm.Abstractions;
+using Atis.Orm.Abstractions;
 using Atis.Orm.Metadata;
 using Atis.Orm.Services;
 using System;
@@ -234,9 +234,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var sql = dbc.TranslateToSql(author.Books);
             Console.WriteLine(sql);
             string expected = @"
-SELECT t1.Id AS Id, t1.BOOK_TITLE AS Title, t1.AuthorId AS AuthorId, t1.Year AS Year
-FROM BOOK AS t1
-WHERE (@p0 = t1.AuthorId)
+SELECT t1.[Id] AS [Id], t1.[BOOK_TITLE] AS [Title], t1.[AuthorId] AS [AuthorId], t1.[Year] AS [Year]
+FROM [BOOK] AS t1
+WHERE (@p0 = t1.[AuthorId])
 ";
             ValidateQueryResults(sql, expected);
         }

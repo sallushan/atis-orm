@@ -100,7 +100,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var students = new Queryable<Student>(queryProvider);
             var q = students.Select(x => new { C1 = SqlServerFunctions.Ascii(x.Name), C2 = SqlServerFunctions.CharIndex("a", x.Name) });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "Ascii(t1.Name)");
+            StringAssert.Contains(sql, "Ascii(t1.[Name])");
             StringAssert.Contains(sql, "CharIndex(@p");
         }
 
@@ -110,7 +110,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var students = new Queryable<Student>(queryProvider);
             var q = students.Select(x => new { C1 = SqlServerFunctions.Len(x.Name) });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "Len(t1.Name)");
+            StringAssert.Contains(sql, "Len(t1.[Name])");
         }
 
         [TestMethod]
@@ -120,7 +120,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var q = students.Select(x => new { C1 = SqlServerFunctions.DateAdd(DatePart.day, 5, x.AdmissionDate) });
             var sql = TranslateForSqlServer(q.Expression);
             StringAssert.Contains(sql, "dateadd(day, @p");
-            StringAssert.Contains(sql, ", t1.AdmissionDate)");
+            StringAssert.Contains(sql, ", t1.[AdmissionDate])");
         }
 
         [TestMethod]
@@ -129,8 +129,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var students = new Queryable<Student>(queryProvider);
             var q = students.Select(x => new { C1 = SqlServerFunctions.DatePart(DatePart.month, x.AdmissionDate), C2 = SqlServerFunctions.DateName(DatePart.month, x.AdmissionDate) });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "datepart(month, t1.AdmissionDate)");
-            StringAssert.Contains(sql, "datename(month, t1.AdmissionDate)");
+            StringAssert.Contains(sql, "datepart(month, t1.[AdmissionDate])");
+            StringAssert.Contains(sql, "datename(month, t1.[AdmissionDate])");
         }
 
         [TestMethod]
@@ -139,7 +139,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var students = new Queryable<Student>(queryProvider);
             var q = students.Select(x => new { C1 = SqlServerFunctions.CastToVarchar(x.Age, 20) });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "cast(t1.Age as varchar(20))");
+            StringAssert.Contains(sql, "cast(t1.[Age] as varchar(20))");
         }
 
         [TestMethod]
@@ -157,7 +157,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         {
             var students = new Queryable<Student>(queryProvider);
             var q = students.Select(x => new { C1 = SqlServerFunctions.ConvertToVarchar(x.Age, 1, 10) });
-            StringAssert.Contains(TranslateForSqlServer(q.Expression), "convert(varchar(10), t1.Age, @p");
+            StringAssert.Contains(TranslateForSqlServer(q.Expression), "convert(varchar(10), t1.[Age], @p");
         }
 
         [TestMethod]
@@ -176,13 +176,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             });
 
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "checksum_agg(distinct t1.Age)");
+            StringAssert.Contains(sql, "checksum_agg(distinct t1.[Age])");
             StringAssert.Contains(sql, "binary_checksum(*)");
             StringAssert.Contains(sql, "checksum(*)");
             StringAssert.Contains(sql, "session_user");
             StringAssert.Contains(sql, "system_user");
-            StringAssert.Contains(sql, "cast(t1.Age as varbinary(8))");
-            StringAssert.Contains(sql, "convert(decimal(12, 2), t1.Age, @p");
+            StringAssert.Contains(sql, "cast(t1.[Age] as varbinary(8))");
+            StringAssert.Contains(sql, "convert(decimal(12, 2), t1.[Age], @p");
         }
 
         [TestMethod]
@@ -204,11 +204,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             });
 
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "iif((t1.Age > @p");
+            StringAssert.Contains(sql, "iif((t1.[Age] > @p");
             StringAssert.Contains(sql, "Choose(@p");
-            StringAssert.Contains(sql, "IsNull(t1.Name, @p");
+            StringAssert.Contains(sql, "IsNull(t1.[Name], @p");
             StringAssert.Contains(sql, "trim(@p");
-            StringAssert.Contains(sql, " from t1.Name)");
+            StringAssert.Contains(sql, " from t1.[Name])");
             StringAssert.Contains(sql, "current_user");
             StringAssert.Contains(sql, "User_Name()");
             StringAssert.Contains(sql, "Rand()");
@@ -227,8 +227,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             });
 
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "Binary_Checksum(t1.Age, t1.Name, t1.StudentId)");
-            StringAssert.Contains(sql, "Checksum(t1.Age, t1.Name, t1.StudentId)");
+            StringAssert.Contains(sql, "Binary_Checksum(t1.[Age], t1.[Name], t1.[StudentId])");
+            StringAssert.Contains(sql, "Checksum(t1.[Age], t1.[Name], t1.[StudentId])");
         }
 
         [TestMethod]
@@ -264,7 +264,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 Rn = Sql.RowNumber(Sql.Over().PartitionBy(x.Department).OrderBy(x.Name).OrderByDescending(x.EmployeeId)),
             });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "ROW_NUMBER() OVER (PARTITION BY t1.Department ORDER BY t1.Name ASC, t1.EmployeeId DESC)");
+            StringAssert.Contains(sql, "ROW_NUMBER() OVER (PARTITION BY t1.[Department] ORDER BY t1.[Name] ASC, t1.[EmployeeId] DESC)");
         }
 
         [TestMethod]
@@ -273,8 +273,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var employees = new Queryable<Employee>(queryProvider);
             var q = employees.Select(x => new { Rn = Sql.RowNumber(Sql.Over().OrderBy(x.Name)), R = Sql.Rank(Sql.Over().OrderBy(x.Name)) });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "ROW_NUMBER() OVER (ORDER BY t1.Name ASC)");
-            StringAssert.Contains(sql, "RANK() OVER (ORDER BY t1.Name ASC)");
+            StringAssert.Contains(sql, "ROW_NUMBER() OVER (ORDER BY t1.[Name] ASC)");
+            StringAssert.Contains(sql, "RANK() OVER (ORDER BY t1.[Name] ASC)");
         }
 
         [TestMethod]
@@ -308,11 +308,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 E = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.EmployeeId)),
             });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "LAG(t1.Name) OVER (PARTITION BY t1.Department ORDER BY t1.EmployeeId ASC)");
-            StringAssert.Contains(sql, "LAG(t1.Name, @p");
-            StringAssert.Contains(sql, "LEAD(t1.Name, @p");
-            StringAssert.Contains(sql, "FIRST_VALUE(t1.Name) OVER");
-            StringAssert.Contains(sql, "LAST_VALUE(t1.Name) OVER");
+            StringAssert.Contains(sql, "LAG(t1.[Name]) OVER (PARTITION BY t1.[Department] ORDER BY t1.[EmployeeId] ASC)");
+            StringAssert.Contains(sql, "LAG(t1.[Name], @p");
+            StringAssert.Contains(sql, "LEAD(t1.[Name], @p");
+            StringAssert.Contains(sql, "FIRST_VALUE(t1.[Name]) OVER");
+            StringAssert.Contains(sql, "LAST_VALUE(t1.[Name]) OVER");
         }
 
         [TestMethod]
@@ -323,8 +323,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 .Select(x => new { x.EmployeeId, Rn = Sql.RowNumber(Sql.Over().PartitionBy(x.Department).OrderBy(x.Name)) })
                 .Where(x => x.Rn == 1);
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "ROW_NUMBER() OVER (PARTITION BY t2.Department ORDER BY t2.Name ASC)");
-            StringAssert.Contains(sql, "WHERE (t1.Rn = @p");
+            StringAssert.Contains(sql, "ROW_NUMBER() OVER (PARTITION BY t2.[Department] ORDER BY t2.[Name] ASC)");
+            StringAssert.Contains(sql, "WHERE (t1.[Rn] = @p");
         }
 
         [TestMethod]
@@ -340,10 +340,10 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                     Names = SqlServerFunctions.String_Agg(g.SelectField(y => y.Name), ", ", Sql.Over().OrderBy(g.SelectField(y => y.EmployeeId))),
                 });
             var sql = TranslateForSqlServer(q.Expression);
-            StringAssert.Contains(sql, "Stdev(LEN(t1.Name))");
-            StringAssert.Contains(sql, "string_agg(t1.Name, @p");
-            StringAssert.Contains(sql, "within group (ORDER BY t1.EmployeeId ASC)");
-            StringAssert.Contains(sql, "GROUP BY t1.Department");
+            StringAssert.Contains(sql, "Stdev(LEN(t1.[Name]))");
+            StringAssert.Contains(sql, "string_agg(t1.[Name], @p");
+            StringAssert.Contains(sql, "within group (ORDER BY t1.[EmployeeId] ASC)");
+            StringAssert.Contains(sql, "GROUP BY t1.[Department]");
         }
 
         [TestMethod]

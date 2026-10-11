@@ -31,9 +31,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             // JoinCondition is (parent, child) => parent.Id == child.AuthorId; the parent (author) is
             // bound as a constant so its Id flows in as a parameter (NOT inlined as a column).
             string expected = @"
-SELECT t1.Id AS Id, t1.BOOK_TITLE AS Title, t1.AuthorId AS AuthorId, t1.Year AS Year
-FROM BOOK AS t1
-WHERE (@p0 = t1.AuthorId)
+SELECT t1.[Id] AS [Id], t1.[BOOK_TITLE] AS [Title], t1.[AuthorId] AS [AuthorId], t1.[Year] AS [Year]
+FROM [BOOK] AS t1
+WHERE (@p0 = t1.[AuthorId])
 ";
             ValidateQueryResults(sql, expected);
         }
@@ -52,9 +52,9 @@ WHERE (@p0 = t1.AuthorId)
             var sql = dbc.TranslateToSql(company.Employees);
             Console.WriteLine(sql);
             string expected = @"
-SELECT t1.CompanyId AS CompanyId, t1.DivisionId AS DivisionId, t1.EmployeeId AS EmployeeId, t1.EmployeeName AS EmployeeName
-FROM EMPLOYEE AS t1
-WHERE ((@p0 = t1.CompanyId) AND (@p1 = t1.DivisionId))
+SELECT t1.[CompanyId] AS [CompanyId], t1.[DivisionId] AS [DivisionId], t1.[EmployeeId] AS [EmployeeId], t1.[EmployeeName] AS [EmployeeName]
+FROM [EMPLOYEE] AS t1
+WHERE ((@p0 = t1.[CompanyId]) AND (@p1 = t1.[DivisionId]))
 ";
             ValidateQueryResults(sql, expected);
         }

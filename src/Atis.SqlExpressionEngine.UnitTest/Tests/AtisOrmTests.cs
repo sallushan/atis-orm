@@ -271,9 +271,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
             var expectedResult = @"
-SELECT t1.ROW_ID AS RowId, t1.ORD_ID AS SalesOrderId, t1.ORD_DT AS OrderDate, t1.CST_NM AS CustomerName
-FROM SLS_ORD AS t1
-WHERE (t1.ORD_DT >= @p0)
+SELECT t1.[ROW_ID] AS [RowId], t1.[ORD_ID] AS [SalesOrderId], t1.[ORD_DT] AS [OrderDate], t1.[CST_NM] AS [CustomerName]
+FROM [SLS_ORD] AS t1
+WHERE (t1.[ORD_DT] >= @p0)
 ";
             ValidateQueryResults(queryResult, expectedResult);
         }
@@ -288,9 +288,9 @@ WHERE (t1.ORD_DT >= @p0)
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
             string expectedResult = @"
-SELECT t1.PK AS PrimaryKey, t1.FLD2 AS SomeOtherField
-FROM SIM_EXT_TBL AS t1
-WHERE (t1.PK = @p0)
+SELECT t1.[PK] AS [PrimaryKey], t1.[FLD2] AS [SomeOtherField]
+FROM [SIM_EXT_TBL] AS t1
+WHERE (t1.[PK] = @p0)
 ";
             ValidateQueryResults(queryResult, expectedResult);
         }
@@ -307,12 +307,12 @@ WHERE (t1.PK = @p0)
             // `exists` is a predicate, so comparing it with a bool first turns it into a value
             // via `CASE WHEN ... THEN 1 ELSE 0 END`; the captured `flag` becomes @p2.
             string expectedResult = @"
-SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
-FROM dbo.AUTHOR AS t1
+SELECT t1.[Id] AS [Id], t1.[FRST_NM] AS [FirstName], t1.[LAST_NM] AS [LastName], t1.[CountryId] AS [CountryId]
+FROM [dbo].[AUTHOR] AS t1
 WHERE (CASE WHEN EXISTS(
-	SELECT @p0 AS Col1
-	FROM BOOK AS t2
-	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+	SELECT @p0 AS [Col1]
+	FROM [BOOK] AS t2
+	WHERE (t1.[Id] = t2.[AuthorId]) AND (t2.[BOOK_TITLE] = @p1)
 ) THEN 1 ELSE 0 END = @p2)
 ";
             ValidateQueryResults(queryResult, expectedResult);
@@ -330,24 +330,24 @@ WHERE (CASE WHEN EXISTS(
             var any = dbc.TranslateToSql(authors.Where(a => a.Books.Any(b => b.Title == "Test")));
             Console.WriteLine(any);
             ValidateQueryResults(any, @"
-SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
-FROM dbo.AUTHOR AS t1
+SELECT t1.[Id] AS [Id], t1.[FRST_NM] AS [FirstName], t1.[LAST_NM] AS [LastName], t1.[CountryId] AS [CountryId]
+FROM [dbo].[AUTHOR] AS t1
 WHERE EXISTS(
-	SELECT @p0 AS Col1
-	FROM BOOK AS t2
-	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+	SELECT @p0 AS [Col1]
+	FROM [BOOK] AS t2
+	WHERE (t1.[Id] = t2.[AuthorId]) AND (t2.[BOOK_TITLE] = @p1)
 )
 ");
 
             var notAny = dbc.TranslateToSql(authors.Where(a => !a.Books.Any(b => b.Title == "Test")));
             Console.WriteLine(notAny);
             ValidateQueryResults(notAny, @"
-SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
-FROM dbo.AUTHOR AS t1
+SELECT t1.[Id] AS [Id], t1.[FRST_NM] AS [FirstName], t1.[LAST_NM] AS [LastName], t1.[CountryId] AS [CountryId]
+FROM [dbo].[AUTHOR] AS t1
 WHERE NOT EXISTS(
-	SELECT @p0 AS Col1
-	FROM BOOK AS t2
-	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+	SELECT @p0 AS [Col1]
+	FROM [BOOK] AS t2
+	WHERE (t1.[Id] = t2.[AuthorId]) AND (t2.[BOOK_TITLE] = @p1)
 )
 ");
         }
@@ -363,12 +363,12 @@ WHERE NOT EXISTS(
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
             ValidateQueryResults(queryResult, @"
-SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
-FROM dbo.AUTHOR AS t1
+SELECT t1.[Id] AS [Id], t1.[FRST_NM] AS [FirstName], t1.[LAST_NM] AS [LastName], t1.[CountryId] AS [CountryId]
+FROM [dbo].[AUTHOR] AS t1
 WHERE (CASE WHEN EXISTS(
-	SELECT @p0 AS Col1
-	FROM BOOK AS t2
-	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+	SELECT @p0 AS [Col1]
+	FROM [BOOK] AS t2
+	WHERE (t1.[Id] = t2.[AuthorId]) AND (t2.[BOOK_TITLE] = @p1)
 ) THEN 1 ELSE 0 END = @p2)
 ");
         }
@@ -383,12 +383,12 @@ WHERE (CASE WHEN EXISTS(
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
             string expectedResult = @"
-SELECT t1.Id AS Id, t1.FRST_NM AS FirstName, t1.LAST_NM AS LastName, t1.CountryId AS CountryId
-FROM dbo.AUTHOR AS t1
+SELECT t1.[Id] AS [Id], t1.[FRST_NM] AS [FirstName], t1.[LAST_NM] AS [LastName], t1.[CountryId] AS [CountryId]
+FROM [dbo].[AUTHOR] AS t1
 WHERE EXISTS(
-	SELECT @p0 AS Col1
-	FROM BOOK AS t2
-	WHERE (t1.Id = t2.AuthorId) AND (t2.BOOK_TITLE = @p1)
+	SELECT @p0 AS [Col1]
+	FROM [BOOK] AS t2
+	WHERE (t1.[Id] = t2.[AuthorId]) AND (t2.[BOOK_TITLE] = @p1)
 )
 ";
             ValidateQueryResults(queryResult, expectedResult);
@@ -404,8 +404,8 @@ WHERE EXISTS(
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
             string expectedResult = @"
-SELECT t1.ID AS Id, ((t1.FRST_NM + @p0) + t1.LAST_NM) AS FullName
-FROM dbo.AUTHOR AS t1
+SELECT t1.[ID] AS [Id], ((t1.[FRST_NM] + @p0) + t1.[LAST_NM]) AS [FullName]
+FROM [dbo].[AUTHOR] AS t1
 ";
             ValidateQueryResults(queryResult, expectedResult);
         }
@@ -487,12 +487,12 @@ FROM dbo.AUTHOR AS t1
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
             string expectedResult = @"
-SELECT t1.CompanyId AS CompanyId, t1.DivisionId AS DivisionId, t1.Name AS Name
-FROM COMPANY AS t1
+SELECT t1.[CompanyId] AS [CompanyId], t1.[DivisionId] AS [DivisionId], t1.[Name] AS [Name]
+FROM [COMPANY] AS t1
 WHERE EXISTS(
-	SELECT @p0 AS Col1
-	FROM EMPLOYEE AS t2
-	WHERE ((t1.CompanyId = t2.CompanyId) AND (t1.DivisionId = t2.DivisionId)) AND (t2.EmployeeName = @p1)
+	SELECT @p0 AS [Col1]
+	FROM [EMPLOYEE] AS t2
+	WHERE ((t1.[CompanyId] = t2.[CompanyId]) AND (t1.[DivisionId] = t2.[DivisionId])) AND (t2.[EmployeeName] = @p1)
 )
 ";
             ValidateQueryResults(queryResult, expectedResult);
@@ -560,13 +560,13 @@ WHERE EXISTS(
             var queryResult = dbc.TranslateToSql(q);
             Console.WriteLine(queryResult);
             string expectedResult = @"
-SELECT t1.Id AS Id, t2.Title AS LatestBookTitle
-FROM dbo.AUTHOR AS t1
+SELECT t1.[Id] AS [Id], t2.[Title] AS [LatestBookTitle]
+FROM [dbo].[AUTHOR] AS t1
 OUTER APPLY (
-	SELECT TOP (1) t3.Id AS Id, t3.BOOK_TITLE AS Title, t3.AuthorId AS AuthorId, t3.Year AS Year
-	FROM BOOK AS t3
-	WHERE (t3.AuthorId = t1.Id)
-	ORDER BY t3.Year DESC
+	SELECT TOP (1) t3.[Id] AS [Id], t3.[BOOK_TITLE] AS [Title], t3.[AuthorId] AS [AuthorId], t3.[Year] AS [Year]
+	FROM [BOOK] AS t3
+	WHERE (t3.[AuthorId] = t1.[Id])
+	ORDER BY t3.[Year] DESC
 ) AS t2
 ";
             ValidateQueryResults(queryResult, expectedResult);

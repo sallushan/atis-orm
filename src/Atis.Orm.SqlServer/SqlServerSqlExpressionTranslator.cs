@@ -14,8 +14,9 @@ namespace Atis.Orm.SqlServer
     /// </summary>
     public class SqlServerSqlExpressionTranslator : SqlExpressionTranslatorBase
     {
-        /// <summary>Constructs a translator that spells names the default way.</summary>
+        /// <summary>Constructs a translator that spells names the SQL Server way (see <see cref="SqlServerNaming"/>).</summary>
         public SqlServerSqlExpressionTranslator()
+            : base(new SqlServerNaming())
         {
         }
 

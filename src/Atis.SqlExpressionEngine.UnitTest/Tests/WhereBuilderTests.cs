@@ -57,7 +57,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             // A supplied value renders the filter and nothing else. The two states are ALTERNATIVES - the
             // renderer emits one branch or the other, never both - so the `1 = 1` stand-in appears only when
             // the term is dropped (pinned by the test below).
-            StringAssert.Contains(rendered.Sql, "(t1.Department = @p0)");
+            StringAssert.Contains(rendered.Sql, "(t1.[Department] = @p0)");
             Assert.IsFalse(rendered.Sql.Contains("1 = 1"),
                 "The stand-in is the absent branch; a supplied value must not carry it.");
             Assert.AreEqual(1, rendered.DbParameters.Count);
@@ -84,13 +84,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var compiled = wiring.Compiler.Compile(wiring.BuildOptionalEqualQuery("IT"));
 
             var withValue = compiled.GetExecutionContext(wiring.ValuesByIdentity("Finance"), useInitialValues: false);
-            StringAssert.Contains(withValue.Sql, "t1.Department = @p0", "A supplied value keeps the term.");
+            StringAssert.Contains(withValue.Sql, "t1.[Department] = @p0", "A supplied value keeps the term.");
             Assert.AreEqual(1, withValue.DbParameters.Count);
             Assert.AreEqual("Finance", withValue.DbParameters[0].Value, "The term binds this execution's value.");
 
             var withoutValue = compiled.GetExecutionContext(wiring.ValuesByIdentity(null), useInitialValues: false);
             // The column still appears in the SELECT list, so the comparison is what must be gone.
-            Assert.IsFalse(withoutValue.Sql.Contains("t1.Department ="), "A null value drops the term entirely.");
+            Assert.IsFalse(withoutValue.Sql.Contains("t1.[Department] ="), "A null value drops the term entirely.");
             StringAssert.Contains(withoutValue.Sql, "1 = 1", "The anchor stays, so the WHERE clause is still valid.");
             Assert.AreEqual(0, withoutValue.DbParameters.Count, "A dropped term binds no parameters.");
         }
@@ -121,7 +121,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             var ctx = compiled.GetExecutionContext(wiring.ValuesByIdentity(string.Empty), useInitialValues: false);
 
-            StringAssert.Contains(ctx.Sql, "t1.Department = @p0");
+            StringAssert.Contains(ctx.Sql, "t1.[Department] = @p0");
             Assert.AreEqual(string.Empty, ctx.DbParameters[0].Value);
         }
 
@@ -137,8 +137,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var onlySecond = compiled.GetExecutionContext(wiring.TwoValuesByIdentity(null, "E2"), useInitialValues: false);
             Assert.AreEqual(1, onlySecond.DbParameters.Count, "Only the term whose value survives is emitted.");
             Assert.AreEqual("E2", onlySecond.DbParameters[0].Value);
-            Assert.IsFalse(onlySecond.Sql.Contains("t1.Department ="), "The first term is gone.");
-            StringAssert.Contains(onlySecond.Sql, "t1.EmployeeId =", "The second term survives.");
+            Assert.IsFalse(onlySecond.Sql.Contains("t1.[Department] ="), "The first term is gone.");
+            StringAssert.Contains(onlySecond.Sql, "t1.[EmployeeId] =", "The second term survives.");
         }
 
         [TestMethod]
@@ -148,15 +148,15 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var employees = new Queryable<Employee>(this.queryProvider);
 
             AssertRenders(employees.Where(x => WhereBuilder.Contains(x.Department, pattern)),
-                          "(t1.Department LIKE '%' + @p0 + '%')");
+                          "(t1.[Department] LIKE '%' + @p0 + '%')");
             AssertRenders(employees.Where(x => WhereBuilder.StartsWith(x.Department, pattern)),
-                          "(t1.Department LIKE @p0 + '%')");
+                          "(t1.[Department] LIKE @p0 + '%')");
             AssertRenders(employees.Where(x => WhereBuilder.EndsWith(x.Department, pattern)),
-                          "(t1.Department LIKE '%' + @p0)");
+                          "(t1.[Department] LIKE '%' + @p0)");
             // LikePattern is the only form with no BCL spelling: the caller's wildcards are used as-is, so
             // this is the one that behaves like SQL's own LIKE.
             AssertRenders(employees.Where(x => WhereBuilder.LikePattern(x.Department, pattern)),
-                          "(t1.Department LIKE @p0)");
+                          "(t1.[Department] LIKE @p0)");
 
             void AssertRenders(IQueryable<Employee> query, string expectedPredicate)
             {
@@ -176,13 +176,13 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var employees = new Queryable<Employee>(this.queryProvider);
 
             AssertRenders(employees.Where(x => WhereBuilder.ContainsAny(x.Department, patterns)),
-                          "((t1.Department LIKE '%' + @p0 + '%') OR (t1.Department LIKE '%' + @p1 + '%'))");
+                          "((t1.[Department] LIKE '%' + @p0 + '%') OR (t1.[Department] LIKE '%' + @p1 + '%'))");
             AssertRenders(employees.Where(x => WhereBuilder.StartsWithAny(x.Department, patterns)),
-                          "((t1.Department LIKE @p0 + '%') OR (t1.Department LIKE @p1 + '%'))");
+                          "((t1.[Department] LIKE @p0 + '%') OR (t1.[Department] LIKE @p1 + '%'))");
             AssertRenders(employees.Where(x => WhereBuilder.EndsWithAny(x.Department, patterns)),
-                          "((t1.Department LIKE '%' + @p0) OR (t1.Department LIKE '%' + @p1))");
+                          "((t1.[Department] LIKE '%' + @p0) OR (t1.[Department] LIKE '%' + @p1))");
             AssertRenders(employees.Where(x => WhereBuilder.LikePatternAny(x.Department, patterns)),
-                          "((t1.Department LIKE @p0) OR (t1.Department LIKE @p1))");
+                          "((t1.[Department] LIKE @p0) OR (t1.[Department] LIKE @p1))");
 
             void AssertRenders(IQueryable<Employee> query, string expectedPredicate)
             {
@@ -252,12 +252,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             var both = compiled.GetExecutionContext(wiring.ContainsAnyAndEqualValuesByIdentity(new[] { "a", "b" }, "E2"), useInitialValues: false);
             Assert.AreEqual(3, both.DbParameters.Count, "Two values plus the equality's value.");
-            StringAssert.Contains(both.Sql, "t1.EmployeeId =");
+            StringAssert.Contains(both.Sql, "t1.[EmployeeId] =");
 
             var onlyEqual = compiled.GetExecutionContext(wiring.ContainsAnyAndEqualValuesByIdentity(null, "E2"), useInitialValues: false);
             Assert.AreEqual(1, onlyEqual.DbParameters.Count, "The dropped disjunction takes all its values with it.");
-            Assert.IsFalse(onlyEqual.Sql.Contains("t1.Department LIKE"));
-            StringAssert.Contains(onlyEqual.Sql, "t1.EmployeeId =");
+            Assert.IsFalse(onlyEqual.Sql.Contains("t1.[Department] LIKE"));
+            StringAssert.Contains(onlyEqual.Sql, "t1.[EmployeeId] =");
         }
 
         [TestMethod]
@@ -269,15 +269,15 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var compiled = wiring.Compiler.Compile(wiring.BuildInQuery(new[] { "IT" }));
 
             var withValues = compiled.GetExecutionContext(wiring.InValuesByIdentity(new[] { "IT", "HR" }), useInitialValues: false);
-            StringAssert.Contains(withValues.Sql, "t1.Department IN");
+            StringAssert.Contains(withValues.Sql, "t1.[Department] IN");
             Assert.AreEqual(2, withValues.DbParameters.Count);
 
             var empty = compiled.GetExecutionContext(wiring.InValuesByIdentity(new string[0]), useInitialValues: false);
-            Assert.IsFalse(empty.Sql.Contains("t1.Department IN"), "An empty collection drops the term.");
+            Assert.IsFalse(empty.Sql.Contains("t1.[Department] IN"), "An empty collection drops the term.");
             Assert.AreEqual(0, empty.DbParameters.Count);
 
             var nullList = compiled.GetExecutionContext(wiring.InValuesByIdentity(null), useInitialValues: false);
-            Assert.IsFalse(nullList.Sql.Contains("t1.Department IN"), "A null collection drops the term.");
+            Assert.IsFalse(nullList.Sql.Contains("t1.[Department] IN"), "A null collection drops the term.");
         }
 
         [TestMethod]
@@ -288,12 +288,12 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             var withValues = compiled.GetExecutionContext(wiring.NotInValuesByIdentity(new[] { "IT" }), useInitialValues: false);
             StringAssert.Contains(withValues.Sql, "NOT ");
-            StringAssert.Contains(withValues.Sql, "t1.Department IN");
+            StringAssert.Contains(withValues.Sql, "t1.[Department] IN");
 
             // The old library's eager NotStringIn(x, null) returned false (match nothing) while its expression
             // form emitted 1 = 1 (match everything). Here absent means no filter, like every other method.
             var empty = compiled.GetExecutionContext(wiring.NotInValuesByIdentity(new string[0]), useInitialValues: false);
-            Assert.IsFalse(empty.Sql.Contains("t1.Department IN"), "An empty collection drops the term.");
+            Assert.IsFalse(empty.Sql.Contains("t1.[Department] IN"), "An empty collection drops the term.");
         }
 
         #region Delimited value lists
@@ -310,7 +310,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             // The rendered SQL is indistinguishable from the one a real collection produces - the string is
             // read as a list only at the point where a list is expected.
-            StringAssert.Contains(rendered.Sql, "t1.Department IN (");
+            StringAssert.Contains(rendered.Sql, "t1.[Department] IN (");
             Assert.AreEqual(3, rendered.DbParameters.Count, "Three values means three bound parameters.");
             CollectionAssert.AreEqual(
                 new object[] { "HR", "IT", "Finance" },
@@ -532,7 +532,7 @@ select	a_1.RowId as RowId, a_1.EmployeeId as EmployeeId, a_1.Name as Name, a_1.D
             var translation = this.TranslateWithSqlServer(q.Expression);
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
-            StringAssert.Contains(rendered.Sql, "(COALESCE(t1.Department, t1.Name) = @p0)");
+            StringAssert.Contains(rendered.Sql, "(COALESCE(t1.[Department], t1.[Name]) = @p0)");
             Assert.AreEqual(1, rendered.DbParameters.Count);
         }
 
@@ -549,7 +549,7 @@ select	a_1.RowId as RowId, a_1.EmployeeId as EmployeeId, a_1.Name as Name, a_1.D
             var withValue = compiled.GetExecutionContext(wiring.ValuesByIdentity("Finance"), useInitialValues: false);
 
             Assert.IsFalse(withValue.Sql.Contains("IS NULL"), "The comparison must not have folded to IS NULL.");
-            StringAssert.Contains(withValue.Sql, "t1.Department = @p0");
+            StringAssert.Contains(withValue.Sql, "t1.[Department] = @p0");
             Assert.AreEqual(1, withValue.DbParameters.Count, "The value must still be bound.");
             Assert.AreEqual("Finance", withValue.DbParameters[0].Value);
         }

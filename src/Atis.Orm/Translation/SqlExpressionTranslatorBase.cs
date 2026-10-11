@@ -1,4 +1,4 @@
-﻿using Atis.SqlExpressionEngine;
+using Atis.SqlExpressionEngine;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
@@ -953,13 +953,23 @@ namespace Atis.Orm.Translation
         }
 
         /// <summary>
+        ///     The name an output column alias is written by, for every site that defines or refers to one. A query
+        ///     alias becomes a column of a derived table that an outer query then reads through <see cref="GetColumnName"/>,
+        ///     so both must spell it the same way; this therefore asks <see cref="ISqlNaming.GetColumnName"/> too.
+        /// </summary>
+        protected virtual string GetColumnAlias(string alias)
+        {
+            return this.naming.GetColumnName(alias);
+        }
+
+        /// <summary>
         ///     <para>
         ///         Translates an alias expression.
         ///     </para>
         /// </summary>
         protected virtual void TranslateAlias(SqlAliasExpression node)
         {
-            this.Append(node.ColumnAlias);
+            this.Append(this.GetColumnAlias(node.ColumnAlias));
         }
 
         #endregion
@@ -1077,7 +1087,7 @@ namespace Atis.Orm.Translation
                 var col = selectColumns[i];
                 this.TranslateAsNonLogicalExpression(col.ColumnExpression);
                 this.Append(" AS ");
-                this.Append(col.Alias);
+                this.Append(this.GetColumnAlias(col.Alias));
             }
         }
 
@@ -1976,7 +1986,7 @@ namespace Atis.Orm.Translation
                         this.Append(", ");
                     this.TranslateExpression(node.Outputs[i].ColumnExpression);
                     this.Append(" AS ");
-                    this.Append(node.Outputs[i].Alias);
+                    this.Append(this.GetColumnAlias(node.Outputs[i].Alias));
                 }
                 this.Append("\r\n");
             }
@@ -2004,7 +2014,7 @@ namespace Atis.Orm.Translation
                         this.Append(", ");
                     this.TranslateExpression(node.Outputs[i].ColumnExpression);
                     this.Append(" AS ");
-                    this.Append(node.Outputs[i].Alias);
+                    this.Append(this.GetColumnAlias(node.Outputs[i].Alias));
                 }
                 this.Append("\r\n");
             }

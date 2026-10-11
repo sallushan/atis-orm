@@ -57,7 +57,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var withValue = compiled.GetExecutionContext(wiring.ValuesByIdentity("IT"), useInitialValues: false);
 
             Assert.IsFalse(withValue.Sql.Contains("IS NULL"), "The comparison must not have folded to IS NULL.");
-            StringAssert.Contains(withValue.Sql, "t1.Department = @p0");
+            StringAssert.Contains(withValue.Sql, "t1.[Department] = @p0");
             Assert.AreEqual(1, withValue.DbParameters.Count, "The value must still be bound.");
             Assert.AreEqual("IT", withValue.DbParameters[0].Value);
         }
@@ -73,11 +73,11 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var withValue = compiled.GetExecutionContext(wiring.ValuesByIdentity("Finance"), useInitialValues: false);
             var withNull = compiled.GetExecutionContext(wiring.ValuesByIdentity(null), useInitialValues: false);
 
-            StringAssert.Contains(withValue.Sql, "t1.Department = @p0");
+            StringAssert.Contains(withValue.Sql, "t1.[Department] = @p0");
             Assert.AreEqual(1, withValue.DbParameters.Count);
             Assert.AreEqual("Finance", withValue.DbParameters[0].Value);
 
-            StringAssert.Contains(withNull.Sql, "t1.Department IS NULL");
+            StringAssert.Contains(withNull.Sql, "t1.[Department] IS NULL");
             Assert.AreEqual(0, withNull.DbParameters.Count, "A null test binds nothing - there is no value to send.");
         }
 
@@ -90,9 +90,9 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var withNull = compiled.GetExecutionContext(wiring.NotEqualValuesByIdentity(null), useInitialValues: false);
             var withValue = compiled.GetExecutionContext(wiring.NotEqualValuesByIdentity("IT"), useInitialValues: false);
 
-            StringAssert.Contains(withNull.Sql, "t1.Department IS NOT NULL");
+            StringAssert.Contains(withNull.Sql, "t1.[Department] IS NOT NULL");
             Assert.AreEqual(0, withNull.DbParameters.Count);
-            StringAssert.Contains(withValue.Sql, "t1.Department <> @p0");
+            StringAssert.Contains(withValue.Sql, "t1.[Department] <> @p0");
             Assert.AreEqual(1, withValue.DbParameters.Count);
         }
 
@@ -108,7 +108,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var translation = this.TranslateWithSqlServer(q.Expression);
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
-            StringAssert.Contains(rendered.Sql, "t1.Department IS NULL");
+            StringAssert.Contains(rendered.Sql, "t1.[Department] IS NULL");
             Assert.AreEqual(0, rendered.DbParameters.Count);
             Assert.IsFalse(HasNullSwitch(translation));
             Assert.IsFalse(translation.RequiresPerExecutionRendering,
@@ -128,7 +128,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var translation = this.TranslateWithSqlServer(q.Expression);
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
-            StringAssert.Contains(rendered.Sql, "t1.RowId = @p0");
+            StringAssert.Contains(rendered.Sql, "t1.[RowId] = @p0");
             Assert.IsFalse(HasNullSwitch(translation));
             Assert.IsFalse(translation.RequiresPerExecutionRendering);
         }
@@ -146,7 +146,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var translation = this.TranslateWithSqlServer(q.Expression);
             var rendered = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
 
-            StringAssert.Contains(rendered.Sql, "t1.Age = @p0");
+            StringAssert.Contains(rendered.Sql, "t1.[Age] = @p0");
             Assert.IsFalse(HasNullSwitch(translation));
             Assert.IsFalse(translation.RequiresPerExecutionRendering);
         }
@@ -179,8 +179,8 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             var withValue = CreateRenderer().Render(translation.Fragments, p => p.InitialValue);
             var withNull = CreateRenderer().Render(translation.Fragments, p => null);
 
-            StringAssert.Contains(withValue.Sql, "CASE WHEN (t1.Department = @p0) THEN 1 ELSE 0 END");
-            StringAssert.Contains(withNull.Sql, "CASE WHEN (t1.Department IS NULL) THEN 1 ELSE 0 END");
+            StringAssert.Contains(withValue.Sql, "CASE WHEN (t1.[Department] = @p0) THEN 1 ELSE 0 END");
+            StringAssert.Contains(withNull.Sql, "CASE WHEN (t1.[Department] IS NULL) THEN 1 ELSE 0 END");
         }
 
         [TestMethod]
@@ -193,7 +193,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
             // Which operand the developer wrote first is not a semantic choice, so it must not decide whether
             // the null handling happens at all.
-            StringAssert.Contains(withNull.Sql, "t1.Department IS NULL");
+            StringAssert.Contains(withNull.Sql, "t1.[Department] IS NULL");
             Assert.AreEqual(0, withNull.DbParameters.Count);
         }
 

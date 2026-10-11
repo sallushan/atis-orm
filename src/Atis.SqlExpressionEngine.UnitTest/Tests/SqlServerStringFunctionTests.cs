@@ -71,7 +71,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             StringAssert.Contains(sql, " DESC, ");
             StringAssert.Matches(sql, new System.Text.RegularExpressions.Regex(@"STRING_AGG\([^)]*, @p\d+\) WITHIN GROUP \(ORDER BY [^)]* DESC, [^)]* ASC\)"));
             StringAssert.Matches(sql, new System.Text.RegularExpressions.Regex(@"STRING_AGG\([^)]*, ''\) WITHIN GROUP \(ORDER BY [^)]* ASC\)"));
-            StringAssert.Matches(sql, new System.Text.RegularExpressions.Regex(@"STRING_AGG\([^)]*, @p\d+\) AS Plain"));
+            StringAssert.Matches(sql, new System.Text.RegularExpressions.Regex(@"STRING_AGG\([^)]*, @p\d+\) AS \[Plain\]"));
             StringAssert.DoesNotMatch(sql, new System.Text.RegularExpressions.Regex(@"order by [^)]*\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
                 "The ordering belongs to the aggregate; the GROUP BY query itself must not be ordered.");
         }
