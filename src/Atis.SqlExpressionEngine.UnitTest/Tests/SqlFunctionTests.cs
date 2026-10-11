@@ -161,6 +161,46 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void SqlServer_specific_templates_render_their_exact_sql_shapes()
+        {
+            var students = new Queryable<Student>(queryProvider);
+            var q = students.Select(x => new
+            {
+                Aggregate = SqlServerFunctions.Checksum_AggDistinct(x.Age),
+                BinaryRow = SqlServerFunctions.Binary_Checksum(),
+                ChecksumRow = SqlServerFunctions.Checksum(),
+                SessionUser = SqlServerFunctions.Session_User(),
+                SystemUser = SqlServerFunctions.System_User(),
+                BinaryValue = SqlServerFunctions.CastToVarbinary(x.Age, 8),
+                DecimalValue = SqlServerFunctions.ConvertToDecimal(x.Age, 0, 12, 2),
+            });
+
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "checksum_agg(distinct t1.Age)");
+            StringAssert.Contains(sql, "binary_checksum(*)");
+            StringAssert.Contains(sql, "checksum(*)");
+            StringAssert.Contains(sql, "session_user");
+            StringAssert.Contains(sql, "system_user");
+            StringAssert.Contains(sql, "cast(t1.Age as varbinary(8))");
+            StringAssert.Contains(sql, "convert(decimal(12, 2), t1.Age, @p");
+        }
+
+        [TestMethod]
+        public void SqlServer_variadic_checksum_arguments_are_flattened()
+        {
+            var students = new Queryable<Student>(queryProvider);
+            var q = students.Select(x => new
+            {
+                Binary = SqlServerFunctions.Binary_Checksum(x.Age, x.Name, x.StudentId),
+                Ordinary = SqlServerFunctions.Checksum(x.Age, x.Name, x.StudentId),
+            });
+
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "Binary_Checksum(t1.Age, t1.Name, t1.StudentId)");
+            StringAssert.Contains(sql, "Checksum(t1.Age, t1.Name, t1.StudentId)");
+        }
+
+        [TestMethod]
         public void Captured_variable_in_a_brace_argument_becomes_a_parameter()
         {
             var students = new Queryable<Student>(queryProvider);

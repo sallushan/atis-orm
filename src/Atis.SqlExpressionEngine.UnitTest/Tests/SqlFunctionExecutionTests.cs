@@ -186,6 +186,33 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void DataLength_and_Rand_materialize_whatever_type_the_server_returns()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);
+
+                // DATALENGTH returns int for an nvarchar(50) column but bigint for a (max) type (the template casts both to bigint), and RAND
+                // returns float. Both are read into long? / double?, so a strict reader would throw here.
+                var row = db.CreateQuery<TestEntities.Employee>()
+                            .Where(x => x.LastName == Marker && x.FirstName == "Ann")
+                            .Select(x => new
+                            {
+                                Narrow = SqlServerFunctions.DataLength(x.FirstName),
+                                Wide = SqlServerFunctions.DataLength(SqlServerFunctions.CastToVarchar(x.FirstName)),
+                                Random = SqlServerFunctions.Rand(42),
+                            })
+                            .ToList()
+                            .Single();
+
+                Assert.AreEqual(6L, row.Narrow, "'Ann' is 3 nvarchar characters, 2 bytes each.");
+                Assert.AreEqual(3L, row.Wide, "'Ann' is 3 varchar characters, 1 byte each.");
+                Assert.IsTrue(row.Random >= 0 && row.Random < 1);
+            });
+        }
+
+        [TestMethod]
         public void A_captured_variable_in_a_brace_argument_rebinds_on_the_second_run()
         {
             var db = new OrmDbContext();
