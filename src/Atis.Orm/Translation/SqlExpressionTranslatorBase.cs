@@ -1534,8 +1534,12 @@ namespace Atis.Orm.Translation
             this.TranslateAsLogicalExpression(node.Test);
             this.Append(" THEN ");
             this.TranslateAsNonLogicalExpression(node.IfTrue);
-            this.Append(" ELSE ");
-            this.TranslateAsNonLogicalExpression(node.IfFalse);
+            // A null IfFalse means "no ELSE": the CASE gives NULL when the test fails (used by COUNT(predicate)).
+            if (node.IfFalse != null)
+            {
+                this.Append(" ELSE ");
+                this.TranslateAsNonLogicalExpression(node.IfFalse);
+            }
             this.Append(" END");
         }
 

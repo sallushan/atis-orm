@@ -731,6 +731,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
         {
             var test = this.TranslateLogicalExpression(sqlConditionExpression.Test);
             var ifTrue = this.TranslateNonLogicalExpression(sqlConditionExpression.IfTrue);
+            if (sqlConditionExpression.IfFalse is null)
+                return $"case when {test} then {ifTrue} end";
             var ifFalse = this.TranslateNonLogicalExpression(sqlConditionExpression.IfFalse);
             return $"case when {test} then {ifTrue} else {ifFalse} end";
         }

@@ -50,6 +50,21 @@ group by a_1.Address
         }
 
         [TestMethod]
+        public void Count_with_a_predicate_has_no_else_branch()
+        {
+            Expression<Func<object>> queryExpression = () =>
+            queryProvider.DataSet<Student>()
+            .GroupBy(x => x.Address)
+            .Select(x => new { Add = x.Key, Adults = x.Count(y => y.Age > 5) });
+            string expectedResult = @"
+select  a_1.Address as Add, count(case when (a_1.Age > 5) then 1 end) as Adults
+from    Student as a_1
+group by a_1.Address
+";
+            Test("Group By Count With Predicate", queryExpression.Body, expectedResult);
+        }
+
+        [TestMethod]
         public void GroupBy_on_single_column_then_join_the_result_with_other_table()
         {
             Expression<Func<object>> queryExpression = () =>

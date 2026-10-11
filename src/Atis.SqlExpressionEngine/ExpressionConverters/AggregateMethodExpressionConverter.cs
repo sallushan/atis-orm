@@ -93,6 +93,15 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             // so we'll skip the 1st argument
             var methodArguments = convertedChildren.Skip(1).ToArray();
 
+            // Count(predicate) must count only the rows that match. A condition used as a value would
+            // become CASE WHEN c THEN 1 ELSE 0 END, and COUNT counts every non-NULL value (0 included),
+            // so it would count all rows. Count(CASE WHEN c THEN 1 END) has no ELSE, so a row that does
+            // not match gives NULL and COUNT skips it.
+            if (this.Expression.Method.Name == nameof(Queryable.Count) && methodArguments.Length == 1)
+            {
+                methodArguments[0] = this.SqlFactory.CreateCondition(methodArguments[0], this.SqlFactory.CreateLiteral(1), ifFalse: null);
+            }
+
             SqlExpression result;
             var functionCallExpression = this.SqlFactory.CreateFunctionCall(this.Expression.Method.Name, methodArguments);
             if (applyProjection)

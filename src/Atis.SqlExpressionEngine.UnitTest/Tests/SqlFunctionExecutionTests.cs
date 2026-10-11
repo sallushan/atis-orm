@@ -521,6 +521,34 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Count_with_a_predicate_on_a_group_counts_only_the_matching_rows()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);   // Ann 300, Bob 300, Cid 200, Dee 100
+
+                var r = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker)
+                          .GroupBy(x => x.LastName)
+                          .Select(g => new
+                          {
+                              Total = g.Count(),
+                              Well = g.Count(y => y.Salary >= 200m),
+                              Single1 = g.Count(y => y.FirstName == "Dee"),
+                              Zero = g.Count(y => y.Salary > 1000m),
+                          })
+                          .ToList()
+                          .Single();
+
+                Assert.AreEqual(4, r.Total);
+                Assert.AreEqual(3, r.Well, "Only the matching rows count; a row that fails the test must not be counted as 0.");
+                Assert.AreEqual(1, r.Single1);
+                Assert.AreEqual(0, r.Zero, "No row matches, so the count is 0, not NULL.");
+            });
+        }
+
+        [TestMethod]
         public void A_captured_variable_in_a_brace_argument_rebinds_on_the_second_run()
         {
             var db = new OrmDbContext();
