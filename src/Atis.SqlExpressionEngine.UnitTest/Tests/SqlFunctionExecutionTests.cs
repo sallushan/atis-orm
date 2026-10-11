@@ -479,6 +479,48 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Ordered_string_Join_on_a_group_runs_on_the_server()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);   // Ann 300, Bob 300, Cid 200, Dee 100
+
+                // SQL Server allows only one ordering per query for ordered aggregates, so each is its own query.
+                // A second aggregate that needs no ordering (Total) can sit next to it.
+                var byPay = db.CreateQuery<TestEntities.Employee>()
+                              .Where(x => x.LastName == Marker)
+                              .GroupBy(x => x.LastName)
+                              .Select(g => new
+                              {
+                                  LastName = g.Key,
+                                  Names = string.Join(", ", g.OrderByDescending(y => y.Salary).ThenBy(y => y.FirstName).Select(y => y.FirstName)),
+                                  Total = g.Sum(y => y.Salary),
+                              })
+                              .ToList()
+                              .Single();
+                Assert.AreEqual("Ann, Bob, Cid, Dee", byPay.Names);
+                Assert.AreEqual(900m, byPay.Total, "Other aggregates on the same group must not be disturbed by the ordering.");
+
+                var byName = db.CreateQuery<TestEntities.Employee>()
+                               .Where(x => x.LastName == Marker)
+                               .GroupBy(x => x.LastName)
+                               .Select(g => new { LastName = g.Key, Names = string.Join("|", g.OrderByDescending(y => y.FirstName).Select(y => y.FirstName)) })
+                               .ToList()
+                               .Single();
+                Assert.AreEqual("Dee|Cid|Bob|Ann", byName.Names);
+
+                var joined = db.CreateQuery<TestEntities.Employee>()
+                               .Where(x => x.LastName == Marker)
+                               .GroupBy(x => x.LastName)
+                               .Select(g => new { LastName = g.Key, Names = string.Concat(g.OrderBy(y => y.Salary).ThenBy(y => y.FirstName).Select(y => y.FirstName)) })
+                               .ToList()
+                               .Single();
+                Assert.AreEqual("DeeCidAnnBob", joined.Names);
+            });
+        }
+
+        [TestMethod]
         public void A_captured_variable_in_a_brace_argument_rebinds_on_the_second_run()
         {
             var db = new OrmDbContext();

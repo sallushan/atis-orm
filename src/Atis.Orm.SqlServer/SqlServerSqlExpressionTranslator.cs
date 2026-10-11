@@ -25,6 +25,22 @@ namespace Atis.Orm.SqlServer
         {
         }
 
+        /// <summary>Writes <c> WITHIN GROUP (ORDER BY a ASC, b DESC)</c> for the ordering of a string aggregate.</summary>
+        private void TranslateWithinGroup(SqlExpression ordering)
+        {
+            var orderBy = ordering as SqlOrderByClauseExpression
+                ?? throw new InvalidOperationException("The ordering of a string aggregate must be an ORDER BY clause.");
+            this.Append(" WITHIN GROUP (ORDER BY ");
+            for (var i = 0; i < orderBy.OrderByColumns.Count; i++)
+            {
+                if (i > 0)
+                    this.Append(", ");
+                this.TranslateExpression(orderBy.OrderByColumns[i].ColumnExpression);
+                this.Append(orderBy.OrderByColumns[i].Direction == SortDirection.Ascending ? " ASC" : " DESC");
+            }
+            this.Append(")");
+        }
+
         /// <inheritdoc />
         protected override void TranslateStringFunction(SqlStringFunctionExpression node)
         {
@@ -61,18 +77,22 @@ namespace Atis.Orm.SqlServer
                     this.Append(")");
                     break;
                 case SqlStringFunction.JoinAggregate:
-                    // string expression = the aggregated value, args[0] = separator. No ORDER BY is carried
-                    // by the tree, so we emit STRING_AGG without a WITHIN GROUP clause.
+                    // string expression = the aggregated value, args[0] = separator, args[1] = optional ordering
+                    // (from string.Join(sep, g.OrderBy(...).Select(...))) written as WITHIN GROUP (ORDER BY ...).
                     this.Append("STRING_AGG(");
                     Str();
                     this.Append(", ");
                     Arg(0);
                     this.Append(")");
+                    if (argCount > 1)
+                        this.TranslateWithinGroup(node.Arguments[1]);
                     break;
                 case SqlStringFunction.ConcatAggregate:
                     this.Append("STRING_AGG(");
                     Str();
                     this.Append(", '')");
+                    if (argCount > 0)
+                        this.TranslateWithinGroup(node.Arguments[0]);
                     break;
                 case SqlStringFunction.ToUpper:
                     this.Append("UPPER(");

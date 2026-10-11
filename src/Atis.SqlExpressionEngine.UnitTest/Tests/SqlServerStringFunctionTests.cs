@@ -53,6 +53,30 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Ordered_aggregate_string_Join_translates_to_STRING_AGG_WITHIN_GROUP()
+        {
+            var employeeDegrees = new Queryable<EmployeeDegree>(queryProvider);
+            var q = employeeDegrees
+                        .GroupBy(x => x.EmployeeId)
+                        .Select(g => new
+                        {
+                            EmployeeId = g.Key,
+                            Degrees = string.Join(", ", g.OrderByDescending(y => y.Degree).ThenBy(y => y.EmployeeId).Select(y => y.Degree)),
+                            Joined = string.Concat(g.OrderBy(y => y.Degree).Select(y => y.Degree)),
+                            Plain = string.Join("/", g.Select(y => y.Degree)),
+                        });
+            var sql = TranslateForSqlServer(q.Expression);
+
+            StringAssert.Contains(sql, ") WITHIN GROUP (ORDER BY ");
+            StringAssert.Contains(sql, " DESC, ");
+            StringAssert.Matches(sql, new System.Text.RegularExpressions.Regex(@"STRING_AGG\([^)]*, @p\d+\) WITHIN GROUP \(ORDER BY [^)]* DESC, [^)]* ASC\)"));
+            StringAssert.Matches(sql, new System.Text.RegularExpressions.Regex(@"STRING_AGG\([^)]*, ''\) WITHIN GROUP \(ORDER BY [^)]* ASC\)"));
+            StringAssert.Matches(sql, new System.Text.RegularExpressions.Regex(@"STRING_AGG\([^)]*, @p\d+\) AS Plain"));
+            StringAssert.DoesNotMatch(sql, new System.Text.RegularExpressions.Regex(@"order by [^)]*\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+                "The ordering belongs to the aggregate; the GROUP BY query itself must not be ordered.");
+        }
+
+        [TestMethod]
         public void Scalar_string_functions_translate_to_tsql()
         {
             var students = new Queryable<Student>(queryProvider);
