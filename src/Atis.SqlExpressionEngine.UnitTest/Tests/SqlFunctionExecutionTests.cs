@@ -549,6 +549,32 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void SelectField_feeds_SQL_functions_the_rows_of_a_group()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);   // Ann 300, Bob 300, Cid 200, Dee 100
+
+                var r = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker)
+                          .GroupBy(x => x.LastName)
+                          .Select(g => new
+                          {
+                              Sd = SqlServerFunctions.Stdev(g.SelectField(y => y.Salary)),
+                              Total = SqlServerFunctions.Sum(g.SelectField(y => y.Salary * y.FirstName.Length)),
+                              Names = SqlServerFunctions.String_Agg(g.SelectField(y => y.FirstName), "|", Sql.Over().OrderByDescending(g.SelectField(y => y.Salary)).OrderBy(g.SelectField(y => y.FirstName))),
+                          })
+                          .ToList()
+                          .Single();
+
+                Assert.AreEqual(95.7427, r.Sd.Value, 0.001, "Sample standard deviation of 300, 300, 200, 100.");
+                Assert.AreEqual(2700m, r.Total, "Every first name has 3 letters, so the total is 3 x 900.");
+                Assert.AreEqual("Ann|Bob|Cid|Dee", r.Names);
+            });
+        }
+
+        [TestMethod]
         public void Average_LongCount_and_selector_less_aggregates_on_a_group_run()
         {
             var db = new OrmDbContext();

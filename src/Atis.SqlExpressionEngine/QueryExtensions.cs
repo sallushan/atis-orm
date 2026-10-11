@@ -19,6 +19,36 @@ namespace Atis.SqlExpressionEngine
             throw new NotImplementedException();
         }
 
+        /// <summary>
+        ///     <para>
+        ///         A value taken from every row of the group handed to <c>GroupBy(...).Select(g => ...)</c>. It only
+        ///         exists inside a query and is translated to the selected expression, so it can be passed to any
+        ///         SQL function that works on a column:
+        ///     </para>
+        ///     <code>
+        ///     .GroupBy(e => e.DeptId)
+        ///     .Select(g => new
+        ///     {
+        ///         g.Key,
+        ///         Sd = SqlServerFunctions.Stdev(g.SelectField(y => y.Salary)),
+        ///         Total = SqlServerFunctions.Sum(g.SelectField(y => y.Price * y.Qty)),
+        ///     })
+        ///     </code>
+        ///     <para>
+        ///         Nothing checks that the function around it is an aggregate. Used on its own it writes a plain
+        ///         column into a grouped query, which the database rejects.
+        ///     </para>
+        /// </summary>
+        /// <typeparam name="TKey">The grouping key type.</typeparam>
+        /// <typeparam name="TRow">The row type of the group.</typeparam>
+        /// <typeparam name="TField">The type of the selected value.</typeparam>
+        /// <param name="group">The group.</param>
+        /// <param name="selector">Picks the value (a column or an expression over the columns) from one row.</param>
+        public static TField SelectField<TKey, TRow, TField>(this IGrouping<TKey, TRow> group, Func<TRow, TField> selector)
+        {
+            throw new Atis.SqlExpressionEngine.Exceptions.DirectCallNotSupportedException(nameof(SelectField));
+        }
+
         public static IQueryable<T> From<T>(this IQueryProvider provider, Expression<Func<T>> dataSources)
         {
             if (provider is null)

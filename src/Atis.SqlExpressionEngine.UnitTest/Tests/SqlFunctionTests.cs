@@ -328,6 +328,33 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void SelectField_gives_a_function_the_column_of_every_row_of_a_group()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees
+                .GroupBy(x => x.Department)
+                .Select(g => new
+                {
+                    g.Key,
+                    Sd = SqlServerFunctions.Stdev(g.SelectField(y => y.Name.Length)),
+                    Names = SqlServerFunctions.String_Agg(g.SelectField(y => y.Name), ", ", Sql.Over().OrderBy(g.SelectField(y => y.EmployeeId))),
+                });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "Stdev(LEN(t1.Name))");
+            StringAssert.Contains(sql, "string_agg(t1.Name, @p");
+            StringAssert.Contains(sql, "within group (ORDER BY t1.EmployeeId ASC)");
+            StringAssert.Contains(sql, "GROUP BY t1.Department");
+        }
+
+        [TestMethod]
+        public void SelectField_outside_a_group_is_refused()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees.Select(x => new { Sd = SqlServerFunctions.Stdev(((IGrouping<string, Employee>)null).SelectField(y => y.Name.Length)) });
+            Assert.ThrowsException<System.InvalidOperationException>(() => ConvertExpressionToSqlExpression(q.Expression, out _));
+        }
+
+        [TestMethod]
         public void Marker_methods_cannot_be_called_directly()
         {
             Assert.ThrowsException<Atis.SqlExpressionEngine.Exceptions.DirectCallNotSupportedException>(() => Sql.Over());

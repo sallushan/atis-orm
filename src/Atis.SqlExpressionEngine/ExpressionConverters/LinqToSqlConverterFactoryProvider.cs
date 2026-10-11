@@ -69,6 +69,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new GroupByQueryMethodExpressionConverterFactory(),
                 new AggregateStringFunctionConverterFactory(reflectionService),
                 new AggregateMethodExpressionConverterFactory(),
+                new GroupFieldConverterFactory(),
                 new PagingQueryMethodExpressionConverterFactory(),
                 new UnionQueryMethodExpressionConverterFactory(),
                 new RecursiveUnionQueryMethodExpressionConverterFactory(),
