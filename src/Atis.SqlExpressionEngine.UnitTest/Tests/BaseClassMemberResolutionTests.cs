@@ -309,6 +309,17 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Hidden_base_property_does_not_break_the_persistence_side()
+        {
+            using var dbc = new OrmDbContext();
+            var crud = dbc.GetEntityCrudMetadata<InhHiddenStudent>();
+
+            Assert.AreEqual(typeof(string), CrudColumnOf(crud, nameof(InhHiddenStudent.Level)).ClrType,
+                "The column must be the derived property, not the hidden int.");
+            Assert.AreEqual(1, crud.Columns.Count(x => x.Path.Name == nameof(InhHiddenStudent.Level)));
+        }
+
+        [TestMethod]
         public void Persistence_and_query_sides_list_the_same_columns_for_an_inherited_entity()
         {
             using var dbc = new OrmDbContext();
