@@ -49,7 +49,7 @@ namespace Atis.Orm.Metadata
                             .Select(x => new TableColumn(this.GetColumnName(x), x.Name, isPrimaryKey: this.IsPrimaryKey(x)))
                             .Concat(this.GetValueObjectColumns(type))
                             .ToArray();
-            var navigationProperties = type.GetProperties()
+            var navigationProperties = EntityProperties.Get(type)
                                                 .Select(x => new { Prop = x, NavigationType = this.GetNavigationPropertyType(type, x) })
                                                 .Where(x => x.NavigationType != NavigationPropertyType.None)
                                                 .ToArray();
@@ -62,7 +62,7 @@ namespace Atis.Orm.Metadata
                 }
             }
             Dictionary<string, LambdaExpression> calculatedProperties = new Dictionary<string, LambdaExpression>();
-            var calculatedPropertiesArray = type.GetProperties()
+            var calculatedPropertiesArray = EntityProperties.Get(type)
                                             .Where(x => this.IsCalculatedProperty(x))
                                             .ToArray();
             foreach (var calcProperty in calculatedPropertiesArray)
@@ -107,7 +107,7 @@ namespace Atis.Orm.Metadata
         {
             var calcAttr = calcProperty.GetCustomAttribute<CalculatedPropertyAttribute>();
             var exprPropName = calcAttr.ExpressionPropertyName;
-            var exprProperty = type.GetMember(exprPropName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static).FirstOrDefault();
+            var exprProperty = EntityProperties.FindStaticMember(type, exprPropName);
             if (exprProperty != null)
             {
                 if (this.reflectionService.GetPropertyOrFieldValue(instance: null, exprProperty) is LambdaExpression exprPropertyValue)
@@ -154,7 +154,7 @@ namespace Atis.Orm.Metadata
         /// </summary>
         protected virtual IEnumerable<TableColumn> GetValueObjectColumns(Type type)
         {
-            var valueObjectProperties = type.GetProperties()
+            var valueObjectProperties = EntityProperties.Get(type)
                                                 .Select(x => new { Prop = x, Attr = x.GetCustomAttribute<ValueObjectAttribute>() })
                                                 .Where(x => x.Attr != null);
             foreach (var valueObjectProperty in valueObjectProperties)
@@ -182,7 +182,7 @@ namespace Atis.Orm.Metadata
         {
             if (type is null)
                 throw new ArgumentNullException(nameof(type));
-            return type.GetProperties()
+            return EntityProperties.Get(type)
                         .Where(x => IsSchemaRelatedProperty(x))
                         .ToArray();
         }

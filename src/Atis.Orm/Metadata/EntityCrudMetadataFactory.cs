@@ -53,7 +53,7 @@ namespace Atis.Orm.Metadata
         /// </summary>
         protected virtual IEnumerable<CrudColumn> CreateValueObjectColumns(Type type)
         {
-            foreach (var property in type.GetProperties())
+            foreach (var property in EntityProperties.Get(type))
             {
                 var attribute = property.GetCustomAttribute<ValueObjectAttribute>();
                 if (attribute is null)
