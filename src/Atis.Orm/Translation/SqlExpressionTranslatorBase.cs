@@ -517,6 +517,8 @@ namespace Atis.Orm.Translation
                 this.TranslateOverClause(overClause);
             else if (node is SqlAggregateFunctionExpression aggregateFunction)
                 this.TranslateAggregateFunction(aggregateFunction);
+            else if (node is SqlMathFunctionExpression mathFunction)
+                this.TranslateMathFunction(mathFunction);
             else if (node is SqlFunctionExpression functionCall)
                 this.TranslateFunctionCall(functionCall);
             else if (node is SqlExistsExpression exists)
@@ -1476,6 +1478,104 @@ namespace Atis.Orm.Translation
                 case SqlAggregateFunction.Avg: return "Avg";
                 default: throw new NotSupportedException($"Aggregate function '{function}' is not supported.");
             }
+        }
+
+        /// <summary>
+        ///     Decides whether the first argument of a math function is wrapped in <c>cast(... as float)</c>.
+        ///     The engine drops C# conversions such as <c>(double)x.Age</c>, so the database may see an integer
+        ///     column and return an integer where C# returns a double. The default casts a <see cref="double"/>
+        ///     first argument for functions whose result type follows the input type (<c>Abs</c>, <c>Ceiling</c>,
+        ///     <c>Floor</c>, <c>Truncate</c>, <c>Round</c>, <c>Power</c>). Functions that always return float
+        ///     in SQL Server (<c>Sqrt</c>, <c>Exp</c>, <c>Log</c>, trigonometry) need no cast.
+        /// </summary>
+        protected virtual bool RequiresFloatFirstArgument(SqlMathFunctionExpression node)
+        {
+            if (node.ArgumentTypes.Count == 0 || node.ArgumentTypes[0] != typeof(double))
+                return false;
+
+            switch (node.Function)
+            {
+                case SqlMathFunction.Abs:
+                case SqlMathFunction.Ceiling:
+                case SqlMathFunction.Floor:
+                case SqlMathFunction.Truncate:
+                case SqlMathFunction.Round:
+                case SqlMathFunction.Power:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        ///     Translates a math operation using SQL Server-compatible syntax. Providers can override this method
+        ///     when a function has a different name, argument order, type rule, or implementation in their dialect.
+        /// </summary>
+        protected virtual void TranslateMathFunction(SqlMathFunctionExpression node)
+        {
+            if (node.Function == SqlMathFunction.Round && node.RoundingMode != MidpointRounding.AwayFromZero)
+                throw new NotSupportedException(
+                    $"Math.Round with {node.RoundingMode} cannot be translated by the default SQL Server-compatible translator because " +
+                    "SQL ROUND rounds midpoint values away from zero. Use MidpointRounding.AwayFromZero or override TranslateMathFunction in the provider.");
+
+            void Argument(int index) => this.TranslateAsNonLogicalExpression(node.Arguments[index]);
+            void FirstArgument()
+            {
+                var requiresFloat = this.RequiresFloatFirstArgument(node);
+                if (requiresFloat)
+                    this.Append("cast(");
+                Argument(0);
+                if (requiresFloat)
+                    this.Append(" as float)");
+            }
+
+            if (node.Function == SqlMathFunction.Sign)
+                this.Append("cast(");
+
+            switch (node.Function)
+            {
+                case SqlMathFunction.Abs: this.Append("Abs("); break;
+                case SqlMathFunction.Ceiling: this.Append("Ceiling("); break;
+                case SqlMathFunction.Floor: this.Append("Floor("); break;
+                case SqlMathFunction.Sign: this.Append("sign("); break;
+                case SqlMathFunction.Truncate: this.Append("Round("); break;
+                case SqlMathFunction.Round: this.Append("Round("); break;
+                case SqlMathFunction.Sqrt: this.Append("Sqrt("); break;
+                case SqlMathFunction.Power: this.Append("Power("); break;
+                case SqlMathFunction.Exp: this.Append("Exp("); break;
+                case SqlMathFunction.Log: this.Append("Log("); break;
+                case SqlMathFunction.Log10: this.Append("Log10("); break;
+                case SqlMathFunction.Sin: this.Append("Sin("); break;
+                case SqlMathFunction.Cos: this.Append("Cos("); break;
+                case SqlMathFunction.Tan: this.Append("Tan("); break;
+                case SqlMathFunction.Asin: this.Append("Asin("); break;
+                case SqlMathFunction.Acos: this.Append("Acos("); break;
+                case SqlMathFunction.Atan: this.Append("Atan("); break;
+                case SqlMathFunction.Atan2: this.Append("Atn2("); break;
+                default: throw new NotSupportedException($"Math function '{node.Function}' is not supported.");
+            }
+
+            FirstArgument();
+            if (node.Function == SqlMathFunction.Truncate)
+            {
+                this.Append(", 0, 1");
+            }
+            else if (node.Function == SqlMathFunction.Round && node.Arguments.Count == 1)
+            {
+                this.Append(", 0");
+            }
+            else
+            {
+                for (var i = 1; i < node.Arguments.Count; i++)
+                {
+                    this.Append(", ");
+                    Argument(i);
+                }
+            }
+            this.Append(")");
+
+            if (node.Function == SqlMathFunction.Sign)
+                this.Append(" as int)");
         }
 
         /// <summary>

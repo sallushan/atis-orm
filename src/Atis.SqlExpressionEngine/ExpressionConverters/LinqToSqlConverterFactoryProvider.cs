@@ -52,6 +52,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new MemberInitExpressionConverterFactory(),
                 new NewExpressionConverterFactory(),
                 new StringFunctionsConverterFactory(),
+                new MathFunctionsConverterFactory(),
                 new NavigationMemberExpressionConverterFacotry(),
                 new NavigationJoinCallExpressionConverterFactory(),
                 new FromQueryMethodExpressionConverterFactory(),

@@ -169,6 +169,16 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlFunctionExpression(functionName, arguments);
         }
 
+        /// <inheritdoc />
+        public virtual SqlMathFunctionExpression CreateMathFunction(
+            SqlMathFunction function,
+            IReadOnlyList<Type> argumentTypes,
+            SqlExpression[] arguments,
+            MidpointRounding? roundingMode = null)
+        {
+            return new SqlMathFunctionExpression(function, argumentTypes, arguments, roundingMode);
+        }
+
         public virtual SqlAggregateFunctionExpression CreateAggregateFunctionCall(SqlAggregateFunction function, SqlExpression[] arguments)
         {
             return new SqlAggregateFunctionExpression(function, arguments);

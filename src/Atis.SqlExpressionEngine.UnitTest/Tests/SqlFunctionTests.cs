@@ -354,6 +354,116 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.ThrowsException<System.InvalidOperationException>(() => ConvertExpressionToSqlExpression(q.Expression, out _));
         }
 
+        #region Math
+
+        [TestMethod]
+        public void Math_method_uses_the_dedicated_math_expression()
+        {
+            var students = new Queryable<Student>(queryProvider);
+            var q = students.Select(x => Math.Abs(x.Age.Value));
+
+            var query = ConvertExpressionToSqlExpression(q.Expression, out _) as SqlDerivedTableExpression;
+            var math = query?.SelectColumnCollection.SelectColumns.Single().ColumnExpression as SqlMathFunctionExpression;
+
+            Assert.IsNotNull(math);
+            Assert.AreEqual(SqlMathFunction.Abs, math.Function);
+            Assert.AreEqual(typeof(int), math.ArgumentTypes.Single());
+        }
+
+        [TestMethod]
+        public void Math_methods_translate_to_their_sql_server_functions()
+        {
+            var students = new Queryable<Student>(queryProvider);
+            var q = students.Select(x => new
+            {
+                Abs = Math.Abs(x.Age.Value),
+                Ceil = Math.Ceiling((double)x.Age.Value),
+                Floor = Math.Floor((decimal)x.Age.Value),
+                Sign = Math.Sign(x.Age.Value),
+                Cut = Math.Truncate((double)x.Age.Value),
+                Root = Math.Sqrt(x.Age.Value),
+                Pow = Math.Pow(x.Age.Value, 2),
+                Ln = Math.Log(x.Age.Value),
+                LogB = Math.Log(x.Age.Value, 2),
+                Angle = Math.Atan2(x.Age.Value, 1),
+            });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "Abs(t1.[Age])");
+            StringAssert.Contains(sql, "Ceiling(cast(t1.[Age] as float))");
+            StringAssert.Contains(sql, "Floor(t1.[Age])");
+            StringAssert.Contains(sql, "cast(sign(t1.[Age]) as int)");
+            StringAssert.Contains(sql, "Round(cast(t1.[Age] as float), 0, 1)");
+            StringAssert.Contains(sql, "Sqrt(t1.[Age])");
+            StringAssert.Contains(sql, "Power(cast(t1.[Age] as float), @p");
+            StringAssert.Contains(sql, "Log(t1.[Age])");
+            StringAssert.Contains(sql, "Log(t1.[Age], @p");
+            StringAssert.Contains(sql, "Atn2(t1.[Age], @p");
+        }
+
+        [TestMethod]
+        public void Math_Round_with_AwayFromZero_is_translated_and_writes_no_mode_into_the_sql()
+        {
+            var students = new Queryable<Student>(queryProvider);
+            var q = students.Select(x => new
+            {
+                A = Math.Round((decimal)x.Age.Value, MidpointRounding.AwayFromZero),
+                B = Math.Round((double)x.Age.Value, 2, MidpointRounding.AwayFromZero),
+            });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "Round(t1.[Age], 0) AS [A]");
+            StringAssert.Contains(sql, "Round(cast(t1.[Age] as float), @p");
+            Assert.IsFalse(sql.Contains("AwayFromZero"), "The mode is checked, not written into the SQL.");
+        }
+
+        [TestMethod]
+        public void Math_Round_that_would_round_halves_to_even_is_refused()
+        {
+            var students = new Queryable<Student>(queryProvider);
+
+            var plain = students.Select(x => new { R = Math.Round((double)x.Age.Value) });
+            var plainError = Assert.ThrowsException<NotSupportedException>(() => TranslateForSqlServer(plain.Expression));
+            StringAssert.Contains(plainError.Message, "AwayFromZero");
+
+            var digits = students.Select(x => new { R = Math.Round((decimal)x.Age.Value, 2) });
+            Assert.ThrowsException<NotSupportedException>(() => TranslateForSqlServer(digits.Expression));
+
+            var toEven = students.Select(x => new { R = Math.Round((double)x.Age.Value, 2, MidpointRounding.ToEven) });
+            var toEvenError = Assert.ThrowsException<NotSupportedException>(() => TranslateForSqlServer(toEven.Expression));
+            StringAssert.Contains(toEvenError.Message, "AwayFromZero");
+
+            var mode = MidpointRounding.AwayFromZero;
+            var variable = students.Select(x => new { R = Math.Round((double)x.Age.Value, 2, mode) });
+            Assert.ThrowsException<InvalidOperationException>(() => TranslateForSqlServer(variable.Expression));
+        }
+
+        [TestMethod]
+        public void Math_expression_has_a_provider_override_point()
+        {
+            var node = new SqlMathFunctionExpression(
+                SqlMathFunction.Round,
+                new[] { typeof(double) },
+                new SqlExpression[] { new SqlLiteralExpression(1.5) },
+                MidpointRounding.ToEven);
+            var translator = new CustomMathTranslator();
+
+            translator.Translate(node);
+
+            Assert.IsTrue(translator.WasCalled);
+        }
+
+        private sealed class CustomMathTranslator : SqlExpressionTranslatorBase
+        {
+            public bool WasCalled { get; private set; }
+
+            protected override void TranslateMathFunction(SqlMathFunctionExpression node)
+            {
+                this.WasCalled = true;
+                this.Append("provider_math()");
+            }
+        }
+
+        #endregion
+
         [TestMethod]
         public void Marker_methods_cannot_be_called_directly()
         {

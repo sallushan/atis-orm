@@ -18,6 +18,8 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlAliasExpression CreateAlias(string alias);
         SqlStringFunctionExpression CreateStringFunction(SqlStringFunction stringFunction, SqlExpression stringExpression, IReadOnlyList<SqlExpression> arguments);
         SqlFunctionExpression CreateFunctionCall(string functionName, SqlExpression[] arguments);
+        /// <summary>Creates a semantic math operation that a database translator can render for its dialect.</summary>
+        SqlMathFunctionExpression CreateMathFunction(SqlMathFunction function,IReadOnlyList<Type> argumentTypes, SqlExpression[] arguments, MidpointRounding? roundingMode = null);
         SqlAggregateFunctionExpression CreateAggregateFunctionCall(SqlAggregateFunction function, SqlExpression[] arguments);
         SqlConditionalExpression CreateCondition(SqlExpression test, SqlExpression ifTrue, SqlExpression ifFalse);
         SqlDefaultIfEmptyExpression CreateDefaultIfEmpty(SqlDerivedTableExpression derivedTable);

@@ -549,6 +549,54 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Math_methods_run_on_the_server_and_round_halves_away_from_zero()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                Seed(db, "Ann", 2.5m, new DateTime(2020, 1, 1));
+                Seed(db, "Bob", 7.45m, new DateTime(2020, 1, 1));
+
+                var rows = db.CreateQuery<TestEntities.Employee>()
+                             .Where(x => x.LastName == Marker)
+                             .Select(x => new
+                             {
+                                 x.FirstName,
+                                 Abs = Math.Abs(x.Salary - 10m),
+                                 Floor = Math.Floor(x.Salary),
+                                 Ceil = Math.Ceiling(x.Salary),
+                                 Cut = Math.Truncate(x.Salary),
+                                 Sign = Math.Sign(x.Salary - 5m),
+                                 Away0 = Math.Round(x.Salary, MidpointRounding.AwayFromZero),
+                                 Away1 = Math.Round(x.Salary, 1, MidpointRounding.AwayFromZero),
+                                 Pow = Math.Pow((double)x.Salary, 2),
+                                 Root = Math.Sqrt((double)x.Salary),
+                             })
+                             .ToList()
+                             .OrderBy(r => r.FirstName)
+                             .ToList();
+
+                var ann = rows[0];
+                Assert.AreEqual(7.5m, ann.Abs);
+                Assert.AreEqual(2m, ann.Floor);
+                Assert.AreEqual(3m, ann.Ceil);
+                Assert.AreEqual(2m, ann.Cut);
+                Assert.AreEqual(-1, ann.Sign);
+                Assert.AreEqual(3m, ann.Away0, "2.5 rounds to 3 in SQL (C# would give 2 without AwayFromZero).");
+                Assert.AreEqual(6.25, ann.Pow, 1e-9);
+
+                var bob = rows[1];
+                Assert.AreEqual(2.55m, bob.Abs);
+                Assert.AreEqual(7m, bob.Floor);
+                Assert.AreEqual(8m, bob.Ceil);
+                Assert.AreEqual(7m, bob.Cut);
+                Assert.AreEqual(1, bob.Sign);
+                Assert.AreEqual(7.5m, bob.Away1, "7.45 to one place rounds away from zero to 7.5 (to even would give 7.4).");
+                Assert.AreEqual(Math.Sqrt(7.45), bob.Root, 1e-9);
+            });
+        }
+
+        [TestMethod]
         public void SelectField_feeds_SQL_functions_the_rows_of_a_group()
         {
             var db = new OrmDbContext();
