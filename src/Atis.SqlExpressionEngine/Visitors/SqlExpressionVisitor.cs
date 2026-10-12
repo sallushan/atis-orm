@@ -398,11 +398,6 @@ namespace Atis.SqlExpressionEngine.Visitors
             return node.Update(query);
         }
 
-        protected virtual internal SqlExpression VisitSqlComment(SqlCommentExpression node)
-        {
-            return node;
-        }
-
         protected virtual internal SqlExpression VisitSqlFragment(SqlFragmentExpression node)
         {
             return node;

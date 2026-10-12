@@ -22,9 +22,24 @@ namespace Atis.Orm.SqlServer
 
         /// <summary>Constructs a translator that spells table and column names through <paramref name="naming"/>.</summary>
         public SqlServerSqlExpressionTranslator(ISqlNaming naming)
-            : base(naming)
+            : this(naming, false)
         {
         }
+
+        /// <summary>
+        ///     Constructs a translator that also decides whether correlated APPLY is rewritten as a join
+        ///     (see <see cref="SqlServerExtension.RewriteApplyAsJoin"/>).
+        /// </summary>
+        public SqlServerSqlExpressionTranslator(ISqlNaming naming, bool rewriteApplyAsJoin)
+            : base(naming)
+        {
+            this.rewriteApplyAsJoin = rewriteApplyAsJoin;
+        }
+
+        private readonly bool rewriteApplyAsJoin;
+
+        /// <inheritdoc />
+        protected override bool RewriteApplyAsJoin => this.rewriteApplyAsJoin;
 
         /// <summary>Writes <c> WITHIN GROUP (ORDER BY a ASC, b DESC)</c> for the ordering of a string aggregate.</summary>
         private void TranslateWithinGroup(SqlExpression ordering)

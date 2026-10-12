@@ -80,6 +80,31 @@ namespace Atis.Orm.SqlServer
                                            : SqlServerClientFactory.Default);
         }
 
+        private SqlServerExtension(SqlServerExtension source, bool rewriteApplyAsJoin)
+        {
+            this.ConnectionString = source.ConnectionString;
+            this.CommandTimeout = source.CommandTimeout;
+            this.Connection = source.Connection;
+            this.ProviderFactory = source.ProviderFactory;
+            this.RewriteApplyAsJoin = rewriteApplyAsJoin;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         Whether a correlated <c>OUTER APPLY</c> / <c>CROSS APPLY</c> is written as a join, and
+        ///         <c>TOP n</c> inside it as <c>ROW_NUMBER() ... &lt;= n</c>. Off by default.
+        ///     </para>
+        ///     <para>
+        ///         The SQL no longer mirrors the LINQ one to one, which is why it is opt-in; it can give a
+        ///         much better plan on large tables. Turn it on with <see cref="WithRewriteApplyAsJoin"/>.
+        ///     </para>
+        /// </summary>
+        public bool RewriteApplyAsJoin { get; }
+
+        /// <summary>A copy of this extension with <see cref="RewriteApplyAsJoin"/> set to <paramref name="enabled"/>.</summary>
+        public SqlServerExtension WithRewriteApplyAsJoin(bool enabled = true)
+            => new SqlServerExtension(this, enabled);
+
         /// <summary>The connection string, or <c>null</c> when <see cref="Connection"/> was supplied.</summary>
         public string ConnectionString { get; }
 
@@ -117,7 +142,9 @@ namespace Atis.Orm.SqlServer
             builder.TryAdd<ISqlNaming, SqlServerNaming>();
             // Register the SQL Server dialect translator before AddCoreServices so it wins the
             // TryAdd<ISqlExpressionTranslator, SqlExpressionTranslatorBase>() default (first-wins).
-            builder.TryAdd<ISqlExpressionTranslator, SqlServerSqlExpressionTranslator>();
+            // The translator reads the per-context RewriteApplyAsJoin option, so it is built here from the resolving scope's own extension.
+            builder.TryAdd<ISqlExpressionTranslator>(sp => new SqlServerSqlExpressionTranslator(
+                sp.GetRequiredService<ISqlNaming>(), sp.GetContextExtension<SqlServerExtension>().RewriteApplyAsJoin));
             // Same first-wins reason: this one reports that OUTPUT is available, so entity level writes
             // read generated values back in the statement that wrote them.
             builder.TryAdd<IEntityPersister, SqlServerEntityPersister>();
@@ -133,13 +160,17 @@ namespace Atis.Orm.SqlServer
         ///         with.
         ///     </para>
         ///     <para>
+        ///         <see cref="RewriteApplyAsJoin"/> is part of the key too: it changes the SQL a query translates
+        ///         to, and compiled queries are cached per provider, so contexts that disagree must not share one.
+        ///     </para>
+        ///     <para>
         ///         The factory <em>instance</em> is the key, not its type, so a scoped
         ///         <see cref="IDbCommunication"/> reading <see cref="ProviderFactory"/> from its own
         ///         configuration can never disagree with the captured singleton. In practice this does not
         ///         fragment the cache: <c>SqlClientFactory.Instance</c> is itself a singleton.
         ///     </para>
         /// </summary>
-        public object GetServiceProviderCacheKey() => this.ProviderFactory;
+        public object GetServiceProviderCacheKey() => Tuple.Create(this.ProviderFactory, this.RewriteApplyAsJoin);
 
         private static IDbCommunication CreateDbCommunication(IServiceProvider serviceProvider)
         {

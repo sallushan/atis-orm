@@ -29,7 +29,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         private string Render(System.Linq.Expressions.Expression queryExpression)
         {
             var sqlExpression = this.ConvertExpressionToSqlExpression(queryExpression, out _);
-            var translator = new SqlExpressionTranslator { IsRowNumberSupported = false };
+            var translator = new SqlExpressionTranslator();
             return translator.Translate(sqlExpression);
         }
 
@@ -251,7 +251,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                         .Select(x => new { x.Id, VO = x.ValObjOutTime, Other = x.ValObjInTime.ZoneCode });
 
             var sqlExpression = this.ConvertExpressionToSqlExpression(q.Expression, out var updated);
-            var translator = new SqlExpressionTranslator { IsRowNumberSupported = false };
+            var translator = new SqlExpressionTranslator();
             var rendered = Squash(translator.Translate(sqlExpression));
 
             // Documents the flattening described above: VO's alias is gone, its three columns sit at the

@@ -67,7 +67,6 @@
         Update,
         DataManipulationDerivedTable,
         Delete,
-        Comment,
         Queryable,
         Fragment,
         DataSourceQueryShape,

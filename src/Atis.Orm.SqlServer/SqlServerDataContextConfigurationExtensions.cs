@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Linq;
 using System.Text;
 
 using Atis.Orm.DataAccess;
@@ -8,6 +9,22 @@ namespace Atis.Orm.SqlServer
 {
     public static class SqlServerDataContextConfigurationExtensions
     {
+        /// <summary>
+        ///     Writes a correlated <c>OUTER APPLY</c> / <c>CROSS APPLY</c> as a join, with <c>TOP n</c> turned into
+        ///     <c>ROW_NUMBER() ... &lt;= n</c>. The SQL then differs from what the LINQ spells out, which is why it is
+        ///     off unless asked for. Call it after <c>UseSqlServer</c>. See <see cref="SqlServerExtension.RewriteApplyAsJoin"/>.
+        /// </summary>
+        public static DataContextConfiguration RewriteApplyAsJoin(this DataContextConfiguration config, bool enabled = true)
+        {
+            if (config is null)
+                throw new ArgumentNullException(nameof(config));
+
+            var extension = config.Extensions.OfType<SqlServerExtension>().FirstOrDefault()
+                            ?? throw new InvalidOperationException("Call UseSqlServer before RewriteApplyAsJoin.");
+            config.AddOrUpdateExtension(extension.WithRewriteApplyAsJoin(enabled));
+            return config;
+        }
+
         /// <summary>Points the context at <paramref name="connectionString"/>.</summary>
         public static DataContextConfiguration UseSqlServer(
             this DataContextConfiguration config,

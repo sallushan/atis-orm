@@ -140,8 +140,12 @@ public class SqlServerExtension : IServiceContextExtension, IServiceProviderCach
 {
     public DbProviderFactory ProviderFactory { get; }
 
+    public bool RewriteApplyAsJoin { get; }
+
     // The ADO.NET client reaches the singleton IDbParameterFactory, so it cannot be per-scope.
-    public object GetServiceProviderCacheKey() => this.ProviderFactory;
+    // RewriteApplyAsJoin changes the SQL a query translates to, and compiled queries are cached per
+    // provider, so contexts that disagree on it must not share one.
+    public object GetServiceProviderCacheKey() => Tuple.Create(this.ProviderFactory, this.RewriteApplyAsJoin);
 }
 ```
 

@@ -116,7 +116,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         private string Render(Expression queryExpression)
         {
             var sqlExpression = this.ConvertExpressionToSqlExpression(queryExpression, out _);
-            var translator = new SqlExpressionTranslator { IsRowNumberSupported = false };
+            var translator = new SqlExpressionTranslator();
             return translator.Translate(sqlExpression);
         }
 

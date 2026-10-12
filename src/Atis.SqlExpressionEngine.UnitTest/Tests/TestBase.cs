@@ -54,10 +54,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             string resultQuery = null;
             if (result != null)
             {
-                var translator = new SqlExpressionTranslator()
-                {
-                    IsRowNumberSupported = false,
-                };
+                var translator = new SqlExpressionTranslator();
                 try
                 {
                     //if (result is SqlDerivedTableExpression derivedTable)

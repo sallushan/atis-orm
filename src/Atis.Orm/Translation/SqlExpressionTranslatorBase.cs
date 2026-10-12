@@ -76,6 +76,20 @@ namespace Atis.Orm.Translation
         private bool isTranslating;
 
         private readonly ISqlNaming naming;
+        private ApplyJoinRewriter applyJoinRewriter;
+
+        /// <summary>
+        ///     <para>
+        ///         Whether a correlated <c>OUTER APPLY</c> / <c>CROSS APPLY</c> is written as a join instead
+        ///         (see <see cref="ApplyJoinRewriter"/>). <c>false</c> by default: the rewrite changes the
+        ///         shape of the SQL the LINQ asked for, so a provider turns it on only when its user opted in.
+        ///     </para>
+        ///     <para>
+        ///         It changes the SQL of the same query, so a provider that makes it configurable must also
+        ///         separate its service providers by the setting - compiled queries are cached process-wide.
+        ///     </para>
+        /// </summary>
+        protected virtual bool RewriteApplyAsJoin => false;
 
         /// <summary>Constructs a translator that spells names the default way (see <see cref="SqlNaming"/>).</summary>
         public SqlExpressionTranslatorBase()
@@ -567,8 +581,6 @@ namespace Atis.Orm.Translation
                 this.TranslateInsertInto(insertInto);
             else if (node is SqlNewGuidExpression newGuid)
                 this.TranslateNewGuid(newGuid);
-            else if (node is SqlCommentExpression comment)
-                this.TranslateComment(comment);
             else if (node is SqlFragmentExpression fragment)
                 this.TranslateFragment(fragment);
             else if (node is SqlQueryableExpression queryable)
@@ -1022,7 +1034,9 @@ namespace Atis.Orm.Translation
             if (node.Joins != null && node.Joins.Count > 0)
             {
                 Separator();
-                this.TranslateJoins(node.Joins);
+                this.TranslateJoins(this.RewriteApplyAsJoin
+                    ? (this.applyJoinRewriter ?? (this.applyJoinRewriter = new ApplyJoinRewriter())).Rewrite(node, node.Joins)
+                    : node.Joins);
             }
 
             if (node.WhereClause != null && node.WhereClause.FilterConditions.Count > 0)
@@ -2208,18 +2222,6 @@ namespace Atis.Orm.Translation
         #endregion
 
         #region Miscellaneous Translation
-
-        /// <summary>
-        ///     <para>
-        ///         Translates a comment expression.
-        ///     </para>
-        /// </summary>
-        protected virtual void TranslateComment(SqlCommentExpression node)
-        {
-            this.Append("/*");
-            this.Append(node.Comment);
-            this.Append("*/");
-        }
 
         /// <summary>
         ///     <para>

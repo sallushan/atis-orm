@@ -180,10 +180,6 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateSqlQueryableExpression(sqlQueryableExpression);
             }
-            else if (sqlExpression is SqlCommentExpression sqlComment)
-            {
-                return this.TranslateSqlCommentExpression(sqlComment);
-            }
             else if (sqlExpression is SqlFragmentExpression sqlFragment)
             {
                 return sqlFragment.Fragment;
@@ -243,11 +239,6 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return query.ToString();
         }
 
-        private string TranslateSqlCommentExpression(SqlCommentExpression sqlComment)
-        {
-            return $"/*{sqlComment.Comment}*/";
-        }
-
         private string TranslateSqlQueryableExpression(SqlQueryableExpression sqlQueryableExpression)
         {
             return $"Queryable: {{\r\n{Indent(this.Translate(sqlQueryableExpression.Query))}\r\n}}";
@@ -270,78 +261,9 @@ namespace Atis.SqlExpressionEngine.UnitTest
 
         private string TranslateSqlAliasedJoinSourceExpression(SqlDerivedTableExpression parentTable, SqlAliasedJoinSourceExpression node)
         {
-            node = this.ConvertToInnerJoinIfPossible(parentTable, node);
             var alias = this.GetSimpleAlias(node.Alias, node.JoinName);
             var joinCondition = node.JoinCondition != null ? $" on {this.TranslateLogicalExpression(node.JoinCondition)}" : string.Empty;
             return $"{GetSqlJoinType(node.JoinType)} {this.Translate(node.QuerySource)} as {alias}{joinCondition}";
-        }
-
-        private SqlAliasedJoinSourceExpression ConvertToInnerJoinIfPossible(SqlDerivedTableExpression parentTable, SqlAliasedJoinSourceExpression node)
-        {
-            if ((node.JoinType == SqlJoinType.OuterApply || node.JoinType == SqlJoinType.CrossApply)
-                &&
-                node.QuerySource is SqlDerivedTableExpression derivedTable)
-            {
-                if (!(derivedTable.WhereClause?.FilterConditions.Count > 0)    // must have filter condition
-                    ||
-                    derivedTable.GroupByClause?.Count > 0 ||                   // must not have grouping
-                    derivedTable.HavingClause?.FilterConditions.Count > 0      // or having
-                    ||
-                    !(derivedTable.QueryShape is SqlQueryShapeExpression)       // either shape is not Query Shape
-                    ||                                                          // or it is query shape but it's a scalar
-                    (derivedTable.QueryShape as SqlQueryShapeExpression)?.IsScalar == true)
-                    return node;
-
-                if (!this.IsRowNumberSupported)
-                    return node;
-
-                var parentTableDataSources = new HashSet<Guid>(parentTable.AllDataSources.Select(x => x.Alias));
-                var joinableQueryBuilder = new JoinableQueryBuilder(derivedTable, parentTableDataSources, new SqlExpressionFactory(), node.Alias);
-                if (joinableQueryBuilder.TryBuildUnsafe(out var builderResult) && builderResult.JoinCondition != null)
-                {
-                    var joinType = node.JoinType == SqlJoinType.OuterApply ? SqlJoinType.Left : SqlJoinType.Inner;
-                    var updatedDerivedTable = builderResult.NormalizedDerivedTable;
-                    var top = updatedDerivedTable.Top;
-                    if (top != null)
-                    {
-                        // need to put ROW_NUM function and remove the top
-                        var partitionBy = $"partition by {string.Join(", ", builderResult.OtherTablePredicateSides.Select(this.Translate))}";
-                        var orderBy = string.Empty;
-                        if (updatedDerivedTable.OrderByClause != null)
-                        {
-                            orderBy = $" order by {string.Join(", ", updatedDerivedTable.OrderByClause.OrderByColumns.Select(x => this.TranslateOrderByColumn(x)))}";
-                        }
-                        var rowNum = new SqlFragmentExpression($"row_number() over ({partitionBy}{orderBy})");
-                        var currentSelectListColumns = updatedDerivedTable.SelectColumnCollection.SelectColumns.ToList();
-                        if (updatedDerivedTable.SelectColumnCollection.SelectColumns.FirstOrDefault()?.ScalarColumn == true)
-                        {
-                            var firstCol = currentSelectListColumns[0];
-                            currentSelectListColumns[0] = new SelectColumn(firstCol.ColumnExpression, firstCol.Alias, scalarColumn: false);
-                        }
-                        var newRowNumCol = new SelectColumn(rowNum, "auto_row_num", scalarColumn: false);
-                        currentSelectListColumns.Add(newRowNumCol);
-
-                        var memberInit = derivedTable.QueryShape as SqlMemberInitExpression
-                                            ??
-                                            derivedTable.QueryShape.CastTo<SqlDataSourceQueryShapeExpression>().ShapeExpression.CastTo<SqlMemberInitExpression>();
-                        memberInit.AddMemberAssignment(newRowNumCol.Alias, newRowNumCol.ColumnExpression, projectable: true);
-
-                        updatedDerivedTable = new SqlDerivedTableExpression(updatedDerivedTable.CteDataSources, updatedDerivedTable.FromSource, updatedDerivedTable.Joins, updatedDerivedTable.WhereClause, updatedDerivedTable.GroupByClause, updatedDerivedTable.HavingClause, null, new SqlSelectListExpression(currentSelectListColumns.ToArray()), false, null, null, null, false, updatedDerivedTable.Tag, updatedDerivedTable.QueryShape, SqlExpressionType.DerivedTable);
-
-                        var newFromSource = new SqlAliasedFromSourceExpression(updatedDerivedTable, Guid.NewGuid());
-                        var whereClause = new SqlFilterClauseExpression(new[] { new FilterCondition(new SqlBinaryExpression(new SqlDataSourceColumnExpression(newFromSource.Alias, newRowNumCol.Alias), new SqlLiteralExpression(top), SqlExpressionType.LessThanOrEqual), false) }, SqlExpressionType.WhereClause);
-                        var newProjection = currentSelectListColumns.Where(x => x != newRowNumCol)
-                                                                    .Select(x => new SelectColumn(new SqlDataSourceColumnExpression(newFromSource.Alias, x.Alias), x.Alias, false)).ToArray();
-                        var newSelectListClause = new SqlSelectListExpression(newProjection);
-                        var outerTable = new SqlDerivedTableExpression(null, newFromSource, null, whereClause, null, null, null, newSelectListClause, false, null, null, null, false, null, updatedDerivedTable.QueryShape, SqlExpressionType.DerivedTable);
-
-                        updatedDerivedTable = outerTable;
-                    }
-                    var updatedDataSource = updatedDerivedTable.ConvertToTableIfPossible();
-                    return new SqlAliasedJoinSourceExpression(joinType, updatedDataSource, node.Alias, builderResult.JoinCondition, node.JoinName, node.IsNavigationJoin);
-                }
-            }
-            return node;
         }
 
         private static string GetSqlJoinType(SqlJoinType joinType)
@@ -471,19 +393,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             for (var i = 0; i < selectColumns.Count; i++)
             {
                 var selectColumn = selectColumns[i];
-                var comment = selectColumn.ColumnExpression as SqlCommentExpression;
-                if (comment != null)
-                    result.Append(" /*");
                 if (i > 0)
                     result.Append(", ");
 
-                if (comment is null)
-                    result.Append(Indent(this.TranslateSelectColumn(selectColumn)));
-                else
-                    result.Append(comment.Comment).Append(" as ").Append(selectColumn.Alias);
-
-                if (comment != null)
-                    result.Append("*/");
+                result.Append(Indent(this.TranslateSelectColumn(selectColumn)));
             }
             return result.ToString();
         }
@@ -780,8 +693,6 @@ namespace Atis.SqlExpressionEngine.UnitTest
 
 
         int paramCount = 0;
-
-        public bool IsRowNumberSupported { get; set; }
 
         private string TranslateSqlParameterExpression(SqlParameterExpression sqlParameterExpression)
         {

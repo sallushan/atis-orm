@@ -191,12 +191,6 @@ namespace Atis.SqlExpressionEngine.Visitors
             return base.VisitSqlInsert(node);
         }
 
-        protected internal override SqlExpression VisitSqlComment(SqlCommentExpression node)
-        {
-            this.hashCode.Add(node.Comment);
-            return base.VisitSqlComment(node);
-        }
-
         protected internal override SqlExpression VisitSqlFragment(SqlFragmentExpression node)
         {
             this.hashCode.Add(node.Fragment);
