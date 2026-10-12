@@ -144,6 +144,10 @@ namespace Atis.SqlExpressionEngine.UnitTest
             {
                 return this.TranslateSqlCastExpression(sqlCastExpression);
             }
+            else if (sqlExpression is SqlNewDateTimeExpression sqlNewDateTime)
+            {
+                return $"newDateTime({string.Join(", ", new[] { sqlNewDateTime.Year, sqlNewDateTime.Month, sqlNewDateTime.Day, sqlNewDateTime.Hour, sqlNewDateTime.Minute, sqlNewDateTime.Second, sqlNewDateTime.Millisecond }.Where(x => x != null).Select(x => this.Translate(x)))})";
+            }
             else if (sqlExpression is SqlDateAddExpression sqlDateAddExpression)
             {
                 return this.TranslateSqlDateAddExpression(sqlDateAddExpression);

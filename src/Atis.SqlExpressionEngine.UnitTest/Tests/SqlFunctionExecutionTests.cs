@@ -671,5 +671,36 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 Assert.AreEqual(new DateTime(2020, 1, 11), Run(10)[0], "The second run must use its own value, not the first run's.");
             });
         }
+
+        [TestMethod]
+        public void New_DateTime_builds_a_date_from_columns_variables_and_constants()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                Seed(db, "Ann", 300m, new DateTime(2020, 3, 15));
+
+                var day = 9;
+                var q = db.CreateQuery<TestEntities.Employee>()
+                          .Where(x => x.LastName == Marker && x.FirstName == "Ann")
+                          .Select(x => new
+                          {
+                              FromColumns = new DateTime(x.HireDate.Value.Year, x.HireDate.Value.Month, 1),
+                              FromVariable = new DateTime(2021, 2, day),
+                              WithTime = new DateTime(2022, 4, 5, 6, 7, 8),
+                              WithMillis = new DateTime(2022, 4, 5, 6, 7, 8, 123),
+                          });
+
+                var sql = db.TranslateToSql(q);
+                StringAssert.Contains(sql, "DateFromParts(");
+                StringAssert.Contains(sql, "DateTime2FromParts(");
+
+                var row = q.ToList().Single();
+                Assert.AreEqual(new DateTime(2020, 3, 1), row.FromColumns);
+                Assert.AreEqual(new DateTime(2021, 2, 9), row.FromVariable);
+                Assert.AreEqual(new DateTime(2022, 4, 5, 6, 7, 8), row.WithTime);
+                Assert.AreEqual(new DateTime(2022, 4, 5, 6, 7, 8, 123), row.WithMillis);
+            });
+        }
     }
 }

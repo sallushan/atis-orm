@@ -50,6 +50,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new StringCompareToConverterFactory(),
                 new BinaryExpressionConverterFactory(),
                 new MemberInitExpressionConverterFactory(),
+                new NewDateTimeExpressionConverterFactory(),
                 new NewExpressionConverterFactory(),
                 new StringFunctionsConverterFactory(),
                 new MathFunctionsConverterFactory(),

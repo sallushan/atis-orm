@@ -20,6 +20,8 @@ namespace Atis.SqlExpressionEngine.Abstractions
         SqlFunctionExpression CreateFunctionCall(string functionName, SqlExpression[] arguments);
         /// <summary>Creates a semantic math operation that a database translator can render for its dialect.</summary>
         SqlMathFunctionExpression CreateMathFunction(SqlMathFunction function,IReadOnlyList<Type> argumentTypes, SqlExpression[] arguments, MidpointRounding? roundingMode = null);
+        /// <summary>Creates a date-time built from its parts; hour, minute and second go together, millisecond needs them.</summary>
+        SqlNewDateTimeExpression CreateNewDateTime(SqlExpression year, SqlExpression month, SqlExpression day, SqlExpression hour = null, SqlExpression minute = null, SqlExpression second = null, SqlExpression millisecond = null);
         SqlAggregateFunctionExpression CreateAggregateFunctionCall(SqlAggregateFunction function, SqlExpression[] arguments);
         SqlConditionalExpression CreateCondition(SqlExpression test, SqlExpression ifTrue, SqlExpression ifFalse);
         SqlDefaultIfEmptyExpression CreateDefaultIfEmpty(SqlDerivedTableExpression derivedTable);

@@ -519,6 +519,8 @@ namespace Atis.Orm.Translation
                 this.TranslateAggregateFunction(aggregateFunction);
             else if (node is SqlMathFunctionExpression mathFunction)
                 this.TranslateMathFunction(mathFunction);
+            else if (node is SqlNewDateTimeExpression newDateTime)
+                this.TranslateNewDateTime(newDateTime);
             else if (node is SqlFunctionExpression functionCall)
                 this.TranslateFunctionCall(functionCall);
             else if (node is SqlExistsExpression exists)
@@ -1576,6 +1578,42 @@ namespace Atis.Orm.Translation
 
             if (node.Function == SqlMathFunction.Sign)
                 this.Append(" as int)");
+        }
+
+        /// <summary>
+        ///     Translates <c>new DateTime(...)</c> using SQL Server-compatible syntax: <c>DATEFROMPARTS</c> for
+        ///     year/month/day, otherwise <c>DATETIME2FROMPARTS</c> (precision 0, or precision 3 when a millisecond
+        ///     argument is given). Providers override this when their dialect builds the value differently.
+        /// </summary>
+        protected virtual void TranslateNewDateTime(SqlNewDateTimeExpression node)
+        {
+            if (node.Hour == null)
+            {
+                this.Append("DateFromParts(");
+                this.TranslateAsNonLogicalExpression(node.Year);
+                this.Append(", ");
+                this.TranslateAsNonLogicalExpression(node.Month);
+                this.Append(", ");
+                this.TranslateAsNonLogicalExpression(node.Day);
+                this.Append(")");
+                return;
+            }
+
+            this.Append("DateTime2FromParts(");
+            foreach (var part in new[] { node.Year, node.Month, node.Day, node.Hour, node.Minute, node.Second })
+            {
+                this.TranslateAsNonLogicalExpression(part);
+                this.Append(", ");
+            }
+            if (node.Millisecond != null)
+            {
+                this.TranslateAsNonLogicalExpression(node.Millisecond);
+                this.Append(", 3)");
+            }
+            else
+            {
+                this.Append("0, 0)");
+            }
         }
 
         /// <summary>

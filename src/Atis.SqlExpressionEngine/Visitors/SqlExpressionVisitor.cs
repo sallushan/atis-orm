@@ -285,6 +285,14 @@ namespace Atis.SqlExpressionEngine.Visitors
             return node.Update(interval, dateExpression);
         }
 
+        /// <summary>Visits a date-time built from its parts.</summary>
+        protected virtual internal SqlExpression VisitSqlNewDateTime(SqlNewDateTimeExpression node)
+        {
+            return node.Update(
+                Visit(node.Year), Visit(node.Month), Visit(node.Day),
+                Visit(node.Hour), Visit(node.Minute), Visit(node.Second), Visit(node.Millisecond));
+        }
+
         protected virtual internal SqlExpression VisitSqlDateSubtract(SqlDateSubtractExpression node)
         {
             var startDate = Visit(node.StartDate);

@@ -179,6 +179,12 @@ namespace Atis.SqlExpressionEngine.Services
             return new SqlMathFunctionExpression(function, argumentTypes, arguments, roundingMode);
         }
 
+        /// <inheritdoc />
+        public virtual SqlNewDateTimeExpression CreateNewDateTime(SqlExpression year, SqlExpression month, SqlExpression day, SqlExpression hour = null, SqlExpression minute = null, SqlExpression second = null, SqlExpression millisecond = null)
+        {
+            return new SqlNewDateTimeExpression(year, month, day, hour, minute, second, millisecond);
+        }
+
         public virtual SqlAggregateFunctionExpression CreateAggregateFunctionCall(SqlAggregateFunction function, SqlExpression[] arguments)
         {
             return new SqlAggregateFunctionExpression(function, arguments);
