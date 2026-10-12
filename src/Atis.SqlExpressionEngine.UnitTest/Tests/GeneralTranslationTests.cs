@@ -614,7 +614,7 @@ where	(a_1.PID = '123')
         // SQL query compatible concatenation
         public static readonly Expression<Func<string, string, string>> FullNameExpression = (firstName, lastName) => firstName + " " + lastName;
         
-        [PseudoMethod(nameof(FullNameExpression))]
+        [Atis.Orm.Annotations.ExpressionMacro(nameof(FullNameExpression))]
         public static readonly Func<string, string, string> FullName = FullNameExpression.Compile();
 
         [TestMethod]
@@ -631,7 +631,7 @@ select	(-a_1.LineTotal * -1) as C1
             Test("Negation Test", q.Expression, expectedResult);
         }
 
-        [PseudoMethod(nameof(IsValidDesignationForSoftwareEngineeringExpression))]
+        [Atis.Orm.Annotations.ExpressionMacro(nameof(IsValidDesignationForSoftwareEngineeringExpression))]
         public static bool IsValidDesignationForSoftwareEngineering(string designation)
         {
             return IsValidDesignationForSoftwareEngineeringDelegate(designation);

@@ -285,7 +285,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
                 var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory()]);
                 var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
-                this.preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: new[] { new CustomBusinessMethodPreprocessor() });
+                this.preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: null);
                 var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));
                 var sqlExpressionTranslator = new SqlServerSqlExpressionTranslator();
                 var nameGenerator = new SqlDbParameterNameGenerator();

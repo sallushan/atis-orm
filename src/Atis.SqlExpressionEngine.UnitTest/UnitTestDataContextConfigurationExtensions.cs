@@ -29,7 +29,6 @@ namespace Atis.SqlExpressionEngine.UnitTest
         {
             var builder = new OrmServiceBuilder(services);
             builder.AddConverterFactory<SqlFunctionConverterFactory>();
-            builder.TryAdd<IExpressionPreprocessor, CustomBusinessMethodPreprocessor>();
         }
     }
 }

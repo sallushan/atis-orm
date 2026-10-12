@@ -35,10 +35,12 @@ namespace Atis.Orm.Preprocessing
             var navigationEqualityPreprocessor = new NavigationNullEqualityPreprocessor(model, reflectionService);
             var whereBuilderRewriterPreprocessor = new WhereBuilderRewriterPreprocessor();
             var contextualValuePreprocessor = new ContextualValueRewriterPreprocessor(contextualMemberProvider ?? new NoContextualMembers());
+            var expressionMacroPreprocessor = new ExpressionMacroPreprocessor();
 
             this.ExpressionPreprocessors.AddRange(new IExpressionPreprocessor[]
             {
                 queryVariablePreprocessor, 
+                expressionMacroPreprocessor,
                 methodInterfaceTypeReplacementPreprocessor, 
                 navigateToManyPreprocessor, 
                 navigateToOnePreprocessor, 

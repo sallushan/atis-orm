@@ -82,7 +82,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         public void Extractor_omits_the_identity_a_preprocessor_would_inject()
         {
             var employees = new Queryable<EmployeeExtension>(queryProvider);
-            // The pseudo-method call carries no variable of its own; `PilotFirstNames` only appears once
+            // The expression macro call carries no variable of its own; `PilotFirstNames` only appears once
             // preprocessing inlines the lambda body. That asymmetry is what makes the injected parameter
             // unreboundable on a cache hit, so it falls back to its translation-time value.
             var original = employees.Where(x => IsPilotName(x.Designation)).Expression;
@@ -191,7 +191,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             using var dbc = new OrmDbContext();
             var employees = dbc.CreateQuery<TestEntities.Employee>();
 
-            // IsPilotName is a pseudo-method: preprocessing replaces the call with `PilotFirstNames.Contains(x)`,
+            // IsPilotName is a expression macro: preprocessing replaces the call with `PilotFirstNames.Contains(x)`,
             // introducing a variable node that exists only in the preprocessed tree. Since the executor no
             // longer re-preprocesses on a cache hit, that parameter finds no re-extracted value and falls back
             // to its translation-time one — while the genuinely captured 'minId' beside it still has to rebind.
@@ -213,7 +213,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             Assert.AreEqual(0, secondRun.Count, "The captured minId must rebind on the cache hit.");
         }
 
-        // --- A pseudo-method whose inlined body references a static collection ----------------------------
+        // --- A expression macro whose inlined body references a static collection ----------------------------
         // Preprocessing pulls `PilotFirstNames` into the tree, so the parameter it produces has no
         // counterpart in the original expression — the exact case ResolveValue falls back on.
 
@@ -222,7 +222,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         public static readonly Expression<Func<string, bool>> IsPilotNameExpression = name => PilotFirstNames.Contains(name);
         private static readonly Func<string, bool> IsPilotNameDelegate = IsPilotNameExpression.Compile();
 
-        [PseudoMethod(nameof(IsPilotNameExpression))]
+        [Atis.Orm.Annotations.ExpressionMacro(nameof(IsPilotNameExpression))]
         public static bool IsPilotName(string name) => IsPilotNameDelegate(name);
     }
 }

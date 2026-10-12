@@ -230,7 +230,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
 
         private IExpressionPreprocessorProvider GetPreprocessorProvider(IReflectionService reflectionService, IExpressionEvaluator expressionEvaluator, IModel model/*, IQueryProvider queryProvider*/)
         {
-            var preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: new[] { new CustomBusinessMethodPreprocessor() });
+            var preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: null);
             return preprocessor;
         }
 

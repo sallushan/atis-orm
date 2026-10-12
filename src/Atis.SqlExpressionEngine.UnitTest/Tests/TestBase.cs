@@ -122,7 +122,7 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         {
             var expressionEvaluator = new ExpressionEvaluator();
             var reflectionService = new ReflectionService();
-            var preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: new[] { new CustomBusinessMethodPreprocessor() });
+            var preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: null);
             expression = preprocessor.Preprocess(expression);
             return expression;
         }

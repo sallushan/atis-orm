@@ -710,7 +710,7 @@ select	a_1.RowId as RowId, a_1.EmployeeId as EmployeeId, a_1.Name as Name, a_1.D
                 var converterServiceProvider = new ExpressionConverterDependencyProviderByCollection(serviceCollection);
                 var factoryProvider = new LinqToSqlConverterFactoryProvider(reflectionService, expressionEvaluator, new VariableIdentityProvider(), userProvidedFactories: [new SqlFunctionConverterFactory()]);
                 var treeConverter = new LinqToSqlExpressionTreeConverter(converterServiceProvider, factoryProvider);
-                var preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: new[] { new CustomBusinessMethodPreprocessor() });
+                var preprocessor = new OrmExpressionPreprocessorProvider(model, reflectionService, expressionEvaluator, plugins: null);
                 var linqToSqlConverter = new LinqToSqlConverter(treeConverter, new SqlExpressionPostprocessorProvider(postprocessors: []));
                 var sqlExpressionTranslator = new SqlServerSqlExpressionTranslator();
                 var nameGenerator = new SqlDbParameterNameGenerator();
