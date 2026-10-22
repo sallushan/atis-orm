@@ -228,17 +228,13 @@ builds, for each child, a row factory: `new ChildRow(item, key)`. The key column
 | `ChildCollectionProjectionTests` | Translation of the marker; how the query is split; parent `Top` / filter / order kept in the child; the tie-breaker; scalar, computed, anonymous and unlinked children; `distinct` / `take` children with `cross apply`; helper columns carry the flag. No database. |
 | `SelectListScalarRuleTests` | The scalar select-list rule with and without helper columns. |
 | `ChildCollectionExecutionTests` | 10 executions against a local SQL Server: per-parent grouping and empty lists; class member and array; `Top` without `OrderBy`; cache-hit rebind; async; refusing a non-list member; single-column child; anonymous-type child; child with its own `Take`; single-column child under a parent with `OrderBy` and `Take`. |
+| `ChildCollectionMaterializationTests` | 12 executions against a local SQL Server: two-column link; `NULL` link value (empty list, not null); unlinked child (`NoKey`); two child collections in one projection; parents sharing a link value; member types `List`, `IList`, `ICollection`, `IReadOnlyList`, `IEnumerable`; terminals `First`, `FirstOrDefault`, direct `foreach`, `ToArray`, `FirstOrDefaultAsync`; `NULL` inside a single-column child and an anonymous-type child; `NULL` in parent columns. |
+| `ChildCollectionsHelperTests` | 19 plain tests, no database, of `ChildCollections.MakeKey`, `ReadKeyValues`, `Add`, `GetList` and `GetArray`. |
+
+`Single()` is not supported by the engine at all (no converter), with or without child collections, so it is not tested.
 
 ### Not covered by an execution test
 
-- Composite (multi-column) link keys.
-- A `NULL` link value.
-- An unlinked child (`NoKey`) at execution.
-- Two child collections in one projection.
-- Parents that share a link value.
-- Member types `IList<T>`, `ICollection<T>`, `IReadOnlyList<T>`, `IEnumerable<T>`.
-- Terminals other than `ToList` and `ToListAsync`.
-- `NULL` values inside a child column.
 - Ties with a non-unique `ORDER BY`.
 - The navigation initializer on child items.
 
@@ -260,4 +256,4 @@ builds, for each child, a row factory: `new ChildRow(item, key)`. The key column
    children, so the branch should not be reached. Not proven.
 6. **Per-parent limits.** A child with its own `Take` loads with `cross apply`, which gives a per-parent limit. A plain
    join cannot.
-7. The materialization test gaps listed in section 6.
+7. The two materialization test gaps still listed in section 6 (ties, navigation initializer on child items).
