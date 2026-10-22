@@ -17,10 +17,40 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             if (selectColumns.GroupBy(x=>x.Alias).Any(x=>x.Count() > 1))
                 throw new ArgumentException("Duplicate column names in select columns", nameof(selectColumns));
             this.SelectColumns = selectColumns;
+            this.ScalarSelectColumn = FindScalarColumn(selectColumns);
         }
         /// <inheritdoc />
         public override SqlExpressionType NodeType => SqlExpressionType.SelectColumnCollection;
         public IReadOnlyList<SelectColumn> SelectColumns { get; }
+
+        /// <summary>
+        ///     The column of a scalar select list, <c>null</c> if the select list is not a scalar one, see <see cref="FindScalarColumn"/>.
+        /// </summary>
+        public SelectColumn ScalarSelectColumn { get; }
+
+        /// <summary>
+        ///     The select list returns a single value per row.
+        /// </summary>
+        public bool IsScalar => this.ScalarSelectColumn != null;
+
+        /// <summary>
+        ///     The one rule that decides whether a select list is a scalar one: it has exactly one column that is part of
+        ///     the projection and that column is scalar. Helper columns are not part of the projection, so they may sit
+        ///     next to it.
+        /// </summary>
+        public static SelectColumn FindScalarColumn(IReadOnlyList<SelectColumn> selectColumns)
+        {
+            SelectColumn found = null;
+            foreach (var column in selectColumns)
+            {
+                if (column.HelperColumn)
+                    continue;
+                if (found != null)
+                    return null;
+                found = column;
+            }
+            return found != null && found.ScalarColumn ? found : null;
+        }
 
 
         /// <inheritdoc />

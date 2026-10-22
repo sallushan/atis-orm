@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 
 using Atis.Orm.Abstractions;
+using Atis.Orm.Querying;
 namespace Atis.Orm.DataAccess
 {
     public class ExecutionContext : IExecutionContext
@@ -25,5 +26,27 @@ namespace Atis.Orm.DataAccess
         public Func<IDataReader, object> ElementFactory { get; }
 
         public bool IsNonQuery { get; }
+    }
+
+    /// <summary>
+    ///     <para>
+    ///         The execution of a query that has child collections, see <see cref="IChildAwareExecutionContext"/>.
+    ///     </para>
+    /// </summary>
+    public class ChildAwareExecutionContext : ExecutionContext, IChildAwareExecutionContext
+    {
+        /// <summary>Initializes a new instance of the <see cref="ChildAwareExecutionContext"/> class.</summary>
+        public ChildAwareExecutionContext(IExecutionContext parent, IReadOnlyList<IExecutionContext> childQueries, Func<IDataReader, ChildCollections, object> childAwareElementFactory)
+            : base(parent?.Sql, parent?.DbParameters, isNonQuery: false, elementFactory: null)
+        {
+            this.ChildQueries = childQueries ?? throw new ArgumentNullException(nameof(childQueries));
+            this.ChildAwareElementFactory = childAwareElementFactory ?? throw new ArgumentNullException(nameof(childAwareElementFactory));
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<IExecutionContext> ChildQueries { get; }
+
+        /// <inheritdoc />
+        public Func<IDataReader, ChildCollections, object> ChildAwareElementFactory { get; }
     }
 }

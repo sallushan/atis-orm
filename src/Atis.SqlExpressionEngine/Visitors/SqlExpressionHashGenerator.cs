@@ -144,6 +144,7 @@ namespace Atis.SqlExpressionEngine.Visitors
             {
                 this.hashCode.Add(selectItem.Alias);
                 this.hashCode.Add(selectItem.ScalarColumn);
+                this.hashCode.Add(selectItem.HelperColumn);
             }
             return base.VisitSqlSelectList(node);
         }

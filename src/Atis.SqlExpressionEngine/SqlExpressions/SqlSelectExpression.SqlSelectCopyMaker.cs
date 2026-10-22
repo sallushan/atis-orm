@@ -71,7 +71,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                 {
                     var updatedColExpression = this.ReplaceDataSourceAliases(oldSelectItem.ColumnExpression);
                     selectColumnMap.Add((oldSelectItem.ColumnExpression, updatedColExpression));
-                    var newSelectCol = new SelectColumn(updatedColExpression, oldSelectItem.Alias, oldSelectItem.ScalarColumn);
+                    var newSelectCol = new SelectColumn(updatedColExpression, oldSelectItem.Alias, oldSelectItem.ScalarColumn, oldSelectItem.HelperColumn);
                     selectList.Add(newSelectCol);
                 }
 

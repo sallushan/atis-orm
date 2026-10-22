@@ -131,6 +131,39 @@ namespace Atis.Orm.Querying
 
     /// <summary>
     ///     <para>
+    ///         A query with child collections: the compiled main query plus one compiled query per child collection. All
+    ///         of them are rebound from the same expression on every execution.
+    ///     </para>
+    /// </summary>
+    public sealed class ChildAwareCompiledQuery : ICompiledQuery
+    {
+        private readonly ICompiledQuery parent;
+        private readonly IReadOnlyList<ICompiledQuery> children;
+        private readonly Func<IDataReader, ChildCollections, object> childAwareElementFactory;
+
+        /// <summary>
+        ///     Initializes a new instance of the <see cref="ChildAwareCompiledQuery"/> class. A <c>null</c> entry in
+        ///     <paramref name="children"/> is a child query that is not run.
+        /// </summary>
+        public ChildAwareCompiledQuery(ICompiledQuery parent, IReadOnlyList<ICompiledQuery> children, Func<IDataReader, ChildCollections, object> childAwareElementFactory)
+        {
+            this.parent = parent ?? throw new ArgumentNullException(nameof(parent));
+            this.children = children ?? throw new ArgumentNullException(nameof(children));
+            this.childAwareElementFactory = childAwareElementFactory ?? throw new ArgumentNullException(nameof(childAwareElementFactory));
+        }
+
+        public IExecutionContext GetExecutionContext(IReadOnlyDictionary<string, object> parameterValuesByIdentity, bool useInitialValues, IQueryContext queryContext = null)
+        {
+            var parentContext = this.parent.GetExecutionContext(parameterValuesByIdentity, useInitialValues, queryContext);
+            var childContexts = new IExecutionContext[this.children.Count];
+            for (var i = 0; i < childContexts.Length; i++)
+                childContexts[i] = this.children[i]?.GetExecutionContext(parameterValuesByIdentity, useInitialValues, queryContext);
+            return new ChildAwareExecutionContext(parentContext, childContexts, this.childAwareElementFactory);
+        }
+    }
+
+    /// <summary>
+    ///     <para>
     ///         Compiled query whose SQL text depends on the values bound at execution time - an expandable
     ///         parameter whose placeholder count follows a collection's length, an optional term that
     ///         disappears when its guard has no value, or a comparison spelled two ways. The fragments are

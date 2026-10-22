@@ -34,9 +34,9 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         public override SqlDataSourceQueryShapeExpression CreateQueryShape(Guid dataSourceAlias)
         {
-            if (this.SelectList.Count == 1 &&
-                this.SelectList[0].ScalarColumn)
-                return new SqlDataSourceQueryShapeExpression(new SqlDataSourceColumnExpression(dataSourceAlias, this.SelectList[0].Alias), dataSourceAlias);
+            var scalarColumn = SqlSelectListExpression.FindScalarColumn(this.SelectList);
+            if (scalarColumn != null)
+                return new SqlDataSourceQueryShapeExpression(new SqlDataSourceColumnExpression(dataSourceAlias, scalarColumn.Alias), dataSourceAlias);
 
             var memberInit = this.QueryShape as SqlMemberInitExpression
                                 ??

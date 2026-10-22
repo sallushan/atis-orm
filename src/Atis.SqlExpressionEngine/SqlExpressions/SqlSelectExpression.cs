@@ -252,7 +252,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (derivedTable.NodeType == SqlExpressionType.DataManipulationDerivedTable)
                 return false;
-            if (derivedTable.SelectColumnCollection?.SelectColumns.All(x => x.ScalarColumn) ?? false)
+            if (derivedTable.SelectColumnCollection?.IsScalar ?? false)
                 // if all are scalar columns then cannot be outer apply
                 return false;
             else
@@ -897,7 +897,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             foreach (var col in newEntries)
             {
                 string alias = $"SubQueryCol{colIndex++}";
-                var selectItem = new SelectColumn(col, alias, scalarColumn: false);
+                var selectItem = new SelectColumn(col, alias, scalarColumn: false, helperColumn: true);
                 this.selectList.Add(selectItem);
             }
         }
