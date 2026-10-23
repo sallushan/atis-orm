@@ -350,5 +350,24 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                     CollectionAssert.AreEqual(new[] { "Skill" + ids[i] }, rows[i].Names);
             });
         }
+
+        [TestMethod]
+        public void Child_collection_followed_by_a_filter_is_refused_when_the_query_runs()
+        {
+            var db = new OrmDbContext();
+            var skills = db.CreateQuery<TestEntities.EmployeeSkill>();
+            var q = db.CreateQuery<TestEntities.Employee>()
+                      .Select(e => new
+                      {
+                          e.FirstName,
+                          Names = skills.Where(s => s.EmployeeId == e.EmployeeId).Select(s => s.SkillName).ToList()
+                      })
+                      .Where(x => x.FirstName == "A");
+
+            var ex = Assert.ThrowsException<NotSupportedException>(() => q.ToList());
+
+            StringAssert.Contains(ex.Message, "last Select");
+            StringAssert.Contains(ex.Message, "followed by 'Where'");
+        }
     }
 }
