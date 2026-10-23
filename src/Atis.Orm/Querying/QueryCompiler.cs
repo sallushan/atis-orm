@@ -37,6 +37,9 @@ namespace Atis.Orm.Querying
             // once the query is served from cache.
             NamedParameterValidator.Validate(expression);
 
+            // A child collection (ToList() / ToArray() on a sub-query in a Select) has to be in the last Select.
+            ChildCollectionPlacementValidator.Validate(expression);
+
             var queryTranslationResult = this.queryTranslator.Translate(expression);
             var isNonQuery = (queryTranslationResult.SqlExpression is SqlUpdateExpression sqlUpdate && sqlUpdate.Outputs.Count == 0)
                                 || (queryTranslationResult.SqlExpression is SqlInsertExpression sqlInsert && sqlInsert.Outputs.Count == 0)
