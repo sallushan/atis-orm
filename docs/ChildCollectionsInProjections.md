@@ -278,3 +278,89 @@ builds, for each child, a row factory: `new ChildRow(item, key)`. The key column
 6. **Per-parent limits.** A child with its own `Take` loads with `cross apply`, which gives a per-parent limit. A plain
    join cannot.
 7. The two materialization test gaps still listed in section 6 (ties, navigation initializer on child items).
+
+## 8. Alternative considered: extract the children as LINQ
+
+Recorded on 2026-10-23, after the placement rule (section 0) was settled. We looked at whether the children could be
+pulled out of the **LINQ** expression and run as ordinary queries, instead of being split off the SQL tree afterwards.
+We did not build it. This section says what the idea was and what stopped us.
+
+### The idea
+
+If a child collection can only be in the last `Select`, the query before it is flat. A preprocessor could then:
+
+1. Find each `ToList()` / `ToArray()` marker in the last `Select`.
+2. Replace it in the main query with a placeholder.
+3. Build one more LINQ expression per child, roughly `parent.SelectMany(x => child(x), (x, c) => ...)`.
+4. Send every expression through the normal conversion and the normal `Execute` path.
+
+What we hoped to gain:
+
+- **No special SQL surgery.** The engine's own `SelectMany` handling would build the join or apply.
+- **Execution hooks.** A before / after hook could treat a child like any other query.
+- **Less engine code.** The wrap and hoisting code for child lists could be deleted.
+
+### The challenges
+
+**1. The engine's hoisting cannot be deleted.** The code in `SqlSelectExpression.WrapQuery` that carries a
+sub-query column through a wrap is older than child collections. A `GroupJoin` group (`join ... into g`) needs it, and
+`g` is later used by `Count()` or `Any()`. We proved it: making that code throw broke 3 of the 801 engine tests
+(`GroupJoin_sub_query_selected_in_projection`, `Standard_join_after_where_should_do_the_join_on_sub_query`,
+`Queryable_selected_in_projection_then_query_wrapped_and_queryable_used_in_Where`). So only the
+`ToList()` / `ToArray()` marker can be restricted. That is what section 0 does.
+
+**2. A child row needs the key of its parent, and the key is hard to know in LINQ.** The child query returns rows like
+"this shoe belongs to the parent with key K", and the main query must return the same K for every parent row. K is the
+set of parent columns the child uses to link itself. In LINQ that is not visible:
+
+- A navigation such as `x.Shoes` is only a member access. It becomes a join condition (`Shoes.PersonId = Person.Id`)
+  inside the converter, from the entity metadata. A preprocessor would have to repeat that expansion.
+- For a hand-written sub-query (`shoes.Where(s => s.PersonId == x.Id)`) the key could be found by scanning for members of
+  `x`. That works only when `x` is used through members, not as a whole.
+- The SQL tree already knows the answer: the engine appends the parent columns the sub-query uses to the select list
+  (`SubQueryColN`). The existing extractor reads those. So the SQL level is the natural place to find the key.
+
+**3. The main query would have to carry hidden key columns.** In LINQ that means a wrapper result shape, because a
+projection cannot add invisible members to an anonymous type or a DTO. `ElementFactoryBuilder` would then need to read
+the wrapper. Today it only has to add hidden columns to the select list.
+
+**4. Matching by primary key does not always work.** The simple version, "key = primary key of the parent entity", fails
+when the last `Select` runs over an anonymous type (for example after a join). Then there is no single entity to ask.
+
+**5. Matching by position does not work.** Matching the i-th child group to the i-th parent row needs both queries to
+return the parent rows in the same order. With ties in `ORDER BY`, or with `TOP` and no `ORDER BY`, they may not.
+
+**6. The dictionary-row idea.** The engine can already return rows as `Dictionary<string, object>`. We considered
+rewriting the last `Select` to also project key columns and reading everything as dictionaries. It would carry the
+hidden columns without a wrapper type. But it does not say which columns to add (challenge 2), it needs a second
+materializer to build the typed objects (anonymous types, DTOs, entities with their navigation setup), and every value is
+boxed and looked up by name. We judged it more complex than the SQL-level step.
+
+**7. The existing extractor already uses the engine's normal path.** `ChildQueryExtractor.BuildChildQuery` builds each
+child through `AddDataSourceWithJoinResolution`, which is the same logic a hand-written `SelectMany` goes through. A LINQ
+version would end in the same place, so the saving was small.
+
+### What we kept
+
+The SQL-level extractor, with the placement rule in front of it. The rule is what removes the confusing forms, and it
+makes the parent flat, so the two open items that came from a wrapped parent can no longer occur.
+
+### Execution hooks (not built)
+
+A hook for validation, logging and timing was part of the motivation. Notes from the discussion:
+
+- The hook should receive the **LINQ the developer wrote**, before preprocessing, at the single entry of
+  `QueryExecutor`. After preprocessing it would see inlined macros and frozen values, and it would run only on a cache
+  miss.
+- With the SQL-level extractor a query that has child collections still gives **one** hook call. The children are run
+  inside the executor through `dbAdapter` and never come back through the entry. A LINQ-level extraction would have given
+  1 + N calls unless the child calls were suppressed or tagged.
+- The consumer has to read the whole expression anyway, because a sub-query in a `Where` or an `Any` is also not a
+  separate call. The hook's context could list the child collections (member name and source expression) so they need not
+  be searched for.
+- A fragment of a child as written (`x.Shoes`) is not a standalone query, so a separate call would not show "the query
+  that is about to run". The real child statement exists only after translation.
+- If per-child events are needed later, fire the hook again per child with a kind and a link to its parent call.
+- "After" must fire when the work is really finished, which for the async paths means after the deferred child loading.
+
+So the hook is not a reason to prefer a LINQ-level extraction. Both approaches share the same runtime.
