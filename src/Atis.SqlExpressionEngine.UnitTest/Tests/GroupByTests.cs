@@ -829,5 +829,77 @@ select a_2.Id as Id, a_3.Age as Age, a_3.Style as Style, Queryable: {
 ";
             Test("Queryable Selecting Grouped Row Test-9", q.Expression, expectedResult);
         }
+
+
+        [TestMethod]
+        public void Queryable_Selecting_Grouped_ChatGpt_01()
+        {
+            var people = new Queryable<Person>(queryProvider);
+
+            var q = people
+                        .Select(p => new
+                        {
+                            p.FirstName,
+                            p.LastName,
+                            FullName = p.FirstName + " " + p.MiddleInitial + " " + p.LastName
+                        })
+                        .GroupBy(p => p.FirstName)
+                        .Select(g => g.OrderBy(p => p.LastName).First())
+                        .Take(1);
+
+            string expectedResult = @"
+select top (1) a_4.FirstName as FirstName, a_4.LastName as LastName, a_4.FullName as FullName
+    from (
+            select a_2.FirstName as Col1
+            from (
+                    select a_1.FRST_NM as FirstName, a_1.LAST_NM as LastName, ((((a_1.FRST_NM + ' ') + a_1.MID_INIT) + ' ') + a_1.LAST_NM) as FullName
+                    from dbo.Person as a_1
+                ) as a_2
+            group by a_2.FirstName
+        ) as a_3
+            outer apply (
+                select top (1) a_5.FirstName as FirstName, a_5.LastName as LastName, a_5.FullName as FullName
+                from (
+                        select a_1.FRST_NM as FirstName, a_1.LAST_NM as LastName, ((((a_1.FRST_NM + ' ') + a_1.MID_INIT) + ' ') + a_1.LAST_NM) as FullName
+                        from dbo.Person as a_1
+                    ) as a_5
+                where (a_3.Col1 = a_5.FirstName)
+                order by a_5.LastName asc
+            ) as a_4
+";
+
+            Test("Queryable Selecting Grouped Row Test-6", q.Expression, expectedResult);
+        }
+
+
+
+        [TestMethod]
+        public void Queryable_Selecting_Grouped_ChatGpt_02()
+        {
+            var people = new Queryable<Person>(queryProvider);
+
+            var q = people
+                        .GroupBy(p => p.FirstName)
+                        .Select(g => g.OrderBy(p => p.LastName).Take(3));
+
+            string expectedResult = @"
+select a_3.Id as Id, a_3.Age as Age, a_3.FirstName as FirstName, a_3.LastName as LastName, a_3.MiddleInitial as MiddleInitial
+from (
+        select a_1.FRST_NM as Col1
+        from dbo.Person as a_1
+        group by a_1.FRST_NM
+    ) as a_2
+        outer apply (
+            select top (3) a_4.ID as Id, a_4.AGE as Age, a_4.FRST_NM as FirstName, a_4.LAST_NM as LastName, a_4.MID_INIT as MiddleInitial
+            from dbo.Person as a_4
+            where (a_2.Col1 = a_4.FRST_NM)
+            order by a_4.LAST_NM asc
+        ) as a_3
+";
+
+            Test("Queryable Selecting Grouped ChatGPT Test-02", q.Expression, expectedResult);
+        }
+
+
     }
 }
