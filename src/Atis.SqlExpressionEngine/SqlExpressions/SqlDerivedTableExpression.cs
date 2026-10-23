@@ -96,9 +96,9 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             if (this.SelectColumnCollection?.SelectColumns.IsNullOrEmpty() ?? true)
                 throw new InvalidOperationException($"Current Derived Table is '{this.NodeType}' and does not have a Select Column Collection.");
 
-            if (this.SelectColumnCollection.SelectColumns.Count == 1 &&
-                this.SelectColumnCollection.SelectColumns[0].ScalarColumn)
-                return new SqlDataSourceQueryShapeExpression(new SqlDataSourceColumnExpression(dataSourceAlias, this.SelectColumnCollection.SelectColumns[0].Alias), dataSourceAlias);
+            var scalarColumn = this.SelectColumnCollection.ScalarSelectColumn;
+            if (scalarColumn != null)
+                return new SqlDataSourceQueryShapeExpression(new SqlDataSourceColumnExpression(dataSourceAlias, scalarColumn.Alias), dataSourceAlias);
 
             if (this.QueryShape is null)
                 throw new InvalidOperationException($"QueryShape property is null.");

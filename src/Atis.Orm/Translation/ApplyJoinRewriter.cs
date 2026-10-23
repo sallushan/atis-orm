@@ -110,7 +110,7 @@ namespace Atis.Orm.Translation
             // A scalar select list has one column; with the row number added it is no longer scalar.
             if (columns[0].ScalarColumn)
                 columns[0] = new SelectColumn(columns[0].ColumnExpression, columns[0].Alias, scalarColumn: false);
-            var rowNumberColumn = new SelectColumn(rowNumber, RowNumberAlias, scalarColumn: false);
+            var rowNumberColumn = new SelectColumn(rowNumber, RowNumberAlias, scalarColumn: false, helperColumn: true);
             columns.Add(rowNumberColumn);
 
             // The ordering moved into the OVER clause and TOP moved into the filter below.
@@ -123,7 +123,7 @@ namespace Atis.Orm.Translation
                 new[] { new FilterCondition(new SqlBinaryExpression(rowNumberRef, new SqlLiteralExpression(top), SqlExpressionType.LessThanOrEqual), false) },
                 SqlExpressionType.WhereClause);
             var projection = columns.Where(x => x != rowNumberColumn)
-                                    .Select(x => new SelectColumn(new SqlDataSourceColumnExpression(source.Alias, x.Alias), x.Alias, x.ScalarColumn))
+                                    .Select(x => new SelectColumn(new SqlDataSourceColumnExpression(source.Alias, x.Alias), x.Alias, x.ScalarColumn, x.HelperColumn))
                                     .ToArray();
 
             return new SqlDerivedTableExpression(null, source, null, filter, null, null, null, new SqlSelectListExpression(projection),

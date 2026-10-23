@@ -1,4 +1,5 @@
-﻿using Atis.SqlExpressionEngine.SqlExpressions;
+﻿using Atis.SqlExpressionEngine.Internal;
+using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -9,6 +10,7 @@ using System.Threading.Tasks;
 
 using Atis.Orm.Abstractions;
 using Atis.Orm.DataAccess;
+using Atis.Orm.Querying;
 namespace Atis.Orm.Services
 {
     public class ElementFactoryBuilder : IElementFactoryBuilder
@@ -73,6 +75,161 @@ namespace Atis.Orm.Services
                 $"{nameof(Dictionary<string, object>)}<string, object>, not as '{elementType.Name}'.");
         }
 
+        /// <inheritdoc />
+        public ChildAwareElementFactory CreateChildAwareElementFactory(Expression expression, SqlDerivedTableExpression parentQuery, IReadOnlyList<ChildQuery> children)
+        {
+            if (parentQuery is null)
+                throw new ArgumentNullException(nameof(parentQuery));
+            if (children is null)
+                throw new ArgumentNullException(nameof(children));
+
+            var elementType = GetElementType(expression.Type);
+            var ordinalMap = BuildOrdinalMap(parentQuery.SelectColumnCollection.SelectColumns);
+            var childContext = new ChildReadContext(children, Expression.Parameter(typeof(ChildCollections), "children"), ordinalMap, this);
+
+            var drParam = Expression.Parameter(typeof(IDataReader), "dr");
+            var body = BuildReadExpression(elementType, parentQuery.QueryShape, ordinalMap, drParam, childContext);
+
+            // The link values are read first, once each and in ascending order: the reader may be sequential, and the
+            // collections have to be known before the object is constructed from the columns that follow them.
+            var readKeys = Expression.Assign(childContext.KeyValuesVariable,
+                                    Expression.Call(typeof(ChildCollections).GetMethod(nameof(ChildCollections.ReadKeyValues)), drParam, Expression.Constant(childContext.KeyOrdinals)));
+            var block = Expression.Block(typeof(object), new[] { childContext.KeyValuesVariable }, readKeys, Expression.Convert(body, typeof(object)));
+            var lambda = Expression.Lambda<Func<IDataReader, ChildCollections, object>>(block, drParam, childContext.CollectionsParameter);
+
+            System.Diagnostics.Debug.WriteLine($"Child aware element factory expression for {elementType.Name}: {lambda}");
+
+            return new ChildAwareElementFactory(lambda.Compile(), childContext.RowFactories);
+        }
+
+        /// <summary>
+        ///     Everything the shape walk needs to turn a sub-query column into a read of the child collection of the
+        ///     current parent row, and what it produced: the row factory of every child query it met.
+        /// </summary>
+        private sealed class ChildReadContext
+        {
+            private readonly ElementFactoryBuilder builder;
+            private readonly Dictionary<SqlExpression, int> parentOrdinalMap;
+
+            public ChildReadContext(IReadOnlyList<ChildQuery> children, ParameterExpression collectionsParameter, Dictionary<SqlExpression, int> parentOrdinalMap, ElementFactoryBuilder builder)
+            {
+                this.Children = children;
+                this.CollectionsParameter = collectionsParameter;
+                this.parentOrdinalMap = parentOrdinalMap;
+                this.builder = builder;
+                this.RowFactories = new Func<IDataReader, object>[children.Count];
+                this.KeyValuesVariable = Expression.Variable(typeof(object[]), "keyValues");
+                this.KeyOrdinals = children
+                                    .SelectMany(x => x.ParentKeyColumns)
+                                    .Select(this.GetParentOrdinal)
+                                    .Distinct()
+                                    .OrderBy(x => x)
+                                    .ToArray();
+            }
+
+            public IReadOnlyList<ChildQuery> Children { get; }
+            public ParameterExpression CollectionsParameter { get; }
+            public Func<IDataReader, object>[] RowFactories { get; }
+
+            /// <summary>Holds the link values of the current parent row, read once before anything else of the row.</summary>
+            public ParameterExpression KeyValuesVariable { get; }
+
+            /// <summary>The ordinals of every link column of every child query, ascending: what <see cref="KeyValuesVariable"/> is read from.</summary>
+            public int[] KeyOrdinals { get; }
+
+            private int GetParentOrdinal(SqlExpression column)
+            {
+                if (!this.parentOrdinalMap.TryGetValue(column, out var ordinal))
+                    throw new InvalidOperationException("A link column of a child query is not in the select list of the parent query. This is a bug in the query splitting.");
+                return ordinal;
+            }
+
+            public Expression BuildCollectionRead(Type memberType, SqlQueryableExpression source, ParameterExpression drParam)
+            {
+                var childIndex = -1;
+                for (var i = 0; i < this.Children.Count; i++)
+                {
+                    if (ReferenceEquals(this.Children[i].Source, source))
+                    {
+                        childIndex = i;
+                        break;
+                    }
+                }
+                if (childIndex < 0)
+                    throw new InvalidOperationException("A sub-query selected in the projection has no child query. This is a bug in the query splitting.");
+
+                var elementType = GetCollectionElementType(memberType);
+                if (elementType is null)
+                    throw new NotSupportedException($"A sub-query selected in the projection is loaded as a separate query and its rows can only be assigned to a member typed as a List<T>, IList<T>, ICollection<T>, IReadOnlyList<T>, IEnumerable<T> or an array, but the member is '{memberType}'. A member typed IQueryable<T> is not materialized: select the sub-query with ToList() or ToArray().");
+
+                var child = this.Children[childIndex];
+                this.RowFactories[childIndex] = this.builder.CreateChildRowFactory(child, elementType);
+
+                var keyPositions = child.ParentKeyColumns
+                                        .Select(column => Array.IndexOf(this.KeyOrdinals, this.GetParentOrdinal(column)))
+                                        .ToArray();
+
+                var key = Expression.Call(typeof(ChildCollections).GetMethod(nameof(ChildCollections.MakeKey)), this.KeyValuesVariable, Expression.Constant(keyPositions));
+                var getMethodName = memberType.IsArray ? nameof(ChildCollections.GetArray) : nameof(ChildCollections.GetList);
+                var get = Expression.Call(this.CollectionsParameter, typeof(ChildCollections).GetMethod(getMethodName).MakeGenericMethod(elementType), Expression.Constant(childIndex), key);
+                return get.Type == memberType ? (Expression)get : Expression.Convert(get, memberType);
+            }
+
+            /// <summary>
+            ///     The element type if <paramref name="memberType"/> is something a list or an array can be assigned to.
+            ///     <c>IQueryable&lt;T&gt;</c> is deliberately not one of them.
+            /// </summary>
+            private static Type GetCollectionElementType(Type memberType)
+            {
+                if (memberType.IsArray)
+                    return memberType.GetElementType();
+                if (!memberType.IsGenericType)
+                    return null;
+                var definition = memberType.GetGenericTypeDefinition();
+                if (definition == typeof(List<>) ||
+                    definition == typeof(IList<>) ||
+                    definition == typeof(ICollection<>) ||
+                    definition == typeof(IReadOnlyList<>) ||
+                    definition == typeof(IReadOnlyCollection<>) ||
+                    definition == typeof(IEnumerable<>))
+                    return memberType.GetGenericArguments()[0];
+                return null;
+            }
+        }
+
+        /// <summary>
+        ///     Reads one row of a child query as a <see cref="ChildRow"/>: the child item, read the way any query of that
+        ///     element type is read, and the link value, read from the key members of the child query's shape.
+        /// </summary>
+        private Func<IDataReader, object> CreateChildRowFactory(ChildQuery child, Type itemType)
+        {
+            var query = child.Query;
+            var ordinalMap = BuildOrdinalMap(query.SelectColumnCollection.SelectColumns);
+            var shape = (query.QueryShape as SqlMemberInitExpression)
+                        ??
+                        (query.QueryShape as SqlDataSourceQueryShapeExpression)?.ShapeExpression as SqlMemberInitExpression
+                        ??
+                        throw new InvalidOperationException($"The query shape of a child query is not a {nameof(SqlMemberInitExpression)}.");
+
+            var drParam = Expression.Parameter(typeof(IDataReader), "dr");
+            var itemBinding = shape.Bindings.Single(x => x.MemberName == ChildQuery.ItemMemberName);
+            var item = BuildReadExpression(itemType, itemBinding.SqlExpression, ordinalMap, drParam);
+
+            var keyOrdinals = shape.Bindings
+                                    .Where(x => x.MemberName.StartsWith(ChildQuery.KeyMemberNamePrefix, StringComparison.Ordinal))
+                                    .OrderBy(x => int.Parse(x.MemberName.Substring(ChildQuery.KeyMemberNamePrefix.Length)))
+                                    .Select(x => ordinalMap.TryGetValue(x.SqlExpression, out var ordinal)
+                                                    ? ordinal
+                                                    : throw new InvalidOperationException("A link column of a child query is not in its select list. This is a bug in the query splitting."))
+                                    .ToArray();
+            // The item is the first argument and the key the second: the reader may be sequential, and the item's
+            // columns come before the key's in the select list, so they must be read before it.
+            var keyValues = Expression.Call(typeof(ChildCollections).GetMethod(nameof(ChildCollections.ReadKeyValues)), drParam, Expression.Constant(keyOrdinals));
+            var key = Expression.Call(typeof(ChildCollections).GetMethod(nameof(ChildCollections.MakeKey)), keyValues, Expression.Constant(Enumerable.Range(0, keyOrdinals.Length).ToArray()));
+            var row = Expression.New(typeof(ChildRow).GetConstructors().Single(), Expression.Convert(item, typeof(object)), key);
+            return Expression.Lambda<Func<IDataReader, object>>(row, drParam).Compile();
+        }
+
         private Func<IDataReader, object> CreateElementFactoryForDerivedTable(Expression expression, SqlDerivedTableExpression derivedTable)
         {
             var elementType = GetElementType(expression.Type);
@@ -130,8 +287,16 @@ namespace Atis.Orm.Services
             return lambda.Compile();
         }
 
-        private Expression BuildReadExpression(Type targetType, SqlExpression queryShape, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam)
+        private Expression BuildReadExpression(Type targetType, SqlExpression queryShape, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam, ChildReadContext childContext = null)
         {
+            // Case 0: a sub-query selected in the projection, loaded by its own query
+            if (queryShape is SqlQueryableExpression queryable)
+            {
+                if (childContext is null)
+                    throw new NotSupportedException($"A sub-query selected in the projection cannot be materialized here: its rows are loaded by a separate query, which this query does not have. Member type is '{targetType}'.");
+                return childContext.BuildCollectionRead(targetType, queryable, drParam);
+            }
+
             // Case 1: Scalar - direct column read (SqlDataSourceColumnExpression, SqlFunctionExpression, etc.)
             if (IsScalarShape(queryShape))
             {
@@ -141,13 +306,13 @@ namespace Atis.Orm.Services
             // Case 2: SqlDataSourceQueryShapeExpression - unwrap and process ShapeExpression
             if (queryShape is SqlDataSourceQueryShapeExpression dsQueryShape)
             {
-                return BuildReadExpression(targetType, dsQueryShape.ShapeExpression, ordinalMap, drParam);
+                return BuildReadExpression(targetType, dsQueryShape.ShapeExpression, ordinalMap, drParam, childContext);
             }
 
             // Case 3: SqlMemberInitExpression - complex object
             if (queryShape is SqlMemberInitExpression memberInit)
             {
-                return BuildComplexReadExpression(targetType, memberInit, ordinalMap, drParam);
+                return BuildComplexReadExpression(targetType, memberInit, ordinalMap, drParam, childContext);
             }
 
             throw new NotSupportedException($"QueryShape of type {queryShape.GetType().Name} is not supported.");
@@ -173,7 +338,7 @@ namespace Atis.Orm.Services
             return BuildColumnReadExpression(targetType, ordinal, drParam);
         }
 
-        private Expression BuildComplexReadExpression(Type targetType, SqlMemberInitExpression memberInit, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam)
+        private Expression BuildComplexReadExpression(Type targetType, SqlMemberInitExpression memberInit, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam, ChildReadContext childContext)
         {
             // Check if parameterless constructor exists
             var parameterlessConstructor = targetType.GetConstructor(Type.EmptyTypes);
@@ -181,16 +346,16 @@ namespace Atis.Orm.Services
             if (parameterlessConstructor != null)
             {
                 // Use property/field setters with MemberInit
-                return BuildMemberInitExpression(targetType, memberInit, ordinalMap, drParam);
+                return BuildMemberInitExpression(targetType, memberInit, ordinalMap, drParam, childContext);
             }
             else
             {
                 // Anonymous type or no parameterless constructor - use constructor with parameters
-                return BuildConstructorExpression(targetType, memberInit, ordinalMap, drParam);
+                return BuildConstructorExpression(targetType, memberInit, ordinalMap, drParam, childContext);
             }
         }
 
-        private Expression BuildMemberInitExpression(Type targetType, SqlMemberInitExpression memberInit, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam)
+        private Expression BuildMemberInitExpression(Type targetType, SqlMemberInitExpression memberInit, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam, ChildReadContext childContext)
         {
             // new T { Prop1 = ..., Prop2 = ... }
             var newExpr = Expression.New(targetType);
@@ -208,7 +373,7 @@ namespace Atis.Orm.Services
                 }
 
                 var memberType = GetMemberType(memberInfo);
-                var valueExpr = BuildReadExpression(memberType, sqlBinding.SqlExpression, ordinalMap, drParam);
+                var valueExpr = BuildReadExpression(memberType, sqlBinding.SqlExpression, ordinalMap, drParam, childContext);
 
                 bindings.Add(Expression.Bind(memberInfo, valueExpr));
             }
@@ -216,7 +381,7 @@ namespace Atis.Orm.Services
             return Expression.MemberInit(newExpr, bindings);
         }
 
-        private Expression BuildConstructorExpression(Type targetType, SqlMemberInitExpression memberInit, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam)
+        private Expression BuildConstructorExpression(Type targetType, SqlMemberInitExpression memberInit, Dictionary<SqlExpression, int> ordinalMap, ParameterExpression drParam, ChildReadContext childContext)
         {
             // For anonymous types, find constructor and match parameters by name
             var constructors = targetType.GetConstructors();
@@ -240,7 +405,7 @@ namespace Atis.Orm.Services
                     throw new InvalidOperationException($"No binding found for constructor parameter '{param.Name}' on type {targetType.Name}.");
                 }
 
-                var valueExpr = BuildReadExpression(param.ParameterType, binding.SqlExpression, ordinalMap, drParam);
+                var valueExpr = BuildReadExpression(param.ParameterType, binding.SqlExpression, ordinalMap, drParam, childContext);
                 arguments[param.Position] = valueExpr;
             }
 

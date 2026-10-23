@@ -79,6 +79,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 new ConstantExpressionConverterFactory(),
                 new SelectManyQueryMethodExpressionConverterFactory(),
                 new DefaultIfEmptyExpressionConverterFactory(),
+                new ToListExpressionConverterFactory(),
                 new SubQueryNavigationExpressionConverterFactory(),
                 new ConditionalExpressionConverterFactory(),
                 new DistinctQueryMethodExpressionConverterFactory(),

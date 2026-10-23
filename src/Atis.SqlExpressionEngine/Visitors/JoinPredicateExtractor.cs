@@ -97,7 +97,7 @@ namespace Atis.SqlExpressionEngine.Visitors
             {
                 string alias = $"SubQueryCol{colIndex++}";
                 var binding = new SqlMemberAssignment(alias, col);
-                var selectItem = new SelectColumn(binding.SqlExpression, alias, scalarColumn: false);
+                var selectItem = new SelectColumn(binding.SqlExpression, alias, scalarColumn: false, helperColumn: true);
                 updatedExpressionList.Add(selectItem);
             }
 

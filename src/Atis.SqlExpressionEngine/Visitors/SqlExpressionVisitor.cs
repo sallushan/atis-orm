@@ -175,7 +175,7 @@ namespace Atis.SqlExpressionEngine.Visitors
                 var newSelectColumn = Visit(selectColumn.ColumnExpression);
                 if (newSelectColumn != selectColumn.ColumnExpression)
                 {
-                    newColumnList.Add(new SelectColumn(newSelectColumn, selectColumn.Alias, selectColumn.ScalarColumn));
+                    newColumnList.Add(new SelectColumn(newSelectColumn, selectColumn.Alias, selectColumn.ScalarColumn, selectColumn.HelperColumn));
                 }
                 else
                 {
@@ -361,7 +361,7 @@ namespace Atis.SqlExpressionEngine.Visitors
                 var newColumnExpression = Visit(output.ColumnExpression);
                 newOutputs.Add(newColumnExpression == output.ColumnExpression
                                     ? output
-                                    : new SelectColumn(newColumnExpression, output.Alias, output.ScalarColumn));
+                                    : new SelectColumn(newColumnExpression, output.Alias, output.ScalarColumn, output.HelperColumn));
             }
             return node.Update(newTable, newValues, newOutputs);
         }
@@ -380,7 +380,7 @@ namespace Atis.SqlExpressionEngine.Visitors
                 var newColumnExpression = Visit(output.ColumnExpression);
                 newOutputs.Add(newColumnExpression == output.ColumnExpression
                     ? output
-                    : new SelectColumn(newColumnExpression, output.Alias, output.ScalarColumn));
+                    : new SelectColumn(newColumnExpression, output.Alias, output.ScalarColumn, output.HelperColumn));
             }
 
             return node.Update(newValues, newOutputs);

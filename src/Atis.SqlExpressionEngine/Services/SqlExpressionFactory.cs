@@ -103,7 +103,7 @@ namespace Atis.SqlExpressionEngine.Services
             queryShape = selectQueryShape;
             IReadOnlyList<SelectColumn> columns;
             if (selectQuery.SelectList.Count > 0)
-                columns = selectQuery.SelectList.Select(x => new SelectColumn(x.ColumnExpression, x.Alias, x.ScalarColumn)).ToArray();
+                columns = selectQuery.SelectList.Select(x => new SelectColumn(x.ColumnExpression, x.Alias, x.ScalarColumn, x.HelperColumn)).ToArray();
             else
             {
                 if (groupClause == null)
