@@ -631,7 +631,8 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                     performWrap = this.HasProjectionApplied || this.HasDistinctApplied || this.HasTopApplied || this.HasRowOffsetApplied || this.HasRowsPerPageApplied;
                     break;
                 case SqlQueryOperation.Join:
-                    performWrap = this.HasProjectionApplied || this.HasWhereApplied || this.HasGroupByApplied || this.HasHavingApplied || this.HasDistinctApplied || this.HasTopApplied || this.HasRowOffsetApplied || this.HasRowsPerPageApplied;
+                    performWrap = this.HasProjectionApplied || this.HasWhereApplied || this.HasGroupByApplied || this.HasHavingApplied || this.HasDistinctApplied || this.HasTopApplied || this.HasRowOffsetApplied || this.HasRowsPerPageApplied
+                        || this.HasOrderByApplied;
                     break;
                 case SqlQueryOperation.NavigationJoin:
                     performWrap = this.HasProjectionApplied || this.HasGroupByApplied || this.HasHavingApplied || this.HasDistinctApplied || this.HasTopApplied || this.HasRowOffsetApplied || this.HasRowsPerPageApplied;
