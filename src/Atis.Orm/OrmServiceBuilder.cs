@@ -92,6 +92,7 @@ namespace Atis.Orm
                 { typeof(IAsyncQueryProvider),    new ServiceCharacteristic(ServiceLifetime.Scoped) },
 
                 { typeof(IExpressionPreprocessor), new ServiceCharacteristic(ServiceLifetime.Singleton, allowMultiple: true) },
+                { typeof(IQueryExecutionInterceptor), new ServiceCharacteristic(ServiceLifetime.Singleton, allowMultiple: true) },
                 { typeof(IExpressionConverterFactory<Expression, SqlExpression>), new ServiceCharacteristic(ServiceLifetime.Singleton, allowMultiple: true) },
 
                 { typeof(ILambdaParameterToDataSourceMapper),    new ServiceCharacteristic(ServiceLifetime.Transient) },
@@ -179,7 +180,18 @@ namespace Atis.Orm
         }
 
         /// <summary>
-        /// 
+        ///     Registers a hook that sees every query's LINQ expression before it runs, on cache hits too.
+        ///     See <see cref="IQueryExecutionInterceptor"/>.
+        /// </summary>
+        public OrmServiceBuilder AddQueryExecutionInterceptor<TImplementation>()
+            where TImplementation : class, IQueryExecutionInterceptor
+        {
+            this.TryAdd<IQueryExecutionInterceptor, TImplementation>();
+            return this;
+        }
+
+        /// <summary>
+        ///
         /// </summary>
         /// <typeparam name="TService"></typeparam>
         /// <typeparam name="TImplementation"></typeparam>

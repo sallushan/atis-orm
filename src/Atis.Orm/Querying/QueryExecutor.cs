@@ -24,8 +24,11 @@ namespace Atis.Orm.Querying
         private readonly INavigationInitializer navigationInitializer;
         private readonly IQueryContext queryContext;
 
-        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, INavigationInitializer navigationInitializer, IQueryContext queryContext)
+        private readonly IQueryExecutionInterceptor[] interceptors;
+
+        public QueryExecutor(IDatabaseAdapter dbAdapter, ICompiledQueryCacheProvider queryCacheProvider, IQueryCompiler queryCompiler, IExpressionVariableValuesExtractor expressionVariableValuesExtractor, INavigationInitializer navigationInitializer, IQueryContext queryContext, IEnumerable<IQueryExecutionInterceptor> interceptors = null)
         {
+            this.interceptors = interceptors?.ToArray() ?? new IQueryExecutionInterceptor[0];
             this.queryContext = queryContext ?? throw new ArgumentNullException(nameof(queryContext));
             this.dbAdapter = dbAdapter ?? throw new ArgumentNullException(nameof(dbAdapter));
             this.queryCacheProvider = queryCacheProvider ?? throw new ArgumentNullException(nameof(queryCacheProvider));
@@ -207,6 +210,11 @@ namespace Atis.Orm.Querying
 
         protected virtual IExecutionContext GetExecutionContext(Expression expression)
         {
+            // Before the cache lookup, so a refused query is never compiled or cached, and so the
+            // interceptors see the same thing on a miss as on a hit. Every execution path comes through here.
+            for (var i = 0; i < this.interceptors.Length; i++)
+                this.interceptors[i].QueryExecuting(expression);
+
             ICompiledQuery compiledQuery = this.GetOrAddCompiledQuery(expression, out bool cacheHit);
             IReadOnlyDictionary<string, object> parameterValuesByIdentity = null;
             if (cacheHit)
