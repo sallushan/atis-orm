@@ -133,8 +133,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             }
             else if (this.GetNewlyJoinedDataSourceArgIndex() == argIndex)
             {
-                var derivedTable = convertedArgument.CastTo<SqlDerivedTableExpression>();
-                var joinedQuery = derivedTable.ConvertToTableIfPossible();
+                // a UNION / UNION ALL is a valid source on its own (e.g. cross apply over a union of
+                // one-row selects, which is how a VALUES list is spelled)
+                var joinedQuery = convertedArgument is SqlUnionQueryExpression unionQuery
+                                    ? unionQuery
+                                    : convertedArgument.CastTo<SqlDerivedTableExpression>().ConvertToTableIfPossible();
                 var dsQueryShape = this.sourceQuery.AddJoin(joinedQuery, SqlJoinType.Cross);
                 this.newlyJoinedDataSourceAlias = dsQueryShape.DataSourceAlias;
                 var arg2Param0 = this.Expression.GetArgLambdaParameterRequired(argIndex: this.GetNewExpressionArgIndex(), paramIndex: 0);

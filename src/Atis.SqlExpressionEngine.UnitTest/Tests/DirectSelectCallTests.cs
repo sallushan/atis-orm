@@ -143,5 +143,34 @@ with cte_1 as
 ";
             Test("Direct Select with recursive query to generate missing dates", q.Expression, expectedResult);
         }
+
+        [TestMethod]
+        public void CrossApply_over_UnionAll_of_standalone_selects_replaces_a_VALUES_list()
+        {
+            var invoices = new Queryable<Invoice>(this.queryProvider);
+            var q = invoices
+                .CrossApply(
+                    i => queryProvider.Select(() => new { Label = "Active" })
+                            .UnionAll(queryProvider.Select(() => new { Label = i.Description == null ? "NoDesc" : (string)null }))
+                            .UnionAll(queryProvider.Select(() => new { Label = i.InvoiceId })),
+                    (i, v) => new { i.InvoiceId, v.Label })
+                .Where(x => x.Label != null);
+            string expectedResult = @"
+select a_1.InvoiceId as InvoiceId, a_2.Label as Label
+from Invoice as a_1
+		cross apply (
+			select a_3.Label as Label
+			from (select 'Active' as Label) as a_3
+			union all
+			select a_4.Label as Label
+			from (select case when (a_1.Description is null) then 'NoDesc' else null end as Label) as a_4
+			union all
+			select a_5.Label as Label
+			from (select a_1.InvoiceId as Label) as a_5
+		) as a_2
+where (a_2.Label is not null)
+";
+            Test("Cross apply over union all of standalone selects", q.Expression, expectedResult);
+        }
     }
 }
