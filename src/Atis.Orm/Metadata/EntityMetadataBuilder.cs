@@ -136,7 +136,7 @@ namespace Atis.Orm.Metadata
             => propertyInfo.GetCustomAttribute<NavigationPropertyAttribute>() == null &&
                                         propertyInfo.GetCustomAttribute<CalculatedPropertyAttribute>() == null &&
                                         propertyInfo.GetCustomAttribute<NavigationLinkAttribute>() == null &&
-                                        propertyInfo.GetCustomAttribute<DbNotMappedAttribute>() == null &&
+                                        propertyInfo.GetCustomAttribute<DbNotMappedAttribute>() == null && !RecordStateMapping.IsRecordState(propertyInfo) &&
                                         propertyInfo.GetCustomAttribute<ValueObjectAttribute>() == null;
 
         /// <summary>

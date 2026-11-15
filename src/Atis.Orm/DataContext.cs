@@ -675,12 +675,13 @@ namespace Atis.Orm
         {
             if (entity == null)
                 throw new ArgumentNullException(nameof(entity));
-            if (entity is Record record)
+            if (entity is IRecord record)
                 return record.RecordState;
 
             throw new InvalidOperationException(
-                $"'{typeof(T).Name}' does not derive from '{nameof(Record)}', so {nameof(SaveEntity)} has no way to tell " +
-                $"whether it should be inserted, updated or deleted. Derive from '{nameof(Record)}' and set its " +
+                $"'{typeof(T).Name}' does not implement '{nameof(IRecord)}', so {nameof(SaveEntity)} has no way to tell " +
+                $"whether it should be inserted, updated or deleted. Derive from '{nameof(Record)}' (or implement " +
+                $"'{nameof(IRecord)}', which a C# record must) and set its " +
                 $"{nameof(Record.RecordState)}, or use the {nameof(InsertEntity)} / {nameof(UpdateEntity)} / " +
                 $"{nameof(DeleteEntity)} fluent APIs, which say so explicitly.");
         }

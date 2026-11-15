@@ -9,11 +9,13 @@ namespace Atis.Orm
     ///         cannot work out for itself: what the consumer intends to happen to this record.
     ///     </para>
     ///     <para>
-    ///         Deriving from this is only required for <c>SaveEntity</c>. Querying, and the fluent
-    ///         <c>InsertEntity</c> / <c>UpdateEntity</c> / <c>DeleteEntity</c> APIs, work with any type.
+    ///         Deriving from this is only required for <c>SaveEntity</c>, and only when the entity can derive
+    ///         from a class: a C# <c>record</c> cannot, so it implements <see cref="IRecord"/> instead.
+    ///         Querying, and the fluent <c>InsertEntity</c> / <c>UpdateEntity</c> / <c>DeleteEntity</c> APIs,
+    ///         work with any type.
     ///     </para>
     /// </summary>
-    public abstract class Record
+    public abstract class Record : IRecord
     {
         /// <summary>
         ///     Constructs a record in the <see cref="RecordState.Unchanged"/> state.
