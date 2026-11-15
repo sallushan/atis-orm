@@ -1,4 +1,4 @@
-﻿using Atis.SqlExpressionEngine.Abstractions;
+using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.Exceptions;
 using Atis.SqlExpressionEngine.Internal;
 using Atis.SqlExpressionEngine.Visitors;
@@ -282,6 +282,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         public void ApplyDistinct()
         {
+            this.ThrowIfProjectionHasProjectedSubQuery(nameof(SqlQueryOperation.Distinct));
             this.WrapIfRequired(SqlQueryOperation.Distinct, null);
             this.IsDistinct = true;
             this.OnAfterApply(SqlQueryOperation.Distinct);
@@ -538,6 +539,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
             if (this.IsWrapRequired(newOperation))
             {
+                this.ThrowIfProjectionHasProjectedSubQuery(newOperation.ToString());
                 this.WrapQuery();
 
                 if (sqlExpressions?.Length > 0)
@@ -547,6 +549,23 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
 
             return sqlExpressions;
+        }
+
+        /// <summary>
+        ///     A child collection (<c>ToList()</c> / <c>ToArray()</c> on a sub-query in a projection) is split off
+        ///     from the final query, using the link column and the paging key of that query. An operation that
+        ///     wraps the query, or that changes which rows the projection returns, would hide them.
+        /// </summary>
+        private void ThrowIfProjectionHasProjectedSubQuery(string followedBy)
+        {
+            var marker = this.selectList.FirstOrDefault(x => x.ColumnExpression is SqlProjectedSubQueryExpression);
+            if (marker != null)
+            {
+                var follow = followedBy is null ? string.Empty : $" It is followed by '{followedBy}'.";
+                throw new NotSupportedException(
+                    $"A child collection ('{marker.Alias}', selected with ToList()/ToArray()) must be selected in the last Select of the query.{follow} " +
+                    "Move that Select to the end, after the Where and Join steps. Only OrderBy, Skip, Take and Paging may follow it.");
+            }
         }
 
         protected virtual void WrapQuery()
@@ -560,6 +579,8 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             this.AppendSelectListWithColumnsUsedInSubQuery();
 
             var queryableSelectedInProjection = this.selectList.Where(x => x.ColumnExpression is SqlQueryableExpression).ToArray();
+
+            this.ThrowIfProjectionHasProjectedSubQuery(null);
 
             foreach (var queryable in queryableSelectedInProjection)
                 this.selectList.Remove(queryable);

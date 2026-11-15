@@ -36,7 +36,11 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
                 if (this.ReflectionService.IsEnumerableType(expressionType))
                 {
-                    if (sqlExpression is SqlDerivedTableExpression derivedTableExpression)
+                    if (sqlExpression is SqlProjectedSubQueryExpression)
+                    {
+                        // ToList() / ToArray() marker: keep it, the wrap guard and the child query extractor look for it
+                    }
+                    else if (sqlExpression is SqlDerivedTableExpression derivedTableExpression)
                         sqlExpression = new SqlQueryableExpression(derivedTableExpression);
                     else
                         throw new InvalidOperationException($"When converting member '{memberNames[i]}', the expression type '{expressionType}' should have been converted to '{nameof(SqlDerivedTableExpression)}' but it was '{sqlExpression.GetType().Name}'.");

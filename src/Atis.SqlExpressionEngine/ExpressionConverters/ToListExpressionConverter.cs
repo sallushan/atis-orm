@@ -60,7 +60,13 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         /// <inheritdoc />
         public override SqlExpression Convert(SqlExpression[] convertedChildren)
         {
-            return convertedChildren[0].CastTo<SqlDerivedTableExpression>();
+            var query = convertedChildren[0].CastTo<SqlDerivedTableExpression>();
+            var inner = query.SelectColumnCollection.SelectColumns.FirstOrDefault(x => x.ColumnExpression is SqlProjectedSubQueryExpression);
+            if (inner != null)
+                throw new NotSupportedException(
+                    $"A child collection ('{inner.Alias}') is selected inside another child collection ({this.Expression}). " +
+                    "Only one level of child collections is supported.");
+            return new SqlProjectedSubQueryExpression(query);
         }
     }
 }

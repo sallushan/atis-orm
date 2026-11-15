@@ -219,22 +219,88 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
-        public void Paging_written_after_the_select_that_holds_the_child_collection_is_refused()
+        public void Order_by_and_paging_written_after_the_select_that_holds_the_child_collection_work()
         {
-            // the legacy method pages the finished query ("finalQuery.Paging(...)"); with a child collection that is
-            // refused by the placement rule
+            // the legacy method pages the finished query ("finalQuery.Paging(...)"); ordering and paging do not
+            // wrap the query, so the placement rule lets them follow the Select
             var db = new OrmDbContext();
             var skills = db.CreateQuery<TestEntities.EmployeeSkill>();
             db.TransactionWithRollback(() =>
             {
                 SeedTen(db, "ChildPage7");
 
+                var rows = db.CreateQuery<TestEntities.Employee>()
+                             .Where(e => e.LastName == "ChildPage7")
+                             .Select(e => new { e.FirstName, Skills = skills.Where(s => s.EmployeeId == e.EmployeeId).ToList() })
+                             .OrderBy(x => x.FirstName)
+                             .Paging(2, 3)
+                             .ToList();
+
+                CollectionAssert.AreEqual(new[] { "D", "E", "F" }, rows.Select(x => x.FirstName).ToArray());
+                foreach (var row in rows)
+                {
+                    int index = row.FirstName[0] - 'A';
+                    Assert.AreEqual((index % 3) + 1, row.Skills.Count, row.FirstName);
+                    Assert.IsTrue(row.Skills.All(s => s.SkillName.StartsWith(row.FirstName + "-")));
+                }
+            });
+        }
+
+        [TestMethod]
+        public void Order_by_and_take_after_the_select_with_ties_do_not_lose_or_mix_children()
+        {
+            var db = new OrmDbContext();
+            var skills = db.CreateQuery<TestEntities.EmployeeSkill>();
+            db.TransactionWithRollback(() =>
+            {
+                // every employee has the same salary, so ORDER BY Salary alone cannot tell them apart
+                SeedTen(db, "ChildPage8", salary: 5m);
+
+                var all = new List<string>();
+                for (int page = 0; page < 4; page++)
+                {
+                    var rows = db.CreateQuery<TestEntities.Employee>()
+                                 .Where(e => e.LastName == "ChildPage8")
+                                 .Where(e => e.Salary > 0)
+                                 .Select(e => new
+                                 {
+                                     e.FirstName,
+                                     e.Salary,
+                                     Skills = skills.Where(s => s.EmployeeId == e.EmployeeId).ToList()
+                                 })
+                                 .OrderBy(x => x.Salary)
+                                 .Skip(page * 3)
+                                 .Take(3)
+                                 .ToList();
+                    foreach (var row in rows)
+                    {
+                        Assert.IsTrue(row.Skills.Count > 0, "Parent " + row.FirstName + " lost its children on page " + page);
+                        Assert.IsTrue(row.Skills.All(s => s.SkillName.StartsWith(row.FirstName + "-")));
+                    }
+                    all.AddRange(rows.Select(x => x.FirstName));
+                }
+
+                Assert.AreEqual(10, all.Count);
+                Assert.AreEqual(10, all.Distinct().Count(), "A row appeared on two pages.");
+            });
+        }
+
+        [TestMethod]
+        public void Where_after_the_select_that_holds_the_child_collection_is_still_refused()
+        {
+            var db = new OrmDbContext();
+            var skills = db.CreateQuery<TestEntities.EmployeeSkill>();
+            db.TransactionWithRollback(() =>
+            {
+                SeedTen(db, "ChildPage9");
+
                 Assert.ThrowsException<NotSupportedException>(() =>
                     db.CreateQuery<TestEntities.Employee>()
-                      .Where(e => e.LastName == "ChildPage7")
+                      .Where(e => e.LastName == "ChildPage9")
                       .Select(e => new { e.FirstName, Skills = skills.Where(s => s.EmployeeId == e.EmployeeId).ToList() })
+                      .Where(x => x.FirstName != "A")
                       .OrderBy(x => x.FirstName)
-                      .Paging(1, 3)
+                      .Take(3)
                       .ToList());
             });
         }

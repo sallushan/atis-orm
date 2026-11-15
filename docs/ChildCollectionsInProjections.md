@@ -15,14 +15,23 @@ parent rows, and one query per child collection. The rows are put together in me
 
 This document records how that works, what we tried, and why we chose the join design over `exists`.
 
-## 0. Placement rule (`child-collections-linq` only)
+## 0. Placement rule (rule)
 
 A child collection is the `ToList()` or `ToArray()` of a sub-query inside a `Select`. It must be in the **last**
-`Select` of the query. A terminal such as `First()` or `ToList()` may follow it. `Where`, `OrderBy`, `Join`, `Take`,
-`First(predicate)` and another `Select` may not. A child collection inside another child collection is refused too.
+`Select` of the query. After that `Select` only these may follow, in this order: `OrderBy` / `ThenBy`, then `Skip` /
+`Take` / `Paging`, then a no-argument terminal such as `First()` or `ToList()`. `Where`, `Join`, `First(predicate)`,
+another `Select`, and an `OrderBy` written after a `Take` are refused. A child collection inside another child
+collection is refused too.
 
-`ChildCollectionPlacementValidator` checks this once per cache miss, from `QueryCompiler.Compile`, and throws a
-`NotSupportedException` that names the operator that follows.
+Ordering and paging do not wrap the query, so the parent keeps one level, the key is found and `TOP` sits on the real
+table. `Where` and `Join` wrap it, which is where the tie-breaker gap (section 7, item 1) lives, so they stay refused.
+This allows the common spelling `Where.Where.Select(.. ToList ..).OrderBy(..).Take(..).ToList()`.
+
+The engine checks this, not the ORM. `ToListExpressionConverter` returns a `SqlProjectedSubQueryExpression` (a
+`SqlQueryableExpression` that remembers `ToList` was written). `SqlSelectExpression` refuses to wrap a query that still
+carries one, and refuses `Distinct` on it, with a `NotSupportedException` that names the operator that follows. A
+child collection inside another child collection is refused by `ToListExpressionConverter`. The tests are in
+`ChildCollectionWrapGuardTests`.
 
 Why: the list is part of the shape of the result. Written before a `Where`, it reads as if the lists were loaded before
 the filter. They are not, and the reader cannot tell. Fixing the position removes that doubt.
@@ -86,7 +95,7 @@ Where `OrderBy` and `Take` sit depends on how the LINQ is written:
 | LINQ | Result |
 |---|---|
 | `OrderBy.Take.Select` | `TOP` and `ORDER BY` are inside a derived table. The `Select` is the outer query. |
-| `Select.OrderBy.Take` | One flat query. `ORDER BY` uses the alias (`order by Age`). **Refused by the placement rule.** |
+| `Select.OrderBy.Take` | One flat query. `ORDER BY` uses the alias (`order by Age`). Allowed by the placement rule. |
 | `OrderBy.Select` | Flat. `ORDER BY` uses the full column (`a_1.AGE`). |
 | `Select.Where.OrderBy.Take` | `Where` forces the wrap, so `TOP` is on a query that reads from a derived table. **Refused by the placement rule.** |
 
@@ -247,7 +256,7 @@ builds, for each child, a row factory: `new ChildRow(item, key)`. The key column
 |---|---|
 | `ChildCollectionProjectionTests` | Translation of the marker; how the query is split; parent `Top` / filter / order kept in the child; the tie-breaker; scalar, computed, anonymous and unlinked children; `distinct` / `take` children with `cross apply`; helper columns carry the flag. No database. |
 | `SelectListScalarRuleTests` | The scalar select-list rule with and without helper columns. |
-| `ChildCollectionPlacementTests` | The placement rule on in-memory expression trees: allowed and refused spellings, no database. The execution tests add one run through `QueryCompiler`. |
+| `ChildCollectionWrapGuardTests` | The placement rule at engine level: the marker survives conversion; ordering and paging after it are allowed; `Where`, `Join`, `Select`, `Distinct`, `OrderBy` after `Take` and nested markers are refused. No database. |
 | `ChildCollectionExecutionTests` | 11 executions against a local SQL Server: per-parent grouping and empty lists; class member and array; `Top` without `OrderBy`; cache-hit rebind; async; refusing a non-list member; single-column child; anonymous-type child; child with its own `Take`; single-column child under a parent with `OrderBy` and `Take`. |
 | `ChildCollectionMaterializationTests` | 12 executions against a local SQL Server: two-column link; `NULL` link value (empty list, not null); unlinked child (`NoKey`); two child collections in one projection; parents sharing a link value; member types `List`, `IList`, `ICollection`, `IReadOnlyList`, `IEnumerable`; terminals `First`, `FirstOrDefault`, direct `foreach`, `ToArray`, `FirstOrDefaultAsync`; `NULL` inside a single-column child and an anonymous-type child; `NULL` in parent columns. |
 | `ChildCollectionsHelperTests` | 19 plain tests, no database, of `ChildCollections.MakeKey`, `ReadKeyValues`, `Add`, `GetList` and `GetArray`. |

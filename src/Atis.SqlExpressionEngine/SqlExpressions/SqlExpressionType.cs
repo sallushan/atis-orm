@@ -78,5 +78,6 @@
         OutputColumn,
         /// <summary>A date-time built from year, month, day and optionally time parts.</summary>
         NewDateTime,
+        ProjectedSubQuery,
     }
 }

@@ -127,6 +127,12 @@ namespace Atis.Orm.Services
                             if (memberExpression.Expression is ConstantExpression && (memberExpression.Member is PropertyInfo || memberExpression.Member is FieldInfo))
                             {
                                 hash.Add(memberExpression.Expression.NodeType);
+                                // The captured container's type is part of the variable's identity when values are
+                                // rebound on a cache hit (VariableIdentityProvider), so it must be part of the key too.
+                                // Otherwise two call sites with the same query shape and same-named captured locals in
+                                // different closure classes share a plan, miss the identity lookup, and silently run
+                                // with the first call site's values.
+                                hash.Add(memberExpression.Expression.Type);
                                 hash.Add(memberExpression.Member.Name);
                                 hash.Add(GetMemberInfoType(memberExpression.Member));
                             }
@@ -685,6 +691,8 @@ namespace Atis.Orm.Services
                             (a.Member is FieldInfo || a.Member is PropertyInfo)
                             &&
                             (b.Member is FieldInfo || b.Member is PropertyInfo)
+                            &&
+                            a.Expression.Type == b.Expression.Type
                             &&
                             a.Member.Name == b.Member.Name
                             &&

@@ -22,7 +22,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return visitor.VisitSqlQueryable(this);
         }
 
-        public SqlQueryableExpression Update(SqlDerivedTableExpression query)
+        public virtual SqlQueryableExpression Update(SqlDerivedTableExpression query)
         {
             if (query == Query)
             {

@@ -1,4 +1,4 @@
-﻿using Atis.Expressions;
+using Atis.Expressions;
 using Atis.SqlExpressionEngine.Abstractions;
 using Atis.SqlExpressionEngine.SqlExpressions;
 using System;
@@ -38,8 +38,6 @@ namespace Atis.Orm.Querying
             // once the query is served from cache.
             NamedParameterValidator.Validate(expression);
 
-            // A child collection (ToList() / ToArray() on a sub-query in a Select) has to be in the last Select.
-            ChildCollectionPlacementValidator.Validate(expression);
 
             var queryTranslationResult = this.queryTranslator.Translate(expression);
             if (queryTranslationResult.Children.Count > 0)

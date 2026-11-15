@@ -214,7 +214,8 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 this.Log($"Exiting Converter ({convertedResult.NodeType}): {text}");
             }
 
-            if (convertedResult is SqlQueryableExpression queryable)
+            // the ToList() marker must reach the projection (CompositeMemberAssignmentConverterBase) intact
+            if (convertedResult is SqlQueryableExpression queryable && !(queryable is SqlProjectedSubQueryExpression && (this.ParentConverter is NewExpressionConverter || this.ParentConverter is MemberInitExpressionConverter)))
                 convertedResult = queryable.Query;
             if (this.ParentConverter is null        // if this is the top-most node
                 ||                                  //  or
