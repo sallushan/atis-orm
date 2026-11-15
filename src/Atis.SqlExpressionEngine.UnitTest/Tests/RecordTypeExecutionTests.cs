@@ -146,6 +146,43 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             });
         }
 
+        /// <summary>A constructor argument is mapped to the property of the same name, so the projection can be filtered on afterwards.</summary>
+        [TestMethod]
+        public void Select_into_a_positional_record_constructor_maps_arguments_by_name()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var saved = new RecItem { Name = "Rec_Ctor", Net = 10m, Currency = "USD", RecordState = RecordState.Added };
+                db.SaveEntity(saved);
+
+                var rows = db.CreateQuery<RecItem>()
+                             .Where(x => x.Id == saved.Id)
+                             .Select(x => new PositionalItem(x.Id, x.Name + "!", x.Net * 2))
+                             .Where(x => x.Name == "Rec_Ctor!")
+                             .ToList();
+
+                Assert.AreEqual(1, rows.Count);
+                Assert.AreEqual(new PositionalItem(saved.Id, "Rec_Ctor!", 20m), rows[0]);
+            });
+        }
+
+        public class NoMatchingMember
+        {
+            public NoMatchingMember(int id, string label) { Id = id; }
+            public int Id { get; }
+        }
+
+        [TestMethod]
+        public void Select_into_a_constructor_with_an_unmatched_parameter_says_which_one()
+        {
+            var db = new OrmDbContext();
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => db.CreateQuery<RecItem>().Select(x => new NoMatchingMember(x.Id, x.Name)).ToList());
+
+            StringAssert.Contains(thrown.ToString(), "label");
+        }
+
         [TestMethod]
         public void A_record_that_implements_IRecord_has_no_RecordState_column()
         {
