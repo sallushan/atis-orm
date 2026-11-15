@@ -58,6 +58,16 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             string Name,
             [property: DbColumn("NetAmt")] decimal? Net);
 
+        /// <summary>A positional record that also says what a save should do with it.</summary>
+        [DbTable("PricedItem", "dbo")]
+        public record SavedPositional(
+            [property: PrimaryKey] [property: DbIdentityColumn] int Id,
+            string Name,
+            [property: DbColumn("NetAmt")] decimal? Net) : IRecord
+        {
+            public RecordState RecordState { get; init; }
+        }
+
         private static IReadOnlyDictionary<string, object> ReadRow(OrmDbContext db, int id)
         {
             var rows = db.GetDbCommunication().ExecuteDictionary(
@@ -181,6 +191,56 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 () => db.CreateQuery<RecItem>().Select(x => new NoMatchingMember(x.Id, x.Name)).ToList());
 
             StringAssert.Contains(thrown.ToString(), "label");
+        }
+
+        [TestMethod]
+        public void Fluent_insert_update_and_delete_work_on_a_positional_record()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var rows = db.InsertEntity<PositionalItem>()
+                             .Value(x => x.Name, () => "Rec_Fluent")
+                             .Value(x => x.Net, () => 10m)
+                             .Output(x => x.Id)
+                             .ExecuteDictionary();
+                var id = (int)rows[0]["Id"];
+                Assert.AreEqual("Rec_Fluent", ReadRow(db, id)["Name"]);
+
+                var updated = db.UpdateEntity<PositionalItem>()
+                                .Set(x => x.Net, () => 15m)
+                                .Key(x => x.Id, () => id)
+                                .Execute();
+                Assert.AreEqual(1, updated);
+                Assert.AreEqual(15m, ReadRow(db, id)["NetAmt"]);
+
+                var deleted = db.DeleteEntity<PositionalItem>().Key(x => x.Id, () => id).Execute();
+                Assert.AreEqual(1, deleted);
+            });
+        }
+
+        [TestMethod]
+        public void SaveEntity_and_SaveWithProgress_work_on_a_positional_record()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var item = new SavedPositional(0, "Rec_PosSave", 10m) { RecordState = RecordState.Added };
+                db.SaveEntity(item);
+                Assert.IsTrue(item.Id > 0, "The identity comes back into the positional property.");
+                Assert.AreEqual("Rec_PosSave", ReadRow(db, item.Id)["Name"]);
+
+                var changed = item with { Net = 12m, RecordState = RecordState.Updated };
+                db.SaveWithProgress(changed, null);
+                Assert.AreEqual(12m, ReadRow(db, item.Id)["NetAmt"]);
+
+                db.SaveEntity(changed with { RecordState = RecordState.Deleted });
+                var remaining = db.GetDbCommunication().ExecuteDictionary(
+                    "select Id from dbo.PricedItem where Id = @id",
+                    new[] { new SqlParameter("@id", item.Id) },
+                    CommandType.Text);
+                Assert.AreEqual(0, remaining.Count);
+            });
         }
 
         [TestMethod]

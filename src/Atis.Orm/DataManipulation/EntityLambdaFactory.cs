@@ -83,13 +83,14 @@ namespace Atis.Orm
                 throw new InvalidOperationException($"At least one {names.SetterMethod} call is required to {names.OperationVerb} an entity.");
 
             var entityType = typeof(T);
-            if (!entityType.IsValueType && entityType.GetConstructor(Type.EmptyTypes) is null)
-                throw new InvalidOperationException($"Entity '{entityType.Name}' needs a parameterless constructor to be {names.OperationPastTense} through {names.ApiMethod}.");
+            var newEntity = CreateNew(
+                entityType,
+                $"Entity '{entityType.Name}' needs a parameterless constructor, or a single public constructor, to be {names.OperationPastTense} through {names.ApiMethod}.");
 
             var assignments = fieldValues
                 .Select(x => new PathAssignment(GetSelectedPath(x.FieldSelector), x.ValueSelector.Body))
                 .ToArray();
-            return Expression.MemberInit(Expression.New(entityType), CreateBindings(entityType, assignments, 0, names));
+            return Expression.MemberInit(newEntity, CreateBindings(entityType, assignments, 0, names));
         }
 
         /// <summary>
@@ -123,15 +124,42 @@ namespace Atis.Orm
 
                 if (!handled.Add(member))
                     continue;
-                if (!memberType.IsValueType && memberType.GetConstructor(Type.EmptyTypes) is null)
-                    throw new InvalidOperationException($"'{memberType.Name}' needs a parameterless constructor to be assigned member by member through {names.ApiMethod}.");
+                var newMember = CreateNew(
+                    memberType,
+                    $"'{memberType.Name}' needs a parameterless constructor, or a single public constructor, to be assigned member by member through {names.ApiMethod}.");
 
                 var group = assignments.Where(x => x.Path.Count > depth + 1 && x.Path[depth].Equals(member)).ToArray();
                 bindings.Add(Expression.Bind(
                     member,
-                    Expression.MemberInit(Expression.New(memberType), CreateBindings(memberType, group, depth + 1, names))));
+                    Expression.MemberInit(newMember, CreateBindings(memberType, group, depth + 1, names))));
             }
             return bindings;
+        }
+
+        /// <summary>
+        ///     <para>
+        ///         The <c>new T</c> at the root of a <c>new T { Member = value }</c>. The engine never reads it —
+        ///         only the member bindings become columns — so it only has to be a valid expression.
+        ///     </para>
+        ///     <para>
+        ///         That lets a type without a parameterless constructor in, a positional record for example:
+        ///         it is created through its one public constructor with default arguments, and every value
+        ///         still arrives through a binding to the property the constructor parameter defines (an
+        ///         <c>init</c> setter is a setter). With more than one public constructor there is no telling
+        ///         which one is meant, so that is refused.
+        ///     </para>
+        /// </summary>
+        private static NewExpression CreateNew(Type type, string refusal)
+        {
+            if (type.IsValueType || type.GetConstructor(Type.EmptyTypes) != null)
+                return Expression.New(type);
+
+            var constructors = type.GetConstructors();
+            if (constructors.Length != 1)
+                throw new InvalidOperationException(refusal);
+
+            var arguments = constructors[0].GetParameters().Select(x => (Expression)Expression.Default(x.ParameterType));
+            return Expression.New(constructors[0], arguments);
         }
 
         private sealed class PathAssignment
