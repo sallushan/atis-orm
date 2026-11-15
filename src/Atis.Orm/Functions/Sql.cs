@@ -173,5 +173,43 @@ namespace Atis.Orm
         public static T LastValue<T>(T value, OverClause over) => throw new DirectCallNotSupportedException(nameof(LastValue));
 
         #endregion
+
+        #region Aggregates over a window
+
+        // The same names as the plain aggregates, with an OVER clause as the last argument. Sum and Avg have one overload per
+        // numeric type because the server returns the argument's type (an int column sums to an int, which can overflow;
+        // cast the argument, for example (long?)x.Qty, to get a bigger result).
+
+        /// <summary>Running or windowed sum of the non-NULL values.</summary>
+        public static int? Sum(int? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Sum));
+        /// <summary>Running or windowed sum of the non-NULL values.</summary>
+        public static long? Sum(long? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Sum));
+        /// <summary>Running or windowed sum of the non-NULL values.</summary>
+        public static decimal? Sum(decimal? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Sum));
+        /// <summary>Running or windowed sum of the non-NULL values.</summary>
+        public static double? Sum(double? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Sum));
+
+        /// <summary>Windowed average of the non-NULL values, in the type of the argument (the average of ints is an int).</summary>
+        public static int? Avg(int? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Avg));
+        /// <summary>Windowed average of the non-NULL values, in the type of the argument.</summary>
+        public static long? Avg(long? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Avg));
+        /// <summary>Windowed average of the non-NULL values, in the type of the argument.</summary>
+        public static decimal? Avg(decimal? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Avg));
+        /// <summary>Windowed average of the non-NULL values, in the type of the argument.</summary>
+        public static double? Avg(double? value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Avg));
+
+        /// <summary>Smallest value in the window.</summary>
+        public static T Min<T>(T value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Min));
+
+        /// <summary>Largest value in the window.</summary>
+        public static T Max<T>(T value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Max));
+
+        /// <summary>Number of rows in the window (<c>COUNT(*)</c>).</summary>
+        public static int Count(OverClause over) => throw new DirectCallNotSupportedException(nameof(Count));
+
+        /// <summary>Number of rows in the window where <paramref name="value"/> is not NULL.</summary>
+        public static int Count<T>(T value, OverClause over) => throw new DirectCallNotSupportedException(nameof(Count));
+
+        #endregion
     }
 }

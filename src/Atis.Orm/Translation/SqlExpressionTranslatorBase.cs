@@ -1373,6 +1373,8 @@ namespace Atis.Orm.Translation
         {
             this.Append(this.GetWindowFunctionName(node.Function));
             this.Append("(");
+            if (node.Function == SqlWindowFunction.Count && node.Arguments.Count == 0)
+                this.Append("*");
             for (var i = 0; i < node.Arguments.Count; i++)
             {
                 if (i > 0)
@@ -1398,6 +1400,11 @@ namespace Atis.Orm.Translation
                 case SqlWindowFunction.Lead: return "LEAD";
                 case SqlWindowFunction.FirstValue: return "FIRST_VALUE";
                 case SqlWindowFunction.LastValue: return "LAST_VALUE";
+                case SqlWindowFunction.Sum: return "SUM";
+                case SqlWindowFunction.Avg: return "AVG";
+                case SqlWindowFunction.Min: return "MIN";
+                case SqlWindowFunction.Max: return "MAX";
+                case SqlWindowFunction.Count: return "COUNT";
                 default: throw new NotSupportedException($"Window function '{function}' is not supported.");
             }
         }

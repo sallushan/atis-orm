@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -30,6 +30,13 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         /// <summary>The function arguments.</summary>
         public IReadOnlyList<SqlExpression> Arguments { get; }
+
+        /// <summary>
+        ///     <c>true</c> for a window function (<c>... OVER (...)</c>). The database evaluates it after WHERE, GROUP BY and
+        ///     HAVING, so it can be written only in a SELECT list or ORDER BY, never in a WHERE, JOIN condition or GROUP BY.
+        ///     A query that computes one must keep its own SELECT level before such a clause uses the result.
+        /// </summary>
+        public virtual bool IsWindowFunction => false;
 
         /// <summary>Returns this node when the arguments are unchanged; otherwise returns an updated node.</summary>
         public virtual SqlFunctionExpression Update(IEnumerable<SqlExpression> arguments)

@@ -49,9 +49,36 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
         protected override SqlExpression Convert(SqlSelectExpression sqlQuery, SqlExpression[] arguments)
         {
             var compositeBinding = arguments[0].CastTo<SqlQueryShapeExpression>();
+            // A let is only a name for an expression, and a later Where / Join / GroupBy simply writes that expression
+            // again. A window function cannot be written there (it exists only in a SELECT list), so a let that computes
+            // one is made a real Select instead, and the later clause then reads the derived column.
+            if (ContainsWindowFunction(compositeBinding))
+            {
+                sqlQuery.ApplyProjection(compositeBinding);
+                return sqlQuery;
+            }
             sqlQuery.UpdateModelBinding(compositeBinding);
             // TODO: check if we need to mark the newly added binding as "non-projectable"
             return sqlQuery;
+        }
+
+        private static bool ContainsWindowFunction(SqlQueryShapeExpression shape)
+        {
+            var finder = new WindowFunctionFinder();
+            finder.Visit(shape);
+            return finder.Found;
+        }
+
+        private sealed class WindowFunctionFinder : Atis.SqlExpressionEngine.Visitors.SqlExpressionVisitor
+        {
+            public bool Found { get; private set; }
+
+            protected internal override SqlExpression VisitSqlFunction(SqlFunctionExpression node)
+            {
+                if (node.IsWindowFunction)
+                    this.Found = true;
+                return base.VisitSqlFunction(node);
+            }
         }
     }
 }

@@ -182,6 +182,66 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Windowed_aggregates_run_and_a_ROWS_running_total_differs_from_the_default_on_ties()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db); // salaries 300 (Ann), 300 (Bob), 200 (Cid), 100 (Dee)
+
+                var rows = db.CreateQuery<TestEntities.Employee>()
+                             .Where(x => x.LastName == Marker)
+                             .Select(x => new
+                             {
+                                 x.FirstName,
+                                 // First name breaks the tie, so ROWS gives each row its own total.
+                                 RowsTotal = Sql.Sum(x.Salary, Sql.Over().OrderByDescending(x.Salary).OrderBy(x.FirstName).Rows(WindowFrameBound.UnboundedPreceding)),
+                                 // No frame and no tie-break: tied rows are peers and share one total.
+                                 DefaultTotal = Sql.Sum(x.Salary, Sql.Over().OrderByDescending(x.Salary)),
+                                 All = Sql.Sum(x.Salary, Sql.Over()),
+                                 Avg = Sql.Avg(x.Salary, Sql.Over()),
+                                 Lo = Sql.Min(x.Salary, Sql.Over()),
+                                 Hi = Sql.Max(x.Salary, Sql.Over()),
+                                 N = Sql.Count(Sql.Over()),
+                                 NotNull = Sql.Count(x.HireDate, Sql.Over()),
+                             })
+                             .ToList()
+                             .OrderBy(r => r.FirstName)
+                             .ToList();
+
+                CollectionAssert.AreEqual(new decimal?[] { 300m, 600m, 800m, 900m }, rows.Select(r => r.RowsTotal).ToArray());
+                CollectionAssert.AreEqual(new decimal?[] { 600m, 600m, 800m, 900m }, rows.Select(r => r.DefaultTotal).ToArray());
+                Assert.IsTrue(rows.All(r => r.All == 900m && r.Avg == 225m && r.Lo == 100m && r.Hi == 300m && r.N == 4 && r.NotNull == 4));
+            });
+        }
+
+        [TestMethod]
+        public void Running_total_of_group_totals()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db); // salaries 300 (Ann), 300 (Bob), 200 (Cid), 100 (Dee) -> groups 100, 200, 600
+
+                var rows = db.CreateQuery<TestEntities.Employee>()
+                             .Where(x => x.LastName == Marker)
+                             .GroupBy(x => x.Salary)
+                             .Select(g => new
+                             {
+                                 Salary = g.Key,
+                                 Total = g.Sum(e => e.Salary),
+                                 Running = Sql.Sum(g.Sum(e => e.Salary), Sql.Over().OrderBy(g.Key).Rows(WindowFrameBound.UnboundedPreceding)),
+                             })
+                             .ToList()
+                             .OrderBy(r => r.Salary)
+                             .ToList();
+
+                CollectionAssert.AreEqual(new decimal?[] { 100m, 200m, 600m }, rows.Select(r => r.Total).ToArray());
+                CollectionAssert.AreEqual(new decimal?[] { 100m, 300m, 900m }, rows.Select(r => r.Running).ToArray());
+            });
+        }
+
+        [TestMethod]
         public void Partition_restarts_the_numbering()
         {
             var db = new OrmDbContext();

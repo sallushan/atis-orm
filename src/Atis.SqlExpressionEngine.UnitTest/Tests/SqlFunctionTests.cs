@@ -314,6 +314,52 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Windowed_aggregates()
+        {
+            var details = new Queryable<StudentGradeDetail>(queryProvider);
+            var q = details.Select(x => new
+            {
+                Running = Sql.Sum(x.MarksGained, Sql.Over().PartitionBy(x.SubjectId).OrderBy(x.RowId).Rows(WindowFrameBound.UnboundedPreceding)),
+                Av = Sql.Avg(x.MarksGained, Sql.Over().PartitionBy(x.SubjectId)),
+                Lo = Sql.Min(x.MarksGained, Sql.Over().PartitionBy(x.SubjectId)),
+                Hi = Sql.Max(x.TotalMarks, Sql.Over()),
+                N = Sql.Count(Sql.Over().PartitionBy(x.SubjectId)),
+                NotNull = Sql.Count(x.MarksGained, Sql.Over().PartitionBy(x.SubjectId)),
+            });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "SUM(t1.[MarksGained]) OVER (PARTITION BY t1.[SubjectId] ORDER BY t1.[RowId] ASC ROWS UNBOUNDED PRECEDING)");
+            StringAssert.Contains(sql, "AVG(t1.[MarksGained]) OVER (PARTITION BY t1.[SubjectId])");
+            StringAssert.Contains(sql, "MIN(t1.[MarksGained]) OVER (PARTITION BY t1.[SubjectId])");
+            StringAssert.Contains(sql, "MAX(t1.[TotalMarks]) OVER ()");
+            StringAssert.Contains(sql, "COUNT(*) OVER (PARTITION BY t1.[SubjectId])");
+            StringAssert.Contains(sql, "COUNT(t1.[MarksGained]) OVER (PARTITION BY t1.[SubjectId])");
+        }
+
+        [TestMethod]
+        public void Window_function_over_a_group_aggregate()
+        {
+            var details = new Queryable<StudentGradeDetail>(queryProvider);
+            var q = details.GroupBy(x => x.SubjectId).Select(g => new
+            {
+                g.Key,
+                Total = g.Sum(e => e.MarksGained),
+                Running = Sql.Sum(g.Sum(e => e.MarksGained), Sql.Over().OrderBy(g.Key).Rows(WindowFrameBound.UnboundedPreceding)),
+            });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "SUM(Sum(t1.[MarksGained])) OVER (ORDER BY t1.[SubjectId] ASC ROWS UNBOUNDED PRECEDING)");
+            StringAssert.Contains(sql, "GROUP BY t1.[SubjectId]");
+        }
+
+        [TestMethod]
+        public void Unit_test_translator_writes_windowed_aggregates()
+        {
+            var details = new Queryable<StudentGradeDetail>(queryProvider);
+            var q = details.Select(x => new { S = Sql.Sum(x.MarksGained, Sql.Over().OrderBy(x.RowId).Rows(WindowFrameBound.UnboundedPreceding)), N = Sql.Count(Sql.Over()) });
+            Test("windowed aggregates through the test translator", q.Expression,
+                @"select SUM(a_1.MarksGained) OVER (ORDER BY a_1.RowId ASC ROWS UNBOUNDED PRECEDING) as S, COUNT(*) OVER () as N from StudentGradeDetail as a_1");
+        }
+
+        [TestMethod]
         public void Frame_on_its_own_has_no_leading_space()
         {
             var employees = new Queryable<Employee>(queryProvider);

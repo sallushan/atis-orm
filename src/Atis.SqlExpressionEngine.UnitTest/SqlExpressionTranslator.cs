@@ -761,6 +761,8 @@ namespace Atis.SqlExpressionEngine.UnitTest
         {
             var name = System.Text.RegularExpressions.Regex.Replace(node.Function.ToString(), "(?<=[a-z])(?=[A-Z])", "_").ToUpperInvariant();
             var arguments = string.Join(", ", node.Arguments.Select(a => this.TranslateNonLogicalExpression(a)));
+            if (node.Function == Atis.Orm.Functions.SqlWindowFunction.Count && node.Arguments.Count == 0)
+                arguments = "*";
             return $"{name}({arguments}) {this.TranslateOverClause(node.Over)}";
         }
 

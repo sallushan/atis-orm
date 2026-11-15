@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -30,6 +30,16 @@ namespace Atis.Orm.Functions
         FirstValue,
         /// <summary>LAST_VALUE(value)</summary>
         LastValue,
+        /// <summary>SUM(value) OVER (...)</summary>
+        Sum,
+        /// <summary>AVG(value) OVER (...)</summary>
+        Avg,
+        /// <summary>MIN(value) OVER (...)</summary>
+        Min,
+        /// <summary>MAX(value) OVER (...)</summary>
+        Max,
+        /// <summary>COUNT(*) or COUNT(value) OVER (...)</summary>
+        Count,
     }
 
     /// <summary>Whether a window frame counts physical rows or values of the ORDER BY column.</summary>
@@ -233,6 +243,9 @@ namespace Atis.Orm.Functions
 
         /// <summary>The OVER clause.</summary>
         public SqlOverClauseExpression Over { get; }
+
+        /// <inheritdoc />
+        public override bool IsWindowFunction => true;
 
         /// <inheritdoc />
         public override SqlFunctionExpression Update(IEnumerable<SqlExpression> arguments)

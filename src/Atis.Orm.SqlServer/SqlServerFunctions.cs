@@ -508,6 +508,10 @@ namespace Atis.Orm.SqlServer
         [SqlFunction(Template = "cast({0} as int)")]
         public static int? CastToInt(object expr) => throw new DirectCallNotSupportedException(nameof(CastToInt));
 
+        /// <summary>CAST(expr AS bigint). A C# cast such as <c>(long)x.Qty</c> is dropped by the translator, so use this to make the server widen a value (for example before a SUM that could overflow an int).</summary>
+        [SqlFunction(Template = "cast({0} as bigint)")]
+        public static long? CastToBigInt(object expr) => throw new DirectCallNotSupportedException(nameof(CastToBigInt));
+
         /// <summary>CAST(expr AS decimal(19, 5))</summary>
         [SqlFunction(Template = "cast({0} as decimal(19, 5))")]
         public static decimal? CastToDecimal(object expr) => throw new DirectCallNotSupportedException(nameof(CastToDecimal));
@@ -555,6 +559,10 @@ namespace Atis.Orm.SqlServer
         /// <summary>CONVERT(int, expr, style)</summary>
         [SqlFunction(Template = "convert(int, {0}, {1})")]
         public static int? ConvertToInt(object expr, int? style) => throw new DirectCallNotSupportedException(nameof(ConvertToInt));
+
+        /// <summary>CONVERT(bigint, expr, style)</summary>
+        [SqlFunction(Template = "convert(bigint, {0}, {1})")]
+        public static long? ConvertToBigInt(object expr, int? style) => throw new DirectCallNotSupportedException(nameof(ConvertToBigInt));
 
         /// <summary>CONVERT(decimal(19, 5), expr, style)</summary>
         [SqlFunction(Template = "convert(decimal(19, 5), {0}, {1})")]
