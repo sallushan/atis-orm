@@ -278,6 +278,125 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Frame_with_a_single_bound()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees.Select(x => new
+            {
+                A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.UnboundedPreceding)),
+                B = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.Preceding, 3)),
+                C = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Range(WindowFrameBound.UnboundedPreceding)),
+            });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "LAST_VALUE(t1.[Name]) OVER (ORDER BY t1.[Name] ASC ROWS UNBOUNDED PRECEDING)");
+            StringAssert.Contains(sql, "OVER (ORDER BY t1.[Name] ASC ROWS 3 PRECEDING)");
+            StringAssert.Contains(sql, "OVER (ORDER BY t1.[Name] ASC RANGE UNBOUNDED PRECEDING)");
+        }
+
+        [TestMethod]
+        public void Frame_with_between()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees.Select(x => new
+            {
+                A = Sql.LastValue(x.Name, Sql.Over().PartitionBy(x.Department).OrderBy(x.Name).Rows(WindowFrameBound.UnboundedPreceding, WindowFrameBound.CurrentRow)),
+                B = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.Preceding, 2, WindowFrameBound.CurrentRow)),
+                C = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.CurrentRow, WindowFrameBound.Following, 1)),
+                D = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.Preceding, 2, WindowFrameBound.Following, 4)),
+                E = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Range(WindowFrameBound.CurrentRow, WindowFrameBound.UnboundedFollowing)),
+            });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "OVER (PARTITION BY t1.[Department] ORDER BY t1.[Name] ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)");
+            StringAssert.Contains(sql, "ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)");
+            StringAssert.Contains(sql, "ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)");
+            StringAssert.Contains(sql, "ROWS BETWEEN 2 PRECEDING AND 4 FOLLOWING)");
+            StringAssert.Contains(sql, "RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)");
+        }
+
+        [TestMethod]
+        public void Frame_on_its_own_has_no_leading_space()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().Rows(WindowFrameBound.UnboundedPreceding)) });
+            var sql = TranslateForSqlServer(q.Expression);
+            StringAssert.Contains(sql, "OVER (ROWS UNBOUNDED PRECEDING)");
+        }
+
+        [TestMethod]
+        public void Unit_test_translator_writes_the_frame()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.Preceding, 2, WindowFrameBound.CurrentRow)) });
+            Test("frame through the test translator", q.Expression,
+                @"select LAST_VALUE(a_1.Name) OVER (ORDER BY a_1.Name ASC ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) as A from Employee as a_1");
+        }
+
+        [TestMethod]
+        public void Different_frames_give_different_hashes()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            int Hash(System.Linq.Expressions.Expression e)
+            {
+                var sql = ConvertExpressionToSqlExpression(e, out _);
+                return Atis.SqlExpressionEngine.Visitors.SqlExpressionHashGenerator.GenerateHash(sql);
+            }
+            var rows = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.UnboundedPreceding)) });
+            var range = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Range(WindowFrameBound.UnboundedPreceding)) });
+            var two = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.Preceding, 2)) });
+            var three = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.Preceding, 3)) });
+            var none = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name)) });
+            var hashes = new[] { Hash(rows.Expression), Hash(range.Expression), Hash(two.Expression), Hash(three.Expression), Hash(none.Expression) };
+            Assert.AreEqual(hashes.Length, hashes.Distinct().Count());
+        }
+
+        [TestMethod]
+        public void SQL_Server_refuses_a_row_count_in_a_RANGE_frame()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Range(WindowFrameBound.Preceding, 2, WindowFrameBound.CurrentRow)) });
+            var ex = Assert.ThrowsException<System.NotSupportedException>(() => TranslateForSqlServer(q.Expression));
+            StringAssert.Contains(ex.Message, "RANGE");
+        }
+
+        [TestMethod]
+        public void A_frame_bound_must_be_a_constant_in_the_query()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var count = 2;
+            var q = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.Preceding, count)) });
+            var ex = Assert.ThrowsException<System.InvalidOperationException>(() => TranslateForSqlServer(q.Expression));
+            StringAssert.Contains(ex.Message, "written in the query");
+        }
+
+        [TestMethod]
+        public void An_over_clause_takes_only_one_frame()
+        {
+            var employees = new Queryable<Employee>(queryProvider);
+            var q = employees.Select(x => new { A = Sql.LastValue(x.Name, Sql.Over().OrderBy(x.Name).Rows(WindowFrameBound.UnboundedPreceding).Range(WindowFrameBound.UnboundedPreceding)) });
+            var ex = Assert.ThrowsException<System.InvalidOperationException>(() => TranslateForSqlServer(q.Expression));
+            StringAssert.Contains(ex.Message, "only one frame");
+        }
+
+        [TestMethod]
+        public void Impossible_frames_are_refused_when_the_node_is_built()
+        {
+            var rows = Atis.Orm.Functions.SqlWindowFrameMode.Rows;
+            // Preceding / Following need a count, the others take none.
+            Assert.ThrowsException<System.InvalidOperationException>(() => new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.Preceding, null));
+            Assert.ThrowsException<System.InvalidOperationException>(() => new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.CurrentRow, 1));
+            Assert.ThrowsException<System.InvalidOperationException>(() => new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.Preceding, -1));
+            // Direction: the start cannot come after the end.
+            Assert.ThrowsException<System.InvalidOperationException>(() => new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.CurrentRow, null, WindowFrameBound.UnboundedPreceding, null));
+            Assert.ThrowsException<System.InvalidOperationException>(() => new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.Following, 1, WindowFrameBound.CurrentRow, null));
+            Assert.ThrowsException<System.InvalidOperationException>(() => new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.UnboundedFollowing, null, WindowFrameBound.UnboundedFollowing, null));
+            // A single bound is the start and the end is the current row, so it cannot look forward.
+            Assert.ThrowsException<System.InvalidOperationException>(() => new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.Following, 1, null, null));
+            // Valid ones.
+            new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.Preceding, 2, WindowFrameBound.Preceding, 1);
+            new Atis.Orm.Functions.SqlWindowFrame(rows, WindowFrameBound.CurrentRow, null, WindowFrameBound.UnboundedFollowing, null);
+        }
+
+        [TestMethod]
         public void Ranking_family_names()
         {
             var employees = new Queryable<Employee>(queryProvider);

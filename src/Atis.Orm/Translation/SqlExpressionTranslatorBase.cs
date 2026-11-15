@@ -1429,7 +1429,47 @@ namespace Atis.Orm.Translation
                     this.Append(node.OrderBy[i].Direction == SortDirection.Ascending ? " ASC" : " DESC");
                 }
             }
+            if (node.Frame != null)
+            {
+                if (node.PartitionBy.Count > 0 || node.OrderBy.Count > 0)
+                    this.Append(" ");
+                this.TranslateWindowFrame(node.Frame);
+            }
             this.Append(")");
+        }
+
+        /// <summary>
+        ///     Translates the frame of an OVER clause: <c>ROWS BETWEEN 2 PRECEDING AND CURRENT ROW</c>. This is the standard
+        ///     spelling every database shares; a provider overrides it to refuse a combination its database cannot run.
+        /// </summary>
+        protected virtual void TranslateWindowFrame(SqlWindowFrame frame)
+        {
+            this.Append(frame.Mode == SqlWindowFrameMode.Rows ? "ROWS " : "RANGE ");
+            if (frame.End.HasValue)
+            {
+                this.Append("BETWEEN ");
+                this.Append(GetWindowFrameBoundText(frame.Start, frame.StartOffset));
+                this.Append(" AND ");
+                this.Append(GetWindowFrameBoundText(frame.End.Value, frame.EndOffset));
+            }
+            else
+            {
+                this.Append(GetWindowFrameBoundText(frame.Start, frame.StartOffset));
+            }
+        }
+
+        /// <summary>The SQL text of one frame bound, for example <c>2 PRECEDING</c>. The count is a whole number, written into the text.</summary>
+        protected static string GetWindowFrameBoundText(WindowFrameBound bound, int? offset)
+        {
+            switch (bound)
+            {
+                case WindowFrameBound.UnboundedPreceding: return "UNBOUNDED PRECEDING";
+                case WindowFrameBound.Preceding: return offset.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + " PRECEDING";
+                case WindowFrameBound.CurrentRow: return "CURRENT ROW";
+                case WindowFrameBound.Following: return offset.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + " FOLLOWING";
+                case WindowFrameBound.UnboundedFollowing: return "UNBOUNDED FOLLOWING";
+                default: throw new NotSupportedException($"Window frame bound '{bound}' is not supported.");
+            }
         }
 
         /// <summary>

@@ -183,6 +183,10 @@ namespace Atis.Orm.Functions
                         return this.RequireOver(convertedChildren[0]).AddOrderBy(convertedChildren[1], SortDirection.Ascending);
                     case SqlWindowClauseOperation.OrderByDescending:
                         return this.RequireOver(convertedChildren[0]).AddOrderBy(convertedChildren[1], SortDirection.Descending);
+                    case SqlWindowClauseOperation.Rows:
+                        return this.RequireOver(convertedChildren[0]).WithFrame(this.ReadFrame(SqlWindowFrameMode.Rows, convertedChildren));
+                    case SqlWindowClauseOperation.Range:
+                        return this.RequireOver(convertedChildren[0]).WithFrame(this.ReadFrame(SqlWindowFrameMode.Range, convertedChildren));
                     default: // Argument or Condition
                         throw new NotSupportedException($"OVER-clause operation '{clause.Operation}' is not supported.");
                 }
@@ -196,6 +200,39 @@ namespace Atis.Orm.Functions
                 window.Function,
                 convertedChildren.Take(convertedChildren.Length - 1).ToList(),
                 over);
+        }
+
+        // Arguments after the OVER clause: bound [count] [bound [count]]. A count is an int literal that follows its bound.
+        private SqlWindowFrame ReadFrame(SqlWindowFrameMode mode, SqlExpression[] convertedChildren)
+        {
+            var index = 1;
+            WindowFrameBound ReadBound(out int? count)
+            {
+                var name = this.Expression.Method.GetParameters()[index].Name;
+                if (!(convertedChildren[index] is SqlLiteralExpression boundLiteral) || !(boundLiteral.LiteralValue is WindowFrameBound bound))
+                    throw new InvalidOperationException(
+                        $"The frame bound '{name}' of 'Sql.{this.Expression.Method.Name}' is written into the SQL text, so it must be a " +
+                        "WindowFrameBound value written in the query, not a variable or an expression.");
+                index++;
+                count = null;
+                if (index < convertedChildren.Length && this.Expression.Method.GetParameters()[index].ParameterType == typeof(int))
+                {
+                    var countName = this.Expression.Method.GetParameters()[index].Name;
+                    if (!(convertedChildren[index] is SqlLiteralExpression countLiteral) || !(countLiteral.LiteralValue is int number))
+                        throw new InvalidOperationException(
+                            $"The row count '{countName}' of 'Sql.{this.Expression.Method.Name}' is written into the SQL text, so it must be " +
+                            "a whole number written in the query, not a variable or an expression.");
+                    count = number;
+                    index++;
+                }
+                return bound;
+            }
+
+            var start = ReadBound(out var startCount);
+            if (index >= convertedChildren.Length)
+                return new SqlWindowFrame(mode, start, startCount);
+            var end = ReadBound(out var endCount);
+            return new SqlWindowFrame(mode, start, startCount, end, endCount);
         }
 
         private SqlOverClauseExpression RequireOver(SqlExpression expression)

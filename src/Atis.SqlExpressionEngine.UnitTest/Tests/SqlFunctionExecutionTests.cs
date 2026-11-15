@@ -128,6 +128,60 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
         }
 
         [TestMethod]
+        public void Frames_run_on_the_server_and_ROWS_differs_from_RANGE_on_ties()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                SeedFour(db);
+
+                // Hire order is Ann, Bob, Cid, Dee (all different, so the frame is easy to predict).
+                var byHire = db.CreateQuery<TestEntities.Employee>()
+                               .Where(x => x.LastName == Marker)
+                               .Select(x => new
+                               {
+                                   x.FirstName,
+                                   AheadOne = Sql.LastValue(x.FirstName, Sql.Over().OrderBy(x.HireDate).Rows(WindowFrameBound.Preceding, 1, WindowFrameBound.Following, 1)),
+                                   BackOne = Sql.FirstValue(x.FirstName, Sql.Over().OrderBy(x.HireDate).Rows(WindowFrameBound.Preceding, 1, WindowFrameBound.CurrentRow)),
+                                   ToEnd = Sql.LastValue(x.FirstName, Sql.Over().OrderBy(x.HireDate).Rows(WindowFrameBound.CurrentRow, WindowFrameBound.UnboundedFollowing)),
+                                   OnlyStart = Sql.FirstValue(x.FirstName, Sql.Over().OrderBy(x.HireDate).Rows(WindowFrameBound.Preceding, 2)),
+                               })
+                               .ToList()
+                               .OrderBy(r => r.FirstName)
+                               .ToList();
+
+                CollectionAssert.AreEqual(new[] { "Bob", "Cid", "Dee", "Dee" }, byHire.Select(r => r.AheadOne).ToArray());
+                CollectionAssert.AreEqual(new[] { "Ann", "Ann", "Bob", "Cid" }, byHire.Select(r => r.BackOne).ToArray());
+                Assert.IsTrue(byHire.All(r => r.ToEnd == "Dee"));
+                CollectionAssert.AreEqual(new[] { "Ann", "Ann", "Ann", "Bob" }, byHire.Select(r => r.OnlyStart).ToArray());
+
+                // Ann and Bob tie on salary. ROWS counts rows, so each row's frame ends at itself.
+                // RANGE treats the tied rows as one group, so both end at the same (last) peer.
+                var bySalary = db.CreateQuery<TestEntities.Employee>()
+                                 .Where(x => x.LastName == Marker)
+                                 .Select(x => new
+                                 {
+                                     x.FirstName,
+                                     ByRows = Sql.LastValue(x.FirstName, Sql.Over().OrderByDescending(x.Salary).Rows(WindowFrameBound.UnboundedPreceding, WindowFrameBound.CurrentRow)),
+                                     ByRange = Sql.LastValue(x.FirstName, Sql.Over().OrderByDescending(x.Salary).Range(WindowFrameBound.UnboundedPreceding, WindowFrameBound.CurrentRow)),
+                                 })
+                                 .ToList()
+                                 .OrderBy(r => r.FirstName)
+                                 .ToList();
+
+                // Tied rows have no order between them, so ROWS may give either name; the point is it is the row's own
+                // frame, which RANGE cannot do: both tied rows get the SAME value.
+                var ann = bySalary.Single(r => r.FirstName == "Ann");
+                var bob = bySalary.Single(r => r.FirstName == "Bob");
+                Assert.AreEqual(ann.ByRange, bob.ByRange);
+                Assert.AreEqual("Ann", ann.ByRows);
+                Assert.AreEqual("Bob", bob.ByRows);
+                Assert.AreEqual("Cid", bySalary.Single(r => r.FirstName == "Cid").ByRows);
+                Assert.AreEqual("Dee", bySalary.Single(r => r.FirstName == "Dee").ByRows);
+            });
+        }
+
+        [TestMethod]
         public void Partition_restarts_the_numbering()
         {
             var db = new OrmDbContext();

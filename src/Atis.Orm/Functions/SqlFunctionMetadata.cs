@@ -44,6 +44,8 @@ namespace Atis.Orm.Functions
         PartitionBy,
         OrderBy,
         OrderByDescending,
+        Rows,
+        Range,
     }
 
     /// <summary>Metadata for one OVER-clause builder method.</summary>

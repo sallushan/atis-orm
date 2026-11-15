@@ -41,6 +41,20 @@ namespace Atis.Orm.SqlServer
         /// <inheritdoc />
         protected override bool RewriteApplyAsJoin => this.rewriteApplyAsJoin;
 
+        /// <summary>
+        ///     SQL Server runs <c>ROWS</c> with any bound, but <c>RANGE</c> only with UNBOUNDED and CURRENT ROW. It rejects
+        ///     <c>RANGE 3 PRECEDING</c> at run time with a message that does not name the cause, so it is refused here.
+        /// </summary>
+        protected override void TranslateWindowFrame(Atis.Orm.Functions.SqlWindowFrame frame)
+        {
+            if (frame.Mode == Atis.Orm.Functions.SqlWindowFrameMode.Range
+                && (frame.StartOffset.HasValue || frame.EndOffset.HasValue))
+                throw new NotSupportedException(
+                    "SQL Server does not support a row count in a RANGE frame (RANGE n PRECEDING / n FOLLOWING). " +
+                    "Use ROWS, or RANGE with UNBOUNDED PRECEDING, UNBOUNDED FOLLOWING and CURRENT ROW only.");
+            base.TranslateWindowFrame(frame);
+        }
+
         /// <summary>Writes <c> WITHIN GROUP (ORDER BY a ASC, b DESC)</c> for the ordering of a string aggregate.</summary>
         private void TranslateWithinGroup(SqlExpression ordering)
         {

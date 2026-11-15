@@ -1,4 +1,4 @@
-﻿using Atis.Orm.Translation;
+using Atis.Orm.Translation;
 using Atis.SqlExpressionEngine.Internal;
 using Atis.SqlExpressionEngine.Services;
 using Atis.SqlExpressionEngine.SqlExpressions;
@@ -775,6 +775,27 @@ namespace Atis.SqlExpressionEngine.UnitTest
                     text.Append(' ');
                 text.Append("ORDER BY ").Append(string.Join(", ", node.OrderBy.Select(o =>
                     this.TranslateNonLogicalExpression(o.ColumnExpression) + (o.Direction == SortDirection.Ascending ? " ASC" : " DESC"))));
+            }
+            if (node.Frame != null)
+            {
+                if (node.PartitionBy.Count > 0 || node.OrderBy.Count > 0)
+                    text.Append(' ');
+                var f = node.Frame;
+                string Bound(Atis.Orm.WindowFrameBound b, int? n)
+                {
+                    switch (b)
+                    {
+                        case Atis.Orm.WindowFrameBound.UnboundedPreceding: return "UNBOUNDED PRECEDING";
+                        case Atis.Orm.WindowFrameBound.Preceding: return n + " PRECEDING";
+                        case Atis.Orm.WindowFrameBound.CurrentRow: return "CURRENT ROW";
+                        case Atis.Orm.WindowFrameBound.Following: return n + " FOLLOWING";
+                        default: return "UNBOUNDED FOLLOWING";
+                    }
+                }
+                text.Append(f.Mode == Atis.Orm.Functions.SqlWindowFrameMode.Rows ? "ROWS " : "RANGE ");
+                text.Append(f.End.HasValue
+                    ? "BETWEEN " + Bound(f.Start, f.StartOffset) + " AND " + Bound(f.End.Value, f.EndOffset)
+                    : Bound(f.Start, f.StartOffset));
             }
             return text.Append(')').ToString();
         }

@@ -32,8 +32,107 @@ namespace Atis.Orm.Functions
         LastValue,
     }
 
+    /// <summary>Whether a window frame counts physical rows or values of the ORDER BY column.</summary>
+    public enum SqlWindowFrameMode
+    {
+        /// <summary>ROWS: the frame is counted in rows.</summary>
+        Rows,
+        /// <summary>RANGE: rows with the same ORDER BY value belong together.</summary>
+        Range,
+    }
+
     /// <summary>
-    ///     The <c>OVER (PARTITION BY ... ORDER BY ...)</c> part of a window function.
+    ///     The frame of an OVER clause: <c>ROWS UNBOUNDED PRECEDING</c>,
+    ///     <c>ROWS BETWEEN 2 PRECEDING AND CURRENT ROW</c> and so on. It has no SQL Server specifics, so every
+    ///     provider can write it; a provider that cannot run a combination refuses it in its translator.
+    /// </summary>
+    public sealed class SqlWindowFrame
+    {
+        /// <summary>A frame with only a start (<c>ROWS UNBOUNDED PRECEDING</c>); the end is the current row.</summary>
+        public SqlWindowFrame(SqlWindowFrameMode mode, WindowFrameBound start, int? startOffset)
+            : this(mode, start, startOffset, null, null)
+        {
+        }
+
+        /// <summary>A frame with a start and an end (<c>ROWS BETWEEN .. AND ..</c>).</summary>
+        public SqlWindowFrame(SqlWindowFrameMode mode, WindowFrameBound start, int? startOffset, WindowFrameBound? end, int? endOffset)
+        {
+            CheckBound(start, startOffset, "start");
+            if (end.HasValue)
+            {
+                CheckBound(end.Value, endOffset, "end");
+                if (start == WindowFrameBound.UnboundedFollowing)
+                    throw new InvalidOperationException("A window frame cannot start at UNBOUNDED FOLLOWING.");
+                if (end.Value == WindowFrameBound.UnboundedPreceding)
+                    throw new InvalidOperationException("A window frame cannot end at UNBOUNDED PRECEDING.");
+                if (Order(start) > Order(end.Value))
+                    throw new InvalidOperationException($"A window frame cannot start at {start} and end at {end.Value}: the start must not come after the end.");
+            }
+            else
+            {
+                if (endOffset.HasValue)
+                    throw new InvalidOperationException("An end offset was given but the frame has no end bound.");
+                if (start == WindowFrameBound.Following || start == WindowFrameBound.UnboundedFollowing)
+                    throw new InvalidOperationException(
+                        $"A window frame with only a start cannot start at {start}; use BETWEEN with an end bound.");
+            }
+            this.Mode = mode;
+            this.Start = start;
+            this.StartOffset = startOffset;
+            this.End = end;
+            this.EndOffset = endOffset;
+        }
+
+        /// <summary>ROWS or RANGE.</summary>
+        public SqlWindowFrameMode Mode { get; }
+
+        /// <summary>The start bound.</summary>
+        public WindowFrameBound Start { get; }
+
+        /// <summary>The row count of the start bound; set only for <see cref="WindowFrameBound.Preceding"/> and <see cref="WindowFrameBound.Following"/>.</summary>
+        public int? StartOffset { get; }
+
+        /// <summary>The end bound, or <c>null</c> when the frame has only a start.</summary>
+        public WindowFrameBound? End { get; }
+
+        /// <summary>The row count of the end bound; set only for <see cref="WindowFrameBound.Preceding"/> and <see cref="WindowFrameBound.Following"/>.</summary>
+        public int? EndOffset { get; }
+
+        private static int Order(WindowFrameBound bound)
+        {
+            switch (bound)
+            {
+                case WindowFrameBound.UnboundedPreceding: return 0;
+                case WindowFrameBound.Preceding: return 1;
+                case WindowFrameBound.CurrentRow: return 2;
+                case WindowFrameBound.Following: return 3;
+                default: return 4;
+            }
+        }
+
+        private static void CheckBound(WindowFrameBound bound, int? offset, string which)
+        {
+            var needsOffset = bound == WindowFrameBound.Preceding || bound == WindowFrameBound.Following;
+            if (needsOffset && !offset.HasValue)
+                throw new InvalidOperationException($"The {which} bound {bound} needs a row count, for example 3 {bound.ToString().ToUpperInvariant()}.");
+            if (!needsOffset && offset.HasValue)
+                throw new InvalidOperationException($"The {which} bound {bound} does not take a row count.");
+            if (offset.HasValue && offset.Value < 0)
+                throw new InvalidOperationException($"The {which} bound row count cannot be negative.");
+        }
+
+        /// <inheritdoc />
+        public override string ToString()
+        {
+            string Bound(WindowFrameBound b, int? n) => n.HasValue ? $"{n} {b}" : b.ToString();
+            return this.End.HasValue
+                ? $"{this.Mode} between {Bound(this.Start, this.StartOffset)} and {Bound(this.End.Value, this.EndOffset)}"
+                : $"{this.Mode} {Bound(this.Start, this.StartOffset)}";
+        }
+    }
+
+    /// <summary>
+    ///     The <c>OVER (PARTITION BY ... ORDER BY ... ROWS ...)</c> part of a window function.
     /// </summary>
     public sealed class SqlOverClauseExpression : SqlExpression
     {
@@ -45,9 +144,16 @@ namespace Atis.Orm.Functions
 
         /// <summary>Creates the node.</summary>
         public SqlOverClauseExpression(IReadOnlyList<SqlExpression> partitionBy, IReadOnlyList<OrderByColumn> orderBy)
+            : this(partitionBy, orderBy, null)
+        {
+        }
+
+        /// <summary>Creates the node with a frame.</summary>
+        public SqlOverClauseExpression(IReadOnlyList<SqlExpression> partitionBy, IReadOnlyList<OrderByColumn> orderBy, SqlWindowFrame frame)
         {
             this.PartitionBy = partitionBy ?? throw new ArgumentNullException(nameof(partitionBy));
             this.OrderBy = orderBy ?? throw new ArgumentNullException(nameof(orderBy));
+            this.Frame = frame;
         }
 
         /// <summary>The PARTITION BY expressions.</summary>
@@ -56,13 +162,26 @@ namespace Atis.Orm.Functions
         /// <summary>The ORDER BY columns.</summary>
         public IReadOnlyList<OrderByColumn> OrderBy { get; }
 
+        /// <summary>The ROWS / RANGE frame, or <c>null</c> when the clause has none (the database then uses its default).</summary>
+        public SqlWindowFrame Frame { get; }
+
         /// <summary>A copy with one more PARTITION BY expression.</summary>
         public SqlOverClauseExpression AddPartitionBy(SqlExpression expression)
-            => new SqlOverClauseExpression(this.PartitionBy.Concat(new[] { expression }).ToList(), this.OrderBy);
+            => new SqlOverClauseExpression(this.PartitionBy.Concat(new[] { expression }).ToList(), this.OrderBy, this.Frame);
 
         /// <summary>A copy with one more ORDER BY column.</summary>
         public SqlOverClauseExpression AddOrderBy(SqlExpression expression, SortDirection direction)
-            => new SqlOverClauseExpression(this.PartitionBy, this.OrderBy.Concat(new[] { new OrderByColumn(expression, direction) }).ToList());
+            => new SqlOverClauseExpression(this.PartitionBy, this.OrderBy.Concat(new[] { new OrderByColumn(expression, direction) }).ToList(), this.Frame);
+
+        /// <summary>A copy with the frame set. A clause can have only one.</summary>
+        public SqlOverClauseExpression WithFrame(SqlWindowFrame frame)
+        {
+            if (frame == null)
+                throw new ArgumentNullException(nameof(frame));
+            if (this.Frame != null)
+                throw new InvalidOperationException("An OVER clause can have only one frame (Rows or Range), but a second one was given.");
+            return new SqlOverClauseExpression(this.PartitionBy, this.OrderBy, frame);
+        }
 
         /// <inheritdoc />
         protected override SqlExpression VisitChildren(SqlExpressionVisitor visitor)
@@ -87,12 +206,12 @@ namespace Atis.Orm.Functions
                     orders.Add(new OrderByColumn(visited, o.Direction));
                 }
             }
-            return changed ? new SqlOverClauseExpression(partitions, orders) : this;
+            return changed ? new SqlOverClauseExpression(partitions, orders, this.Frame) : this;
         }
 
         /// <inheritdoc />
         public override string ToString()
-            => $"over (partition by [{string.Join(", ", this.PartitionBy)}] order by [{string.Join(", ", this.OrderBy)}])";
+            => $"over (partition by [{string.Join(", ", this.PartitionBy)}] order by [{string.Join(", ", this.OrderBy)}]{(this.Frame == null ? "" : " " + this.Frame)})";
     }
 
     /// <summary>
@@ -133,6 +252,13 @@ namespace Atis.Orm.Functions
             yield return this.Over.PartitionBy.Count;
             foreach (var order in this.Over.OrderBy)
                 yield return order.Direction;
+            // Two frames give different SQL, so the frame must separate the hashes too.
+            var frame = this.Over.Frame;
+            yield return frame?.Mode;
+            yield return frame?.Start;
+            yield return frame?.StartOffset;
+            yield return frame?.End;
+            yield return frame?.EndOffset;
         }
 
         /// <inheritdoc />

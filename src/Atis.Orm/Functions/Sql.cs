@@ -16,6 +16,21 @@ namespace Atis.Orm
         }
     }
 
+    /// <summary>One end of a window frame, used with <c>Sql.Rows(...)</c> and <c>Sql.Range(...)</c>.</summary>
+    public enum WindowFrameBound
+    {
+        /// <summary>UNBOUNDED PRECEDING: the first row of the partition.</summary>
+        UnboundedPreceding,
+        /// <summary>n PRECEDING: n rows (or, for RANGE, n units of the ORDER BY value) before the current row. Needs a count.</summary>
+        Preceding,
+        /// <summary>CURRENT ROW.</summary>
+        CurrentRow,
+        /// <summary>n FOLLOWING: n rows (or units) after the current row. Needs a count.</summary>
+        Following,
+        /// <summary>UNBOUNDED FOLLOWING: the last row of the partition.</summary>
+        UnboundedFollowing,
+    }
+
     /// <summary>
     ///     <para>
     ///         Database functions that work the same on every database. They are markers: a query names
@@ -58,6 +73,54 @@ namespace Atis.Orm
 
         /// <summary>Adds a descending <c>ORDER BY</c> expression. Call it again for more.</summary>
         public static OverClause OrderByDescending<T>(this OverClause over, T expression) => throw new DirectCallNotSupportedException(nameof(OrderByDescending));
+
+        // Frame (ROWS / RANGE). Every argument must be a constant written in the query, because it becomes part of the SQL text.
+        // A bound that needs a count (Preceding / Following) is followed by that count:
+        //   .Rows(WindowFrameBound.UnboundedPreceding)                                         ROWS UNBOUNDED PRECEDING
+        //   .Rows(WindowFrameBound.UnboundedPreceding, WindowFrameBound.CurrentRow)            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        //   .Rows(WindowFrameBound.Preceding, 2, WindowFrameBound.CurrentRow)                  ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+        //   .Rows(WindowFrameBound.CurrentRow, WindowFrameBound.Following, 1)                  ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING
+        //   .Rows(WindowFrameBound.Preceding, 2, WindowFrameBound.Following, 2)                ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING
+
+        /// <summary>
+        ///     Adds a <c>ROWS</c> frame that starts at <paramref name="start"/> and ends at the current row.
+        ///     Without a frame, a database counts <c>RANGE UNBOUNDED PRECEDING</c> when there is an ORDER BY, which gives
+        ///     tied rows the same running total; <c>ROWS</c> gives every row its own.
+        /// </summary>
+        public static OverClause Rows(this OverClause over, WindowFrameBound start) => throw new DirectCallNotSupportedException(nameof(Rows));
+
+        /// <summary>Adds a <c>ROWS</c> frame that starts <paramref name="startCount"/> rows before or after the current row and ends at the current row.</summary>
+        public static OverClause Rows(this OverClause over, WindowFrameBound start, int startCount) => throw new DirectCallNotSupportedException(nameof(Rows));
+
+        /// <summary>Adds a <c>ROWS BETWEEN <paramref name="start"/> AND <paramref name="end"/></c> frame.</summary>
+        public static OverClause Rows(this OverClause over, WindowFrameBound start, WindowFrameBound end) => throw new DirectCallNotSupportedException(nameof(Rows));
+
+        /// <summary>Adds a <c>ROWS BETWEEN n PRECEDING/FOLLOWING AND <paramref name="end"/></c> frame.</summary>
+        public static OverClause Rows(this OverClause over, WindowFrameBound start, int startCount, WindowFrameBound end) => throw new DirectCallNotSupportedException(nameof(Rows));
+
+        /// <summary>Adds a <c>ROWS BETWEEN <paramref name="start"/> AND n PRECEDING/FOLLOWING</c> frame.</summary>
+        public static OverClause Rows(this OverClause over, WindowFrameBound start, WindowFrameBound end, int endCount) => throw new DirectCallNotSupportedException(nameof(Rows));
+
+        /// <summary>Adds a <c>ROWS BETWEEN n PRECEDING/FOLLOWING AND n PRECEDING/FOLLOWING</c> frame.</summary>
+        public static OverClause Rows(this OverClause over, WindowFrameBound start, int startCount, WindowFrameBound end, int endCount) => throw new DirectCallNotSupportedException(nameof(Rows));
+
+        /// <summary>Adds a <c>RANGE</c> frame that starts at <paramref name="start"/> and ends at the current row.</summary>
+        public static OverClause Range(this OverClause over, WindowFrameBound start) => throw new DirectCallNotSupportedException(nameof(Range));
+
+        /// <summary>Adds a <c>RANGE</c> frame that starts <paramref name="startCount"/> units before or after the current row and ends at the current row.</summary>
+        public static OverClause Range(this OverClause over, WindowFrameBound start, int startCount) => throw new DirectCallNotSupportedException(nameof(Range));
+
+        /// <summary>Adds a <c>RANGE BETWEEN <paramref name="start"/> AND <paramref name="end"/></c> frame.</summary>
+        public static OverClause Range(this OverClause over, WindowFrameBound start, WindowFrameBound end) => throw new DirectCallNotSupportedException(nameof(Range));
+
+        /// <summary>Adds a <c>RANGE BETWEEN n PRECEDING/FOLLOWING AND <paramref name="end"/></c> frame.</summary>
+        public static OverClause Range(this OverClause over, WindowFrameBound start, int startCount, WindowFrameBound end) => throw new DirectCallNotSupportedException(nameof(Range));
+
+        /// <summary>Adds a <c>RANGE BETWEEN <paramref name="start"/> AND n PRECEDING/FOLLOWING</c> frame.</summary>
+        public static OverClause Range(this OverClause over, WindowFrameBound start, WindowFrameBound end, int endCount) => throw new DirectCallNotSupportedException(nameof(Range));
+
+        /// <summary>Adds a <c>RANGE BETWEEN n PRECEDING/FOLLOWING AND n PRECEDING/FOLLOWING</c> frame.</summary>
+        public static OverClause Range(this OverClause over, WindowFrameBound start, int startCount, WindowFrameBound end, int endCount) => throw new DirectCallNotSupportedException(nameof(Range));
 
         #endregion
 
