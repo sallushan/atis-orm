@@ -46,6 +46,17 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
             public long? BodyLength { get; set; }
         }
 
+        /// <summary>A positional record over the same table: nothing about it can be assigned after construction except through its <c>init</c> setters.</summary>
+        [DbTable("Document", "dbo")]
+        public record PositionalDocument(
+            [property: PrimaryKey] [property: DbIdentityColumn] int DocumentId,
+            string Name,
+            byte[] Content,
+            string Body) : IRecord
+        {
+            public RecordState RecordState { get; init; }
+        }
+
         private static byte[] Bytes(int length, int seed = 0)
         {
             var bytes = new byte[length];
@@ -104,6 +115,41 @@ namespace Atis.SqlExpressionEngine.UnitTest.Tests
                 Assert.AreEqual(body, row["Body"]);
                 Assert.AreSame(content, document.Content, "The entity keeps the value the caller gave it.");
                 Assert.AreSame(body, document.Body);
+            });
+        }
+
+        /// <summary>
+        ///     The streamed save swaps the large members out and puts them back by reflection. A positional
+        ///     record's members are <c>init</c>-only, so this proves that swap works on one, and that the
+        ///     value ends up in the row and on the entity afterwards.
+        /// </summary>
+        [TestMethod]
+        public void Insert_and_update_chunk_the_large_columns_of_a_positional_record()
+        {
+            var db = new OrmDbContext();
+            db.TransactionWithRollback(() =>
+            {
+                var content = Bytes(2500);
+                var body = Text(1200);
+                var document = new PositionalDocument(0, "Streamed_Positional", content, body) { RecordState = RecordState.Added };
+                var progress = new List<string>();
+
+                db.SaveWithProgress(document, p => progress.Add(Describe(p)), chunkSizeBytes: 1000);
+
+                Assert.IsTrue(document.DocumentId > 0, "The identity comes back into the positional property.");
+                Assert.AreEqual(6, progress.Count);
+                var row = ReadRow(db, document.DocumentId);
+                CollectionAssert.AreEqual(content, (byte[])row["Content"]);
+                Assert.AreEqual(body, row["Body"]);
+                Assert.AreSame(content, document.Content, "The member is restored to the caller's value after the swap.");
+                Assert.AreSame(body, document.Body);
+
+                var newContent = Bytes(2100, seed: 5);
+                var changed = document with { Content = newContent, RecordState = RecordState.Updated };
+                db.SaveWithProgress(changed, null, chunkSizeBytes: 1000);
+
+                CollectionAssert.AreEqual(newContent, (byte[])ReadRow(db, document.DocumentId)["Content"]);
+                Assert.AreSame(newContent, changed.Content);
             });
         }
 
