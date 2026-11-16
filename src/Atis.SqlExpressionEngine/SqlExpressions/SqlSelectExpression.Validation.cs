@@ -56,16 +56,23 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         }
 
         /// <summary>
-        ///     Stops an operation that is given an expression built before this query was wrapped.
-        ///     Such an expression still points at an alias the query retired, so using it would produce SQL that
-        ///     refers to a data source that no longer exists. This runs at the start of every operation that takes
-        ///     an expression, before that operation's own wrap. It is always on: it only does work after the query
-        ///     has been wrapped once, and only one walk per expression.
+        ///     Every wrap this query did, oldest first. Used to bring an expression that was built before a wrap up to date.
         /// </summary>
-        private void ThrowIfStale(string operationName, string argumentName, SqlExpression expression)
+        private readonly List<WrapResult> wrapHistory = new List<WrapResult>();
+
+        /// <summary>
+        ///     An operation can be given an expression that was built before this query was wrapped, for example a
+        ///     predicate converted before a later part of the same lambda caused the wrap. It still points at an alias
+        ///     the query retired. This re-points it by replaying the wraps the query did, oldest first, and returns
+        ///     the up-to-date expression. If an alias is still retired after that, the expression cannot be fixed and
+        ///     this throws, because using it would produce SQL that refers to a data source that no longer exists.
+        ///     It runs at the start of every operation that takes an expression, before that operation's own wrap.
+        ///     It is always on: it only does work after the query has been wrapped once, and one walk per expression.
+        /// </summary>
+        private SqlExpression RepointStale(string operationName, string argumentName, SqlExpression expression)
         {
             if (expression is null || this.retiredAliases.Count == 0)
-                return;
+                return expression;
 
             List<Guid> stale;
             try
@@ -77,16 +84,29 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                 // This is a safety net, not a gate: if the walk cannot handle some node type, let the operation run.
                 if (SqlSelectExpressionDiagnostics.Mode != SelectValidationMode.Off)
                     SqlSelectExpressionDiagnostics.Report("CheckerError", $"{operationName}: the {argumentName} expression could not be checked for stale aliases ({ex.GetType().Name}: {ex.Message}).");
-                return;
+                return expression;
             }
 
             if (stale.Count == 0)
-                return;
+                return expression;
+
+            var staleAliasesBefore = string.Join(", ", stale.Select(x => DebugAliasGenerator.GetAlias(x)));
+            foreach (var wrapResult in this.wrapHistory)
+            {
+                expression = wrapResult.Rewrite(expression);
+                stale = FreeAliasFinder.Find(expression, this.retiredAliases).ToList();
+                if (stale.Count == 0)
+                {
+                    if (SqlSelectExpressionDiagnostics.Mode != SelectValidationMode.Off)
+                        SqlSelectExpressionDiagnostics.Report("StaleRepointed", $"{operationName}: the {argumentName} expression pointed at retired alias(es) {staleAliasesBefore} and was re-pointed to the wrapped query.");
+                    return expression;
+                }
+            }
 
             var aliases = string.Join(", ", stale.Select(x => DebugAliasGenerator.GetAlias(x)));
             throw new InvalidOperationException(
                 $"{operationName}: the {argumentName} expression points at data source alias(es) {aliases} that this query " +
-                $"retired when it was wrapped. The expression was built before the wrap and was not re-pointed to the new outer query. " +
+                $"retired when it was wrapped. The expression was built before the wrap and could not be re-pointed to the new outer query. " +
                 $"Call {nameof(WrapIfRequired)} first, build the expression after it, or use {nameof(WrapResult)}.{nameof(WrapResult.Rewrite)} " +
                 $"on expressions you already hold.");
         }

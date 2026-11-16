@@ -234,7 +234,8 @@ Work on a separate git branch. Every step keeps all tests green and is committed
    alias lookup. Remove unused members and the virtuals.
 6. **Conversion.** Move `ToDerivedTable` and `FromDerivedTable` into the select query. The
    factory forwards.
-7. **Shape back-reference.** Replace it with the narrow interface.
+7. **Shape back-reference.** The shape resolver stops changing the query. It only reads. The change is made
+   by the member converter, through one named method on the query (`TryJoinSubQueryMember`).
 8. **Split.** Move the wrap rules, the join bookkeeping and the state into internal classes
    only if the class is still hard to read after steps 1 to 7.
 
@@ -395,6 +396,46 @@ Done. No change to the SQL any test produces. The solution builds, 962 tests pas
   CTE definitions moved to the top, so this should do nothing; no test shows otherwise.
 - Tests: 6 new `DerivedTableConversionTests`. Check that the direct path is covered by the old suite: leaving
   the alias remapping of the filter out of `FromDerivedTable` makes 18 existing tests fail.
+
+### Step 7 result (2026-11-16)
+
+Done. No change to the SQL any test produces. The solution builds, 974 tests pass (1 ignored).
+
+The first idea was a small interface (`INavigationJoinHost`) that the resolver would use to change the query.
+It was dropped: an interface for two methods only hides that a *read* changes the query. The shipped design
+removes the change from the read instead.
+
+- `SqlQueryShapeFieldResolverExpression.TryResolveMember` no longer changes the query. A member that holds a
+  sub-query (a LINQ `let` keeps one in the shape) comes back as it is, as a `SqlDerivedTableExpression`.
+  The resolver still knows its owner query (`SelectQuery`), so a caller can tell which query the shape belongs to.
+  This matters for a nested lambda: `e.Skills.Where(s => ... e.Latest.Y)` must join the outer query, and the
+  converter stack alone cannot say that.
+- New public method on the query: `TryJoinSubQueryMember(shapeOwner, memberName, subQuery, out joinedShape)`.
+  It returns `false` and changes nothing once a projection is applied (a selected sub-query stays a sub-query).
+  Otherwise it takes the member out of the shape and adds the sub-query as an OUTER APPLY, through
+  `AddNavigationJoin`. If the join needs a wrap (for example after `Take`), the join source is re-pointed to the
+  new outer alias by the same path every other join uses.
+- `MemberExpressionConverter` calls it (`JoinIfSubQuery`) at both places that read a member: on a query shape,
+  and on the temporary query it builds over a derived table. This is now the one place a read of a member is
+  followed by a change to the query, and the change has a name.
+- Parameters are mapped with a `Func` that is called each time a lambda parameter is converted
+  (`LambdaParameterToDataSourceMapper.GetDataSourceByParameterExpression`). So after the wrap, the next `t` in the
+  same lambda is read from the new shape and the new alias.
+- Tests: 9 new `LazySubQueryJoinTests` pin the SQL of the lazy path (`let` then `where`, `select`, `orderby`; `where`
+  before `let`; two lets; an unused `let`; the sub-query read from an inner lambda; `Take(5)` then `let` then
+  `where`). Before this step no test went through the join branch.
+- **Expressions converted before the wrap.** `from e in employees.Take(5) let d = ... where e.Name == "x" && d.Degree == "PhD"`
+  converts `e.Name` first. Reading `d.Degree` then wraps the query, and `e.Name`, already converted, holds the old
+  alias (`a_1.Name`). It is a finished child in the converter stack, so the in-flight list cannot reach it.
+  This is fixed where the expression enters the query: `RepointStale` (replaces `ThrowIfStale`).
+  The query keeps every `WrapResult` it made (`wrapHistory`). When an operation (`ApplyWhere`, `ApplyOrderBy`,
+  `ApplyProjection`, `ApplyGroupBy`, `ApplyHaving`, the join methods, `UpdateModelBinding`, `ConvertToRecursiveQuery`)
+  is given an expression that still points at a retired alias, it replays the wraps, oldest first, until no retired
+  alias is left, and uses the result. If a retired alias is still there after all wraps (for example a column the
+  wrap never carried into the sub-query), it throws, as before. A retired alias can only belong to this query,
+  because aliases are GUIDs, so the rewrite cannot touch another query's expression.
+  Each re-point is logged (`StaleRepointed`) by the test-only diagnostics, so a converter that relies on it can
+  still be found. The suite shows only the tests written for it.
 
 Order matters. Steps 2 to 4 fix the bug class. Steps 5 to 8 are cleanup and can stop early.
 
