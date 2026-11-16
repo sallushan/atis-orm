@@ -20,25 +20,31 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         public override SqlExpressionType NodeType => SqlExpressionType.Select;
 
         private readonly List<AliasedDataSource> dataSources = new List<AliasedDataSource>();
-        public IReadOnlyCollection<AliasedDataSource> DataSources => dataSources;
+        internal IReadOnlyCollection<AliasedDataSource> DataSources => dataSources;
         private readonly List<CteDataSource> cteDataSources = new List<CteDataSource>();
-        public IReadOnlyCollection<CteDataSource> CteDataSources => cteDataSources;
+        internal IReadOnlyCollection<CteDataSource> CteDataSources => cteDataSources;
         private readonly List<SelectColumn> selectList = new List<SelectColumn>();
-        public IReadOnlyList<SelectColumn> SelectList => selectList;
+        internal IReadOnlyList<SelectColumn> SelectList => selectList;
         private readonly List<FilterCondition> whereClause = new List<FilterCondition>();
-        public IReadOnlyCollection<FilterCondition> WhereClause => whereClause;
-        public SqlExpression GroupByClause { get; protected set; }
+        internal IReadOnlyCollection<FilterCondition> WhereClause => whereClause;
+        /// <summary>
+        ///     The grouping expression of this query (the group key), or null if the query is not grouped.
+        /// </summary>
+        public SqlExpression GroupByClause { get; private set; }
         private readonly List<FilterCondition> havingClause = new List<FilterCondition>();
-        public IReadOnlyCollection<FilterCondition> HavingClause => havingClause;
+        internal IReadOnlyCollection<FilterCondition> HavingClause => havingClause;
         private readonly List<OrderByColumn> orderByClause = new List<OrderByColumn>();
-        public IReadOnlyCollection<OrderByColumn> OrderByClause => orderByClause;
-        public int? Top { get; set; }
-        public bool IsDistinct { get; set; }
-        public int? RowOffset { get; set; }
-        public int? RowsPerPage { get; set; }
-        public bool AutoProjection { get; private set; }
+        internal IReadOnlyCollection<OrderByColumn> OrderByClause => orderByClause;
+        internal int? Top { get; private set; }
+        internal bool IsDistinct { get; private set; }
+        internal int? RowOffset { get; private set; }
+        internal int? RowsPerPage { get; private set; }
+        internal bool AutoProjection { get; private set; }
+        /// <summary>
+        ///     The name of the navigation this query was reached through, if any.
+        /// </summary>
         public string Tag { get; set; }
-        public ISqlExpressionFactory SqlFactory { get; }
+        private ISqlExpressionFactory SqlFactory { get; }
         // QueryShape property cannot be other than SqlExpression because
         //      db.Table1.GroupBy(x => x.Field1).Select(x => x.Key).Select(g => g + 1)
         // In above case `g` parameter must be resolved to a SqlDataSourceColumnExpression not anything else.
@@ -49,7 +55,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         // In above example, `o` in the NewExpression must NOT be resolved as SqlDataSourceColumnExpression, so in
         // these specific cases during the LambdaExpression Parameter mapping we will NOT map the QuerySource
         // property with ParameterExpression, rather we will create another expression on the fly to map.
-        protected SqlExpression QueryShape { get; set; }
+        private SqlExpression QueryShape { get; set; }
 
         private SqlSelectExpression(IEnumerable<CteDataSource> cteDataSources, IEnumerable<AliasedDataSource> dataSources, IEnumerable<SelectColumn> selectList, IEnumerable<FilterCondition> whereClause, SqlExpression groupByClause, IEnumerable<FilterCondition> havingClause, IEnumerable<OrderByColumn> orderByClause, int? top, bool isDistinct, int? rowOffset, int? rowsPerPage, bool autoProjection, string tag, SqlExpression queryShape, ISqlExpressionFactory sqlFactory)
         {
@@ -94,6 +100,41 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         public SqlSelectExpression CreateCopy()
         {
             return SqlSelectExpressionCopyMaker.CreateCopy(this);
+        }
+
+        /// <summary>
+        ///     The alias of the data source this query selects from (the first one, before any join).
+        /// </summary>
+        public Guid FromDataSourceAlias => this.dataSources.First().Alias;
+
+        /// <summary>
+        ///     Returns true if this query is nothing but one mapped table: no CTE, projection, filter, grouping,
+        ///     ordering, paging, distinct or join. Used by operations that need a bare table, such as Insert.
+        /// </summary>
+        public bool TryGetUncomposedTable(out SqlTableExpression table, out Guid dataSourceAlias)
+        {
+            table = null;
+            dataSourceAlias = Guid.Empty;
+
+            if (this.dataSources.Count != 1 || !(this.dataSources[0].QuerySource is SqlTableExpression singleTable))
+                return false;
+
+            var isUncomposed = this.cteDataSources.Count == 0
+                && this.selectList.Count == 0
+                && this.whereClause.Count == 0
+                && this.GroupByClause is null
+                && this.havingClause.Count == 0
+                && this.orderByClause.Count == 0
+                && this.Top is null
+                && !this.IsDistinct
+                && this.RowOffset is null
+                && this.RowsPerPage is null;
+            if (!isUncomposed)
+                return false;
+
+            table = singleTable;
+            dataSourceAlias = this.dataSources[0].Alias;
+            return true;
         }
 
         public void RemoveGrouping()
@@ -609,15 +650,6 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             this.AssertValidIfOutermost(nameof(UpdateJoin));
         }
 
-        public void UpdateJoinType(Guid joinDataSourceAlias, SqlJoinType joinType)
-        {
-            var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
-            if (dataSource is JoinDataSource joinDataSource)
-                this.dataSources[indexOfDataSource] = new JoinDataSource(joinType, joinDataSource.QuerySource, joinDataSourceAlias, joinCondition: joinDataSource.JoinCondition, joinName: joinDataSource.JoinName, isNavigationJoin: joinDataSource.IsNavigationJoin);
-            else
-                throw new InvalidOperationException($"Join data source with alias {joinDataSourceAlias} is not a join data source.");
-        }
-
         public void UpdateJoinCondition(Guid joinDataSourceAlias, SqlExpression joinCondition)
         {
             this.ThrowIfStale(nameof(UpdateJoinCondition), "join condition", joinCondition);
@@ -627,15 +659,6 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                 this.dataSources[indexOfDataSource] = new JoinDataSource(joinDataSource.JoinType, joinDataSource.QuerySource, joinDataSource.Alias, joinCondition: joinCondition, joinName: joinDataSource.JoinName, isNavigationJoin: joinDataSource.IsNavigationJoin);
                 this.AssertValidIfOutermost(nameof(UpdateJoinCondition));
             }
-            else
-                throw new InvalidOperationException($"Join data source with alias {joinDataSourceAlias} is not a join data source.");
-        }
-
-        public void UpdateJoinName(Guid joinDataSourceAlias, string joinName)
-        {
-            var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
-            if (dataSource is JoinDataSource joinDataSource)
-                this.dataSources[indexOfDataSource] = new JoinDataSource(joinDataSource.JoinType, joinDataSource.QuerySource, joinDataSource.Alias, joinCondition: joinDataSource.JoinCondition, joinName: joinName, isNavigationJoin: joinDataSource.IsNavigationJoin);
             else
                 throw new InvalidOperationException($"Join data source with alias {joinDataSourceAlias} is not a join data source.");
         }
@@ -669,7 +692,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return wrapResult;
         }
 
-        protected SqlExpression[] WrapIfRequired(SqlQueryOperation newOperation, SqlExpression[] sqlExpressions)
+        private SqlExpression[] WrapIfRequired(SqlQueryOperation newOperation, SqlExpression[] sqlExpressions)
         {
             this.WrapIfRequiredCore(newOperation, ref sqlExpressions);
             return sqlExpressions;
@@ -721,7 +744,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        protected virtual WrapResult WrapQuery()
+        private WrapResult WrapQuery()
         {
             this.ApplyAutoProjectionIfPossible(applyAll: false);
 
@@ -775,7 +798,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return wrapResult;
         }
 
-        protected void OnAfterApply(SqlQueryOperation operationApplied)
+        private void OnAfterApply(SqlQueryOperation operationApplied)
         {
             // Since navigation is added to the query and the binding remains in the modelBinding,
             // which causes problem in next apply, for example, Navigation is used in Where
@@ -789,18 +812,18 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        public virtual bool HasJoinApplied => this.dataSources.Where(x => x is JoinDataSource).Any();
-        public virtual bool HasProjectionApplied => this.selectList.Count > 0;
-        public virtual bool HasWhereApplied => this.whereClause.Count > 0;
-        public virtual bool HasGroupByApplied => this.GroupByClause != null;
-        public virtual bool HasHavingApplied => this.havingClause.Count > 0;
-        public virtual bool HasOrderByApplied => this.orderByClause.Count > 0;
-        public virtual bool HasTopApplied => this.Top.HasValue;
-        public virtual bool HasDistinctApplied => this.IsDistinct;
-        public virtual bool HasRowOffsetApplied => this.RowOffset.HasValue;
-        public virtual bool HasRowsPerPageApplied => this.RowsPerPage.HasValue;
+        private bool HasJoinApplied => this.dataSources.Where(x => x is JoinDataSource).Any();
+        internal bool HasProjectionApplied => this.selectList.Count > 0;
+        private bool HasWhereApplied => this.whereClause.Count > 0;
+        private bool HasGroupByApplied => this.GroupByClause != null;
+        private bool HasHavingApplied => this.havingClause.Count > 0;
+        private bool HasOrderByApplied => this.orderByClause.Count > 0;
+        private bool HasTopApplied => this.Top.HasValue;
+        private bool HasDistinctApplied => this.IsDistinct;
+        private bool HasRowOffsetApplied => this.RowOffset.HasValue;
+        private bool HasRowsPerPageApplied => this.RowsPerPage.HasValue;
 
-        protected virtual bool IsWrapRequired(SqlQueryOperation newOperation)
+        private bool IsWrapRequired(SqlQueryOperation newOperation)
         {
             var performWrap = false;
             switch (newOperation)
@@ -840,7 +863,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return performWrap;
         }
 
-        protected virtual void Initialize()
+        private void Initialize()
         {
             this.RetireDataSources();
             this.dataSources.Clear();

@@ -54,7 +54,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             }
             else
             {
-                dataSourceToUpdate = this.sourceQuery.DataSources.First().Alias;
+                dataSourceToUpdate = this.sourceQuery.FromDataSourceAlias;
             }
 
             var predicate = convertedChildren[this.WherePredicateArgumentIndex];

@@ -341,6 +341,33 @@ Done. No change to the SQL any test produces.
   candidate for step 5 (fewer calls from converters) and needs one more look at lambda-parameter
   mapping before it is removed.
 
+### Step 5 result (2026-11-16)
+
+Done. No change to the SQL any test produces. The solution builds and 956 tests pass (1 ignored).
+
+Public surface of `SqlSelectExpression` now:
+
+- **Hidden** (`internal`, with private setters): `DataSources`, `CteDataSources`, `SelectList`,
+  `WhereClause`, `HavingClause`, `OrderByClause`, `Top`, `IsDistinct`, `RowOffset`, `RowsPerPage`,
+  `AutoProjection`, `HasProjectionApplied`. The other `Has*Applied` and `SqlFactory` and `QueryShape`
+  are `private`. `IsWrapRequired`, `WrapQuery`, `Initialize`, `OnAfterApply` and the expression
+  overload of `WrapIfRequired` are `private` and no longer `virtual` or `protected`.
+- **Deleted** (no callers): `UpdateJoinType`, `UpdateJoinName`.
+- **Kept public on purpose:** `GroupByClause` (read-only; GroupByKey and the group-by copy path need
+  the group key, which is real information about the query) and `Tag` (get and set).
+- **Added** to replace direct reads of the state:
+  - `FromDataSourceAlias` replaces `DataSources.First().Alias` (DataManipulation converters and
+    `ChildQueryExtractor`, 3 places).
+  - `TryGetUncomposedTable(out table, out alias)` replaces Insert's ten-field `ValidateDestination`.
+- The factory still reads the hidden state directly (same assembly) until step 6 moves the conversion
+  into `SqlSelectExpression`.
+- Not done: removing the early `WrapIfRequired(Join)` call from `JoinQueryMethodExpressionConverter`.
+  It looked redundant (removing it broke no test), but the apply and left-join branches map a lambda
+  parameter before `AddJoin` runs, and no test covers those after a `Select`. It stays until a test
+  covers that case.
+- Breaking change for outside code: anything outside this assembly that read those properties, or
+  overrode the old `protected virtual` members, no longer compiles. Nothing in this repository does.
+
 Order matters. Steps 2 to 4 fix the bug class. Steps 5 to 8 are cleanup and can stop early.
 
 ## 12. Risks

@@ -61,43 +61,21 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
 
         protected override SqlExpression Convert(SqlSelectExpression sqlQuery, SqlExpression[] arguments)
         {
-            ValidateDestination(sqlQuery);
-
-            var dataSource = sqlQuery.DataSources.Single();
-            var table = dataSource.QuerySource.CastTo<SqlTableExpression>(
-                "The insert destination must resolve to a mapped table.");
+            if (!sqlQuery.TryGetUncomposedTable(out var table, out var destinationAlias))
+            {
+                throw new InvalidOperationException(
+                    $"{nameof(QueryExtensions.Insert)} requires an uncomposed query for exactly one mapped table. Use {nameof(QueryExtensions.BulkInsert)} for insert-select operations.");
+            }
             var insertFields = arguments[0] as SqlMemberInitExpression
                 ?? throw new InvalidOperationException(
                     $"Argument 1 of {nameof(QueryExtensions.Insert)} must be a member-init expression, for example '() => new T {{ Property = value }}'.");
 
             MemberInitColumnFlattener.Flatten(table, insertFields, this.SqlFactory.CreateLiteral, out var columns, out var values);
             var outputs = this.HasOutputs
-                ? this.CreateOutputs(arguments[1], dataSource.Alias)
+                ? this.CreateOutputs(arguments[1], destinationAlias)
                 : null;
 
             return this.SqlFactory.CreateInsert(table.SqlTable, columns, values, outputs);
-        }
-
-        private static void ValidateDestination(SqlSelectExpression sqlQuery)
-        {
-            var isPlainTable = sqlQuery.DataSources.Count == 1
-                && sqlQuery.DataSources.Single().QuerySource is SqlTableExpression
-                && sqlQuery.CteDataSources.Count == 0
-                && sqlQuery.SelectList.Count == 0
-                && sqlQuery.WhereClause.Count == 0
-                && sqlQuery.GroupByClause is null
-                && sqlQuery.HavingClause.Count == 0
-                && sqlQuery.OrderByClause.Count == 0
-                && sqlQuery.Top is null
-                && !sqlQuery.IsDistinct
-                && sqlQuery.RowOffset is null
-                && sqlQuery.RowsPerPage is null;
-
-            if (!isPlainTable)
-            {
-                throw new InvalidOperationException(
-                    $"{nameof(QueryExtensions.Insert)} requires an uncomposed query for exactly one mapped table. Use {nameof(QueryExtensions.BulkInsert)} for insert-select operations.");
-            }
         }
 
         private IReadOnlyList<SelectColumn> CreateOutputs(SqlExpression convertedOutputFields, Guid destinationAlias)
