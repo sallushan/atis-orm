@@ -30,7 +30,7 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return sb.ToString();
         }
 
-        protected override SqlExpression VisitSqlMemberInit(SqlMemberInitExpression node)
+        protected internal override SqlExpression VisitSqlMemberInit(SqlMemberInitExpression node)
         {
             AppendLine($"SqlMemberInitExpression: (Bindings:{node.Bindings.Count}, IsScalar:{node.IsScalar}, NodeType:{node.NodeType})");
             currentIdentLevel++;
@@ -46,14 +46,14 @@ namespace Atis.SqlExpressionEngine.UnitTest
             return node;
         }
 
-        protected override SqlExpression VisitSqlDataSourceColumn(SqlDataSourceColumnExpression node)
+        protected internal override SqlExpression VisitSqlDataSourceColumn(SqlDataSourceColumnExpression node)
         {
             var matchedProjection = projectedColumns.FirstOrDefault(c => c.ColumnExpression == node);
             AppendLine($"SqlDataSourceColumnExpression: (DataSourceAlias:{node.DataSourceAlias}, ColumnName:{node.ColumnName}, ProjectedAlias:{matchedProjection?.Alias})");
             return node;
         }
 
-        protected override SqlExpression VisitDataSourceQueryShape(SqlDataSourceQueryShapeExpression node)
+        protected internal override SqlExpression VisitDataSourceQueryShape(SqlDataSourceQueryShapeExpression node)
         {
             AppendLine($"SqlDataSourceQueryShapeExpression: (DataSource:{node.DataSourceAlias}, IsScalar:{node.IsScalar}, NodeType:{node.NodeType}, ShapeExpression:{node.ShapeExpression.GetType().Name})");
             currentIdentLevel++;
