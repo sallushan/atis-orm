@@ -162,6 +162,14 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             if (this.selectList.Count > 0)
                 throw new InvalidOperationException("Select list already has been defined.");
 
+            // Converting a sub-query to an apply adds a join, and that join can wrap this query (for example
+            // when a Where is already applied). The wrap must happen HERE, while we still hold the projection,
+            // so the projection is re-pointed to the new outer query. If the wrap happened inside AddJoin,
+            // the projection would keep the old alias of the inner query.
+            var operationForApply = this.GetOperationForProjectedApply(projection);
+            if (operationForApply.HasValue)
+                projection = this.WrapIfRequiredSingle(operationForApply.Value, projection);
+
             projection = this.ConvertDerivedTableToOuterApplyInProjection(projection, memberName: null);
 
             this.QueryShape = projection;
@@ -246,6 +254,31 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
             else
                 return projection;
+        }
+
+        /// <summary>
+        ///     Finds the sub-queries in the projection that <see cref="ConvertDerivedTableToOuterApplyInProjection"/>
+        ///     will add as joins, and returns the operation that join will be added with (the same rule
+        ///     <see cref="AddDataSourceWithJoinResolution"/> uses). Returns null if there is no such sub-query.
+        /// </summary>
+        private SqlQueryOperation? GetOperationForProjectedApply(SqlExpression projection)
+        {
+            if (projection is SqlMemberInitExpression memberInit)
+            {
+                SqlQueryOperation? result = null;
+                foreach (var binding in memberInit.Bindings)
+                {
+                    var op = this.GetOperationForProjectedApply(binding.SqlExpression);
+                    // Join wraps in more cases than NavigationJoin, so it wins.
+                    if (op == SqlQueryOperation.Join)
+                        return op;
+                    result = result ?? op;
+                }
+                return result;
+            }
+            if (projection is SqlDerivedTableExpression derivedTable && this.ShouldSubQueryBeProjectedAsJoin(derivedTable))
+                return string.IsNullOrWhiteSpace(derivedTable.Tag) ? SqlQueryOperation.Join : SqlQueryOperation.NavigationJoin;
+            return null;
         }
 
         private bool ShouldSubQueryBeProjectedAsJoin(SqlDerivedTableExpression derivedTable)
