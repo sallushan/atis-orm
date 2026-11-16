@@ -284,6 +284,33 @@ Done. No change to the SQL any test produces.
 - Tests: 5 new `WrapResultTests` (not wrapped, wrapped, rewrite inside a bigger expression,
   use after the query changed again, `RewriteAll` leaves its input alone). 946 tests pass.
 
+### Step 3 result (2026-11-16)
+
+Done. No change to the SQL any test produces.
+
+- The 2026-11-16 workaround (`GetOperationForProjectedApply` and the early wrap in
+  `ApplyProjection`) is deleted. There is no prediction any more.
+- `ApplyProjection` puts the projection in a private `InFlight` holder (`this[i]`, `Set`,
+  `Apply(WrapResult)`) and passes it down: `AddProjectedApplies` -> `AddDataSourceWithJoinResolutionCore`
+  -> `AddJoinedSource` -> `WrapIfRequiredCore` (and the CTE wrap path). Every wrap inside that
+  call chain re-points everything in the holder right after the wrap. This is section 6.2's
+  funnel, implemented as an optional `InFlight` parameter instead of a separate `Prepare` method.
+  The public `AddDataSourceWithJoinResolution` is now a one-line forward with `inFlight: null`.
+- `AddProjectedApplies` finds each sub-query by its member path (re-pointing builds new nodes,
+  so instances cannot be kept), handles each one once, and never searches what replaced it.
+  This keeps the old behaviour and guarantees the loop ends.
+- Proof that the shared holder is what protects the projection: with the holder not passed to
+  the join, all four projected-apply tests fail on the retired-alias check right after
+  `ApplyProjection`.
+- Tests added to `ProjectedApplyAfterWhereTests`: two applies in one projection, an apply inside a
+  nested `new { }`, and (ignored, see below) an `OrderBy` before the `Select`.
+- Found, not fixed, not caused by this step: when the parent has an `OrderBy` and the apply wraps
+  it, `WrapQuery` keeps the ORDER BY inside the derived table without TOP, which SQL Server
+  rejects, and the ordering is lost. It fails the same way on the commit before this step.
+  The test is `[Ignore]`d with that reason. It needs its own decision (ORDER BY should move to
+  the outer query, or the wrap should be avoided).
+- Results: solution builds, 948 pass, 1 ignored, wrap counter and self-check log still empty.
+
 Order matters. Steps 2 to 4 fix the bug class. Steps 5 to 8 are cleanup and can stop early.
 
 ## 12. Risks
