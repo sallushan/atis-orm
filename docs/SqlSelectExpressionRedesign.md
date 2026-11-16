@@ -368,6 +368,34 @@ Public surface of `SqlSelectExpression` now:
 - Breaking change for outside code: anything outside this assembly that read those properties, or
   overrode the old `protected virtual` members, no longer compiles. Nothing in this repository does.
 
+### Step 6 result (2026-11-16)
+
+Done. No change to the SQL any test produces. The solution builds, 962 tests pass (1 ignored).
+
+- New file `SqlSelectExpression.DerivedTable.cs`. The query now builds its derived table:
+  `ToDerivedTable()`, `ToUnwrappableDerivedTable()`, `ToDataManipulationDerivedTable()` (public). The code
+  moved over from `SqlExpressionFactory` unchanged, together with its two helpers
+  (`FlattenSqlExpressions`, `CreateCopyOfQueryShape`). The derived table still knows nothing about the query.
+- `SqlSelectExpression.FromDerivedTable(derivedTable, factory)` (public, static) is the reverse. It sets the
+  state directly. The old code replayed the derived table through `AddJoin`, `UpdateJoin`, `ApplyWhere`,
+  `ApplyHaving`, `ApplyOrderBy`, `ApplyProjection`, `ApplyRowOffset`, `ApplyRowsPerPage` and `ApplyTop`,
+  and each of those could wrap or re-point. Reading the code showed that most of the replay was dead:
+  `IsDerivedTableUnwrappable` only lets a derived table through if it has auto projection and no grouping,
+  having, order by, distinct, top, row offset or rows per page. So only the source, the (navigation) joins,
+  the filter and the query shape are carried over, with new aliases for every data source.
+- `SqlExpressionFactory` keeps all its methods as one-line forwards (`ConvertSelectQueryToDeriveTable`,
+  `ConvertSelectQueryToUnwrappableDeriveTable`, `ConvertSelectQueryToDataManipulationDerivedTable`, and the
+  still-overridable `CreateUnwrappedSelectQueryFromDerivedTable`). It lost about 240 lines.
+  `SqlSelectExpression` still calls `this.SqlFactory.ConvertSelectQueryToDeriveTable(this)` when it wraps,
+  so a custom factory is still asked.
+- The self-checks now also run at the start of `ToDerivedTable` (state left by the last operation) and at the
+  end of `FromDerivedTable` (state it built).
+- What the direct path no longer does: it does not run the CTE analysis that `AddJoin` and `ApplyWhere` ran on
+  the join sources and predicates during the replay. A derived table that comes from a query already has its
+  CTE definitions moved to the top, so this should do nothing; no test shows otherwise.
+- Tests: 6 new `DerivedTableConversionTests`. Check that the direct path is covered by the old suite: leaving
+  the alias remapping of the filter out of `FromDerivedTable` makes 18 existing tests fail.
+
 Order matters. Steps 2 to 4 fix the bug class. Steps 5 to 8 are cleanup and can stop early.
 
 ## 12. Risks
