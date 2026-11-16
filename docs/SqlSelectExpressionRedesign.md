@@ -264,6 +264,26 @@ Done on branch `refactor/select-expression-invariants`. No behaviour change.
   `off`, `record` or `throw`. In `record` mode the log goes to `select-invariants.txt` next to
   the test assembly.
 
+### Step 2 result (2026-11-16)
+
+Done. No change to the SQL any test produces.
+
+- New public type `WrapResult` (`Wrapped`, `Rewrite(expression)`, `RewriteAll(expressions)`,
+  `WrapResult.NotWrapped`). It captures the old query's select list and the new outer data
+  source at the moment of the wrap, so it can be used later. `RewriteAll` returns a new array
+  and leaves its input alone (the old method changed the array in place).
+- `WrapIfRequired(operation)` is public and returns a `WrapResult` (it used to return nothing).
+  The two existing callers (Join, NavigationJoinCall) ignore it for now.
+- `ReplaceDataSourceAccessing` and `ReplaceDataSourceAccessingSingle` are deleted. A private
+  `CaptureWrap()` builds the result right after a wrap. Its "exactly one data source" check is
+  now an internal sanity check, not a rule callers must follow. `WrapQuery()` returns the result.
+- Found while doing this: `WrapQueryIfCteReferencesExist` is a second, hidden wrap path (it
+  turns the query into a CTE query and re-points the expressions). It already rewrote right
+  after its wrap, which is the behaviour section 6.2 asks for. The wrap counter now counts it
+  too. Over all tests there are still 0 operations that wrap more than once.
+- Tests: 5 new `WrapResultTests` (not wrapped, wrapped, rewrite inside a bigger expression,
+  use after the query changed again, `RewriteAll` leaves its input alone). 946 tests pass.
+
 Order matters. Steps 2 to 4 fix the bug class. Steps 5 to 8 are cleanup and can stop early.
 
 ## 12. Risks

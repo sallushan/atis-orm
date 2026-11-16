@@ -588,14 +588,31 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        public void WrapIfRequired(SqlQueryOperation newOperation)
+        /// <summary>
+        ///     Wraps this query into a sub-query if the given operation cannot be added to it as it is.
+        ///     Call this before you convert expressions against the query shape, because a wrap changes the
+        ///     aliases. The returned <see cref="WrapResult"/> re-points expressions you already hold.
+        /// </summary>
+        public WrapResult WrapIfRequired(SqlQueryOperation newOperation)
         {
             this.EnterOperation();
-            this.WrapIfRequired(newOperation, null);
+            SqlExpression[] noExpressions = null;
+            var wrapResult = this.WrapIfRequiredCore(newOperation, ref noExpressions);
             this.LeaveOperation(nameof(WrapIfRequired));
+            return wrapResult;
         }
 
         protected SqlExpression[] WrapIfRequired(SqlQueryOperation newOperation, SqlExpression[] sqlExpressions)
+        {
+            this.WrapIfRequiredCore(newOperation, ref sqlExpressions);
+            return sqlExpressions;
+        }
+
+        /// <summary>
+        ///     Wraps if required and re-points <paramref name="sqlExpressions"/> right after each wrap.
+        ///     When a CTE wrap and a normal wrap both happen, the expressions go through both, in order.
+        /// </summary>
+        private WrapResult WrapIfRequiredCore(SqlQueryOperation newOperation, ref SqlExpression[] sqlExpressions)
         {
             if (sqlExpressions?.Length > 0)
             {
@@ -608,15 +625,15 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             if (this.IsWrapRequired(newOperation))
             {
                 this.ThrowIfProjectionHasProjectedSubQuery(newOperation.ToString());
-                this.WrapQuery();
+                var wrapResult = this.WrapQuery();
 
                 if (sqlExpressions?.Length > 0)
-                {
-                    sqlExpressions = this.ReplaceDataSourceAccessing(sqlExpressions);
-                }
+                    sqlExpressions = wrapResult.RewriteAll(sqlExpressions);
+
+                return wrapResult;
             }
 
-            return sqlExpressions;
+            return WrapResult.NotWrapped;
         }
 
         /// <summary>
@@ -636,7 +653,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        protected virtual void WrapQuery()
+        protected virtual WrapResult WrapQuery()
         {
             this.ApplyAutoProjectionIfPossible(applyAll: false);
 
@@ -660,6 +677,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             
             var derivedTableDataSource = new AliasedDataSource(derivedTable, Guid.NewGuid());
             AddAliasedDataSource(derivedTableDataSource);
+            var wrapResult = this.CaptureWrap();
 
             this.QueryShape = this.CreateDataSourceQueryShape(derivedTableDataSource);
 
@@ -678,13 +696,15 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
                 foreach (var queryable in queryableSelectedInProjection)
                 {
-                    var updatedExpression = this.ReplaceDataSourceAccessingSingle(queryable.ColumnExpression);
+                    var updatedExpression = wrapResult.Rewrite(queryable.ColumnExpression);
                     memberInit.AddMemberAssignment(queryable.Alias, updatedExpression, projectable: true);
                 }
             }
 
             for (var i = 0; i < currentCteDataSources.Length; i++)
                 this.cteDataSources.Add(currentCteDataSources[i]);
+
+            return wrapResult;
         }
 
         protected void OnAfterApply(SqlQueryOperation operationApplied)
@@ -841,25 +861,19 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return dsQueryShape;
         }
 
-        private SqlExpression ReplaceDataSourceAccessingSingle(SqlExpression sqlExpression)
+        /// <summary>
+        ///     Call this right after this query has been wrapped (or turned into a CTE query). It remembers how the
+        ///     old query maps to the new outer data source, so the result can re-point expressions later.
+        /// </summary>
+        private WrapResult CaptureWrap()
         {
-            if (sqlExpression is null)
-                throw new ArgumentNullException(nameof(sqlExpression));
-            return this.ReplaceDataSourceAccessing(new[] { sqlExpression }).FirstOrDefault()
-                   ??
-                   throw new InvalidOperationException($"ReplaceDataSourceAccessing didn't return any result");
-        }
-
-        protected SqlExpression[] ReplaceDataSourceAccessing(SqlExpression[] sqlExpressions)
-        {
-            if (sqlExpressions is null)
-                throw new ArgumentNullException(nameof(sqlExpressions));
-
+            // Right after a wrap there is exactly one data source (plus the CTE sources, which are
+            // listed separately). More than that means something else changed the query first.
             if (this.dataSources.Count > 1)
             {
                 var cteDataSourceCount = this.cteDataSources.Count();
                 if (cteDataSourceCount + 1 != this.dataSources.Count)
-                    throw new InvalidOperationException($"This method should be called right after the wrapping is done, currently we are seeing more than 1 data sources which means some other operation has also been performed before calling this method.");
+                    throw new InvalidOperationException($"{nameof(CaptureWrap)} must be called right after the wrapping is done, currently we are seeing more than 1 data sources which means some other operation has also been performed before calling this method.");
             }
 
             var ds = this.dataSources.First();
@@ -884,12 +898,8 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             // Since SqlDerivedTableExpression has this condition that it's SelectList cannot be null / empty, therefore,
             // we are guaranteed that we will have at least 1 column in the derivedTable.
             // This query has been wrapped, so the actual query has been moved inside as derived table,
-            // so the select list expression should have same expressions as sqlExpression
-            for (var i = 0; i < sqlExpressions.Length; i++)
-            {
-                sqlExpressions[i] = SubQueryProjectionReplacementVisitor.FindAndReplace(derivedTableProjections, ds, sqlExpressions[i]);
-            }
-            return sqlExpressions;
+            // so the select list expression should have same expressions as the expressions that will be re-pointed.
+            return new WrapResult(derivedTableProjections, ds);
         }
 
         private SqlDataSourceQueryShapeExpression CreateDataSourceQueryShape(AliasedDataSource aliasedDataSource)
@@ -1046,16 +1056,18 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
                     var fromSource = new SqlCteReferenceExpression(Guid.NewGuid());
 
+                    this.wrapsInOperation++;
                     this.InitializeCteQuery(fromSource, thisQueryToDeriveTable);
+                    var cteWrapResult = this.CaptureWrap();
 
                     // it means local non-cte data source was used in the `sqlExpression`
-                    sqlExpressions = this.ReplaceDataSourceAccessing(sqlExpressions);
+                    sqlExpressions = cteWrapResult.RewriteAll(sqlExpressions);
                     for (var i = 0; i < extractedCteDataSources.Count; i++)
                     {
                         // IMPORTANT: below we are passing the extractedCteDataSources[i] instead of extractedCteDataSources[i].CteBody
                         // this is because the replacement system checks if it's inside a CTE data source that's when it puts adds the
                         // cross join otherwise not.
-                        var sqlAliasedCteDataSource = this.ReplaceDataSourceAccessingSingle(extractedCteDataSources[i] /*do NOT pass .CteBody*/) as SqlAliasedCteSourceExpression
+                        var sqlAliasedCteDataSource = cteWrapResult.Rewrite(extractedCteDataSources[i] /*do NOT pass .CteBody*/) as SqlAliasedCteSourceExpression
                                                     ??
                                                     throw new InvalidOperationException($"Expected expression type is '{nameof(SqlAliasedCteSourceExpression)}'.");
                         var querySourceUpdated = sqlAliasedCteDataSource.CteBody;
