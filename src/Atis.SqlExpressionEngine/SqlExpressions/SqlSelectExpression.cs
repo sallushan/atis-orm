@@ -117,6 +117,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (predicate is null)
                 throw new ArgumentNullException(nameof(predicate));
+            this.ThrowIfStale(nameof(ApplyWhere), "predicate", predicate);
 
             this.EnterOperation();
             predicate = this.WrapIfRequiredSingle(SqlQueryOperation.Where, predicate);
@@ -139,6 +140,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (predicate is null)
                 throw new ArgumentNullException(nameof(predicate));
+            this.ThrowIfStale(nameof(ApplyHaving), "predicate", predicate);
 
             this.EnterOperation();
             predicate = this.WrapIfRequiredSingle(SqlQueryOperation.Where, predicate);
@@ -151,6 +153,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (sqlExpression is null)
                 throw new ArgumentNullException(nameof(sqlExpression));
+            this.ThrowIfStale(nameof(ApplyGroupBy), "group by", sqlExpression);
 
             this.EnterOperation();
             sqlExpression = this.WrapIfRequiredSingle(SqlQueryOperation.GroupBy, sqlExpression);
@@ -163,6 +166,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (projection is null)
                 throw new ArgumentNullException(nameof(projection));
+            this.ThrowIfStale(nameof(ApplyProjection), "projection", projection);
 
             projection = this.WrapIfRequiredSingle(SqlQueryOperation.Select, projection);
 
@@ -362,6 +366,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (orderByExpression is null)
                 throw new ArgumentNullException(nameof(orderByExpression));
+            this.ThrowIfStale(nameof(ApplyOrderBy), "order by", orderByExpression);
 
             this.EnterOperation();
             orderByExpression = this.WrapIfRequiredSingle(SqlQueryOperation.OrderBy, orderByExpression);
@@ -559,6 +564,8 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         public void ConvertToRecursiveQuery(SqlDerivedTableExpression anchorDerivedTable, SqlDerivedTableExpression recursiveDerivedTable)
         {
+            this.ThrowIfStale(nameof(ConvertToRecursiveQuery), "anchor query", anchorDerivedTable);
+            this.ThrowIfStale(nameof(ConvertToRecursiveQuery), "recursive query", recursiveDerivedTable);
             var cteAlias = Guid.NewGuid();
             var cteReference = new SqlCteReferenceExpression(cteAlias);
             recursiveDerivedTable = SqlExpressionReplacementVisitor.Find(anchorDerivedTable).In(recursiveDerivedTable).ReplaceWith(cteReference) as SqlDerivedTableExpression
@@ -596,6 +603,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         public void UpdateJoin(Guid joinDataSourceAlias, SqlJoinType joinType, SqlExpression joinCondition, string joinName, bool navigationJoin)
         {
+            this.ThrowIfStale(nameof(UpdateJoin), "join condition", joinCondition);
             var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
             this.dataSources[indexOfDataSource] = new JoinDataSource(joinType, dataSource.QuerySource, joinDataSourceAlias, joinCondition: joinCondition, joinName: joinName, isNavigationJoin: navigationJoin);
             this.AssertValidIfOutermost(nameof(UpdateJoin));
@@ -612,6 +620,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         public void UpdateJoinCondition(Guid joinDataSourceAlias, SqlExpression joinCondition)
         {
+            this.ThrowIfStale(nameof(UpdateJoinCondition), "join condition", joinCondition);
             var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
             if (dataSource is JoinDataSource joinDataSource)
             {
@@ -854,6 +863,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (newQueryShape is null)
                 throw new ArgumentNullException(nameof(newQueryShape));
+            this.ThrowIfStale(nameof(UpdateModelBinding), "query shape", newQueryShape);
 
             // TODO: check if below will work, because we are NOT using QueryShapeComposer
             //var queryShape = this.QueryShape as SqlQueryShapeExpression
@@ -871,6 +881,8 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (querySource is null)
                 throw new ArgumentNullException(nameof(querySource));
+            this.ThrowIfStale(nameof(AddJoinedSource), "join source", querySource);
+            this.ThrowIfStale(nameof(AddJoinedSource), "join condition", joinCondition);
 
             // It is important that we pass `NavigationJoin` as the next operation instead of `Join` when `navigationName`
             // is provided. This handles cases where a "Where" clause is applied to the query, followed by a projection

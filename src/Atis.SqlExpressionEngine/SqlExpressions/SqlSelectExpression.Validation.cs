@@ -55,6 +55,42 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                 this.AssertValid(operationName);
         }
 
+        /// <summary>
+        ///     Stops an operation that is given an expression built before this query was wrapped.
+        ///     Such an expression still points at an alias the query retired, so using it would produce SQL that
+        ///     refers to a data source that no longer exists. This runs at the start of every operation that takes
+        ///     an expression, before that operation's own wrap. It is always on: it only does work after the query
+        ///     has been wrapped once, and only one walk per expression.
+        /// </summary>
+        private void ThrowIfStale(string operationName, string argumentName, SqlExpression expression)
+        {
+            if (expression is null || this.retiredAliases.Count == 0)
+                return;
+
+            List<Guid> stale;
+            try
+            {
+                stale = FreeAliasFinder.Find(expression, this.retiredAliases).ToList();
+            }
+            catch (Exception ex)
+            {
+                // This is a safety net, not a gate: if the walk cannot handle some node type, let the operation run.
+                if (SqlSelectExpressionDiagnostics.Mode != SelectValidationMode.Off)
+                    SqlSelectExpressionDiagnostics.Report("CheckerError", $"{operationName}: the {argumentName} expression could not be checked for stale aliases ({ex.GetType().Name}: {ex.Message}).");
+                return;
+            }
+
+            if (stale.Count == 0)
+                return;
+
+            var aliases = string.Join(", ", stale.Select(x => DebugAliasGenerator.GetAlias(x)));
+            throw new InvalidOperationException(
+                $"{operationName}: the {argumentName} expression points at data source alias(es) {aliases} that this query " +
+                $"retired when it was wrapped. The expression was built before the wrap and was not re-pointed to the new outer query. " +
+                $"Call {nameof(WrapIfRequired)} first, build the expression after it, or use {nameof(WrapResult)}.{nameof(WrapResult.Rewrite)} " +
+                $"on expressions you already hold.");
+        }
+
         private void RetireDataSources()
         {
             foreach (var dataSource in this.dataSources)

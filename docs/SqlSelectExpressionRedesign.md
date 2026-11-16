@@ -311,6 +311,36 @@ Done. No change to the SQL any test produces.
   the outer query, or the wrap should be avoided).
 - Results: solution builds, 948 pass, 1 ignored, wrap counter and self-check log still empty.
 
+### Step 4 result (2026-11-16)
+
+Done. No change to the SQL any test produces.
+
+- New private `ThrowIfStale(operation, argument, expression)` in `SqlSelectExpression.Validation.cs`.
+  It uses the same free-alias rule as the self-checks (an alias counts only if the expression uses
+  it without defining it, so a copy of the grouped source inside a sub-query is fine). It is **always
+  on** and only does work once the query has been wrapped (the retired set is empty before that).
+  It runs at the start of an operation, before that operation's own wrap.
+- It guards: `ApplyWhere`, `ApplyHaving`, `ApplyGroupBy`, `ApplyProjection`, `ApplyOrderBy`,
+  `AddJoinedSource` (so `AddJoin`, `AddNavigationJoin` and `AddDataSourceWithJoinResolution`: source and
+  join condition), `UpdateJoin`, `UpdateJoinCondition`, `UpdateModelBinding`, `ConvertToRecursiveQuery`.
+- The message names the operation and the argument, lists the retired alias, and says what to do:
+  call `WrapIfRequired` first, or use `WrapResult.Rewrite`.
+- It is a safety net, not a gate: if the walk cannot handle some node type, the operation runs
+  (and the failure is logged when the test-only self-checks are on).
+- What it does NOT cover: mistakes made inside the class itself (for example the old `ApplyProjection`
+  bug). The test-only `AssertValid` covers those. The two checks are complementary.
+- Tests: 8 new `StaleExpressionGuardTests` (stale predicate, projection, order by, query shape are
+  refused; a rewritten expression, an unrelated outer alias, and anything before the first wrap are
+  accepted; the guard works with the self-checks off). 956 pass, 1 ignored. No false positive in the
+  existing suite.
+- Experiment (production mode, self-checks off): removing the early `WrapIfRequired(NavigationJoin)`
+  from `NavigationJoinCallExpressionConverter` makes 6 tests fail loudly (one with the new message),
+  so forgetting it cannot give silent wrong SQL. Removing the early `WrapIfRequired(Join)` from
+  `JoinQueryMethodExpressionConverter` breaks **no** test: `AddJoinedSource` already wraps and
+  re-points its own arguments, so that early call looks redundant for the covered cases. That is a
+  candidate for step 5 (fewer calls from converters) and needs one more look at lambda-parameter
+  mapping before it is removed.
+
 Order matters. Steps 2 to 4 fix the bug class. Steps 5 to 8 are cleanup and can stop early.
 
 ## 12. Risks
