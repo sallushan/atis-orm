@@ -208,20 +208,11 @@ select	a_2.MaxV as Col1
                         .Where(x => x.SType == "345")
                         .Select(x => x.CountryID)
                         ;
-            string expectedResult = @"
-select	a_2.CountryID as Col1
-	from	(
-		select	a_1.CountryID as CountryID, a_1.StudentType as SType, Max(a_1.AdmissionDate) as MaxAdmDate
-		from	Student as a_1
-		where	(a_1.StudentId = '123')
-			and	(a_1.RecordCreateDate > '2020-01-01 00:00:00')
-		group by a_1.CountryID, a_1.StudentType
-		having	(Count(1) > 1)
-		order by CountryID asc
-	) as a_2
-	where	(a_2.SType = '345')
-";
-            Test("Complex Group By Test", q.Expression, expectedResult);
+            // The Select before the OrderBy makes it a projection, so the Where after the OrderBy wraps the query.
+            // An ORDER BY cannot stay inside that derived table without TOP, so the engine refuses it.
+            var ex = Assert.ThrowsException<NotSupportedException>(() => Test("Complex Group By Test", q.Expression, null));
+            StringAssert.Contains(ex.Message, "OrderBy");
+            StringAssert.Contains(ex.Message, "derived table");
         }
 
         [TestMethod]
@@ -422,19 +413,11 @@ select	a_2.MaxDate as Col1
                         .Where(x => x.SType == "345")
                         .Select(x => x.CountryID)
                         ;
-            string expectedResult = @"
-select	a_2.CountryID as Col1
-	from	(
-		select	a_1.CountryID as CountryID, a_1.StudentType as SType, Max(a_1.AdmissionDate) as MaxAdmDate
-		from	Student as a_1
-		where	(a_1.StudentId = '123') and (a_1.RecordCreateDate > '2020-01-01 00:00:00')
-		group by a_1.CountryID, a_1.StudentType
-		having	(Count(1) > 1)
-		order by CountryID asc
-	) as a_2
-	where	(a_2.SType = '345')
-";
-            Test("GroupBy with Having then Select OrderBy Where Select", q.Expression, expectedResult);
+            // The Select before the OrderBy makes it a projection, so the Where after the OrderBy wraps the query.
+            // An ORDER BY cannot stay inside that derived table without TOP, so the engine refuses it.
+            var ex = Assert.ThrowsException<NotSupportedException>(() => Test("GroupBy with Having then Select OrderBy Where Select", q.Expression, null));
+            StringAssert.Contains(ex.Message, "OrderBy");
+            StringAssert.Contains(ex.Message, "derived table");
         }
 
         [TestMethod]

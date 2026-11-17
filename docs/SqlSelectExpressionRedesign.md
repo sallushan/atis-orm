@@ -458,5 +458,13 @@ Decided on 2026-11-16:
 - `ConvertToRecursiveQuery` stays on `SqlSelectExpression`. It is close to the `Apply*`
   operations. If, when we reach it, it can be merged into the operation that calls it
   (RecursiveUnion), do that. Not decided; look at it when we get there.
+- **OrderBy before a wrap is refused, not rewritten.** A wrap moves the query into a derived table. SQL Server only
+  accepts an ORDER BY there with TOP, OFFSET or FETCH, and the order would not reach the outer query. Moving the order
+  to the outer query was tried (a prototype changed only the two tests that pinned the invalid SQL) and not kept:
+  the wrap rules (`IsWrapRequired`) were set after a lot of thought and are not changed, and a hidden helper column
+  for an order item that is not selected leaks into the outer projection. Instead `WrapIfRequiredCore` throws
+  `NotSupportedException` (`ThrowIfOrderByWouldBeLeftInDerivedTable`) naming the operation, and says to move OrderBy to
+  the end or add Take/Skip. Covered by `OrderByWrapTests`. Not covered: an ORDER BY inside a sub-query the consumer
+  wrote without Take; that is the consumer's query and goes to the database as written.
 
 Still open: none.

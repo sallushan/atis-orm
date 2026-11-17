@@ -745,6 +745,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             if (this.IsWrapRequired(newOperation))
             {
                 this.ThrowIfProjectionHasProjectedSubQuery(newOperation.ToString());
+                this.ThrowIfOrderByWouldBeLeftInDerivedTable(newOperation);
                 var wrapResult = this.WrapQuery();
 
                 if (sqlExpressions?.Length > 0)
@@ -772,6 +773,23 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                     $"A child collection ('{marker.Alias}', selected with ToList()/ToArray()) must be selected in the last Select of the query.{follow} " +
                     "Move that Select to the end, after the Where and Join steps. Only OrderBy, Skip, Take and Paging may follow it.");
             }
+        }
+
+        /// <summary>
+        ///     Wrapping moves this query into a derived table. SQL Server only accepts an ORDER BY inside a derived table
+        ///     together with TOP, OFFSET or FETCH, and without one the order would not reach the outer query anyway.
+        ///     The wrap is the engine's own decision (see <see cref="IsWrapRequired"/>), so instead of producing SQL that
+        ///     the database rejects later, the consumer is told which operation caused it and how to avoid it.
+        /// </summary>
+        private void ThrowIfOrderByWouldBeLeftInDerivedTable(SqlQueryOperation causedBy)
+        {
+            if (!this.HasOrderByApplied || this.HasTopApplied || this.HasRowOffsetApplied || this.HasRowsPerPageApplied)
+                return;
+
+            throw new NotSupportedException(
+                $"The query has an OrderBy and then '{causedBy}', which makes the query a derived table (a sub-query in FROM). " +
+                "SQL Server does not allow an ORDER BY inside a derived table unless it has Take (TOP) or Skip/Paging (OFFSET), " +
+                "and the order would not be kept. Move OrderBy to the end of the query, after that step, or add Take/Skip to the query that is ordered.");
         }
 
         private WrapResult WrapQuery()
