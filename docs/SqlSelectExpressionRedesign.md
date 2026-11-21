@@ -1,6 +1,6 @@
 # SqlSelectExpression redesign
 
-Status: DRAFT for review. Nothing here is built yet.
+Status: steps 1 to 7 are built and committed on branch `refactor/select-expression-invariants`. Step 8 (split) is deferred. See "Loose ends" after the step results.
 Written: 2026-11-16.
 
 ## 1. Why
@@ -206,7 +206,7 @@ The factory's `CreateCopyOfQueryShape` logic moves with the conversion.
 
 ## 9. Hidden entry points
 
-`SqlQueryShapeFieldResolverExpression` holds the whole query only to call
+**Superseded by step 7.** The resolver no longer changes the query at all (see the step 7 result); the text below is the first idea and was dropped. `SqlQueryShapeFieldResolverExpression` held the whole query only to call
 `HasProjectionApplied` and `AddNavigationJoin`. It will hold a small internal interface with
 those two members instead. The entry point stays, but it is narrow and visible.
 
@@ -234,7 +234,7 @@ Work on a separate git branch. Every step keeps all tests green and is committed
    alias lookup. Remove unused members and the virtuals.
 6. **Conversion.** Move `ToDerivedTable` and `FromDerivedTable` into the select query. The
    factory forwards.
-7. **Shape back-reference.** The shape resolver stops changing the query. It only reads. The change is made
+7. **Shape back-reference (done as written; no interface).** The shape resolver stops changing the query. It only reads. The change is made
    by the member converter, through one named method on the query (`TryJoinSubQueryMember`).
 8. **Split.** Move the wrap rules, the join bookkeeping and the state into internal classes
    only if the class is still hard to read after steps 1 to 7.
@@ -468,3 +468,19 @@ Decided on 2026-11-16:
   wrote without Take; that is the consumer's query and goes to the database as written.
 
 Still open: none.
+
+## 14. Loose ends (checked 2026-11-21)
+
+- **Step 8 (split): deferred by decision.** Steps 2 to 4 closed the bug class; step 8 is readability only.
+- **Early `WrapIfRequired(Join)` in `JoinQueryMethodExpressionConverter`: KEEP, it is not redundant.** The step 5 note
+  guessed it was. New `JoinAfterWrapTests` cover the apply branches after a `Select` / `Take` (they pass with or without
+  the call) and the data-source-selection branch after `Take`. That last case shows what the call is for: without it,
+  `From(s, sg).Take(5).LeftJoin(x => x.sg, ...)` puts the join *inside* the `TOP (5)` and returns different rows, with no
+  error. With it, the query is wrapped first and the converter refuses with a clear message. The test pins that refusal.
+- **The `[Ignore]`d test from step 3 is gone.** The OrderBy-before-wrap case is now refused by design (section 13) and
+  covered by `OrderByWrapTests`. No `[Ignore]` is left in the repository.
+- **Rule 3 (clause order) is still not checked by `AssertValid`.** `IsWrapRequired` enforces it. Adding a check means
+  deciding each rule first; not started.
+- **Left on `SqlSelectExpression` on purpose:** `GroupByClause` and `Tag` (public), `SwitchBindingToLastDataSource`,
+  `RemoveGrouping`, `ConvertToRecursiveQuery`. Merging `ConvertToRecursiveQuery` into RecursiveUnion is undecided.
+- **`FromDerivedTable` skips the CTE analysis** the old replay ran. No test shows a difference.
