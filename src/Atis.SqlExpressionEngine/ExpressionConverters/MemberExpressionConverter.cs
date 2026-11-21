@@ -76,6 +76,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             {
                 if (!queryShape.TryResolveMember(this.Expression.Member.Name, out var resolvedExpression))
                     throw new UnresolvedMemberAccessException(this.Expression.GetPath());
+                resolvedExpression = this.JoinIfSubQuery(queryShape, resolvedExpression);
                 if (this.IsLeafNode && resolvedExpression is SqlQueryShapeFieldResolverExpression fieldResolver)
                     resolvedExpression = fieldResolver.ShapeExpression;
                 return resolvedExpression;
@@ -94,6 +95,7 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
                 var sqlQueryShape = sqlQuery.GetQueryShapeForFieldMapping().CastTo<SqlQueryShapeFieldResolverExpression>();
                 if (!sqlQueryShape.TryResolveMember(this.Expression.Member.Name, out var resolved2))
                     throw new UnresolvedMemberAccessException(this.Expression.GetPath());
+                resolved2 = this.JoinIfSubQuery(sqlQueryShape, resolved2);
                 if (resolved2 is SqlQueryShapeFieldResolverExpression fieldResolver)
                     resolved2 = fieldResolver.ShapeExpression;
                 sqlQuery.ApplyProjection(resolved2);
@@ -109,6 +111,22 @@ namespace Atis.SqlExpressionEngine.ExpressionConverters
             }
 
             throw new NotImplementedException();
+        }
+
+        /// <summary>
+        ///     When the member resolved to a sub-query (a LINQ <c>let</c> keeps one in the query shape), asks the query that
+        ///     owns the shape to add it as an OUTER APPLY and returns the shape of the new data source instead.
+        ///     Reading the shape never changes the query, so this is where that change is made.
+        /// </summary>
+        private SqlExpression JoinIfSubQuery(SqlQueryShapeExpression parentShape, SqlExpression resolvedExpression)
+        {
+            if (parentShape is SqlQueryShapeFieldResolverExpression resolver &&
+                resolvedExpression is SqlDerivedTableExpression subQuery &&
+                resolver.SelectQuery.TryJoinSubQueryMember(resolver.ShapeExpression, this.Expression.Member.Name, subQuery, out var joinedShape))
+            {
+                return new SqlQueryShapeFieldResolverExpression(joinedShape, resolver.SelectQuery);
+            }
+            return resolvedExpression;
         }
     }
 }

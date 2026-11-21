@@ -279,14 +279,14 @@ namespace Atis.SqlExpressionEngine.Internal
             }
 
             var keysSelect = this.sqlFactory.CreateSelectQuery(keysSource);
-            var keysSourceAlias = keysSelect.DataSources.First().Alias;
+            var keysSourceAlias = keysSelect.FromDataSourceAlias;
             keysSelect.ApplyProjection(new SqlMemberInitExpression(
                 linkSelectColumns.Select(x => new SqlMemberAssignment(x.Alias, new SqlDataSourceColumnExpression(keysSourceAlias, x.Alias))).ToArray()));
             keysSelect.ApplyDistinct();
             var distinctKeys = this.sqlFactory.ConvertSelectQueryToDeriveTable(keysSelect);
 
             var childSelect = this.sqlFactory.CreateSelectQuery(distinctKeys);
-            var distinctKeysAlias = childSelect.DataSources.First().Alias;
+            var distinctKeysAlias = childSelect.FromDataSourceAlias;
 
             // the sub-query talks to the parent through the parent's own columns, now it has to talk through the link columns
             var replaceWith = linkColumns

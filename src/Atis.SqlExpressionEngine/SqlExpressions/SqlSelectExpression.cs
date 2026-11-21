@@ -20,25 +20,31 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         public override SqlExpressionType NodeType => SqlExpressionType.Select;
 
         private readonly List<AliasedDataSource> dataSources = new List<AliasedDataSource>();
-        public IReadOnlyCollection<AliasedDataSource> DataSources => dataSources;
+        internal IReadOnlyCollection<AliasedDataSource> DataSources => dataSources;
         private readonly List<CteDataSource> cteDataSources = new List<CteDataSource>();
-        public IReadOnlyCollection<CteDataSource> CteDataSources => cteDataSources;
+        internal IReadOnlyCollection<CteDataSource> CteDataSources => cteDataSources;
         private readonly List<SelectColumn> selectList = new List<SelectColumn>();
-        public IReadOnlyList<SelectColumn> SelectList => selectList;
+        internal IReadOnlyList<SelectColumn> SelectList => selectList;
         private readonly List<FilterCondition> whereClause = new List<FilterCondition>();
-        public IReadOnlyCollection<FilterCondition> WhereClause => whereClause;
-        public SqlExpression GroupByClause { get; protected set; }
+        internal IReadOnlyCollection<FilterCondition> WhereClause => whereClause;
+        /// <summary>
+        ///     The grouping expression of this query (the group key), or null if the query is not grouped.
+        /// </summary>
+        public SqlExpression GroupByClause { get; private set; }
         private readonly List<FilterCondition> havingClause = new List<FilterCondition>();
-        public IReadOnlyCollection<FilterCondition> HavingClause => havingClause;
+        internal IReadOnlyCollection<FilterCondition> HavingClause => havingClause;
         private readonly List<OrderByColumn> orderByClause = new List<OrderByColumn>();
-        public IReadOnlyCollection<OrderByColumn> OrderByClause => orderByClause;
-        public int? Top { get; set; }
-        public bool IsDistinct { get; set; }
-        public int? RowOffset { get; set; }
-        public int? RowsPerPage { get; set; }
-        public bool AutoProjection { get; private set; }
+        internal IReadOnlyCollection<OrderByColumn> OrderByClause => orderByClause;
+        internal int? Top { get; private set; }
+        internal bool IsDistinct { get; private set; }
+        internal int? RowOffset { get; private set; }
+        internal int? RowsPerPage { get; private set; }
+        internal bool AutoProjection { get; private set; }
+        /// <summary>
+        ///     The name of the navigation this query was reached through, if any.
+        /// </summary>
         public string Tag { get; set; }
-        public ISqlExpressionFactory SqlFactory { get; }
+        private ISqlExpressionFactory SqlFactory { get; }
         // QueryShape property cannot be other than SqlExpression because
         //      db.Table1.GroupBy(x => x.Field1).Select(x => x.Key).Select(g => g + 1)
         // In above case `g` parameter must be resolved to a SqlDataSourceColumnExpression not anything else.
@@ -49,7 +55,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         // In above example, `o` in the NewExpression must NOT be resolved as SqlDataSourceColumnExpression, so in
         // these specific cases during the LambdaExpression Parameter mapping we will NOT map the QuerySource
         // property with ParameterExpression, rather we will create another expression on the fly to map.
-        protected SqlExpression QueryShape { get; set; }
+        private SqlExpression QueryShape { get; set; }
 
         private SqlSelectExpression(IEnumerable<CteDataSource> cteDataSources, IEnumerable<AliasedDataSource> dataSources, IEnumerable<SelectColumn> selectList, IEnumerable<FilterCondition> whereClause, SqlExpression groupByClause, IEnumerable<FilterCondition> havingClause, IEnumerable<OrderByColumn> orderByClause, int? top, bool isDistinct, int? rowOffset, int? rowsPerPage, bool autoProjection, string tag, SqlExpression queryShape, ISqlExpressionFactory sqlFactory)
         {
@@ -96,11 +102,47 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return SqlSelectExpressionCopyMaker.CreateCopy(this);
         }
 
+        /// <summary>
+        ///     The alias of the data source this query selects from (the first one, before any join).
+        /// </summary>
+        public Guid FromDataSourceAlias => this.dataSources.First().Alias;
+
+        /// <summary>
+        ///     Returns true if this query is nothing but one mapped table: no CTE, projection, filter, grouping,
+        ///     ordering, paging, distinct or join. Used by operations that need a bare table, such as Insert.
+        /// </summary>
+        public bool TryGetUncomposedTable(out SqlTableExpression table, out Guid dataSourceAlias)
+        {
+            table = null;
+            dataSourceAlias = Guid.Empty;
+
+            if (this.dataSources.Count != 1 || !(this.dataSources[0].QuerySource is SqlTableExpression singleTable))
+                return false;
+
+            var isUncomposed = this.cteDataSources.Count == 0
+                && this.selectList.Count == 0
+                && this.whereClause.Count == 0
+                && this.GroupByClause is null
+                && this.havingClause.Count == 0
+                && this.orderByClause.Count == 0
+                && this.Top is null
+                && !this.IsDistinct
+                && this.RowOffset is null
+                && this.RowsPerPage is null;
+            if (!isUncomposed)
+                return false;
+
+            table = singleTable;
+            dataSourceAlias = this.dataSources[0].Alias;
+            return true;
+        }
+
         public void RemoveGrouping()
         {
             if (this.HasProjectionApplied)
                 throw new InvalidOperationException($"Projection has been applied, cannot remove grouping.");
             this.GroupByClause = null;
+            this.AssertValidIfOutermost(nameof(RemoveGrouping));
         }
 
         // TODO: we haven't finalized but we are making this class as non-visitable
@@ -116,10 +158,13 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (predicate is null)
                 throw new ArgumentNullException(nameof(predicate));
+            predicate = this.RepointStale(nameof(ApplyWhere), "predicate", predicate);
 
+            this.EnterOperation();
             predicate = this.WrapIfRequiredSingle(SqlQueryOperation.Where, predicate);
             this.whereClause.Add(new FilterCondition(predicate, useOrOperator));
             this.OnAfterApply(SqlQueryOperation.Where);
+            this.LeaveOperation(nameof(ApplyWhere));
         }
 
         public void ApplyWhereMultipleFields(SqlExpression predicateShapeLeft, SqlExpression predicateShapeRight)
@@ -136,44 +181,51 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (predicate is null)
                 throw new ArgumentNullException(nameof(predicate));
+            predicate = this.RepointStale(nameof(ApplyHaving), "predicate", predicate);
 
+            this.EnterOperation();
             predicate = this.WrapIfRequiredSingle(SqlQueryOperation.Where, predicate);
             this.havingClause.Add(new FilterCondition(predicate, useOrOperator));
             this.OnAfterApply(SqlQueryOperation.Where);
+            this.LeaveOperation(nameof(ApplyHaving));
         }
 
         public void ApplyGroupBy(SqlExpression sqlExpression)
         {
             if (sqlExpression is null)
                 throw new ArgumentNullException(nameof(sqlExpression));
+            sqlExpression = this.RepointStale(nameof(ApplyGroupBy), "group by", sqlExpression);
 
+            this.EnterOperation();
             sqlExpression = this.WrapIfRequiredSingle(SqlQueryOperation.GroupBy, sqlExpression);
             this.GroupByClause = sqlExpression;
             this.OnAfterApply(SqlQueryOperation.GroupBy);
+            this.LeaveOperation(nameof(ApplyGroupBy));
         }
 
         public void ApplyProjection(SqlExpression projection)
         {
             if (projection is null)
                 throw new ArgumentNullException(nameof(projection));
+            projection = this.RepointStale(nameof(ApplyProjection), "projection", projection);
 
             projection = this.WrapIfRequiredSingle(SqlQueryOperation.Select, projection);
 
             if (this.selectList.Count > 0)
                 throw new InvalidOperationException("Select list already has been defined.");
 
-            // Converting a sub-query to an apply adds a join, and that join can wrap this query (for example
-            // when a Where is already applied). The wrap must happen HERE, while we still hold the projection,
-            // so the projection is re-pointed to the new outer query. If the wrap happened inside AddJoin,
-            // the projection would keep the old alias of the inner query.
-            var operationForApply = this.GetOperationForProjectedApply(projection);
-            if (operationForApply.HasValue)
-                projection = this.WrapIfRequiredSingle(operationForApply.Value, projection);
+            this.EnterOperation();
 
-            projection = this.ConvertDerivedTableToOuterApplyInProjection(projection, memberName: null);
+            // A sub-query selected in the projection becomes an OUTER APPLY, which is a join, and a join can wrap
+            // this query (for example when a Where is already applied). The projection is held in 'inFlight' so
+            // that a wrap inside the join re-points the projection to the new outer query as well.
+            var inFlight = new InFlight(projection);
+            this.AddProjectedApplies(inFlight);
+            projection = inFlight[0];
 
             this.QueryShape = projection;
             this.ApplyProjectionFromQueryShape(this.QueryShape, applyAll: false);
+            this.LeaveOperation(nameof(ApplyProjection));
         }
 
         public SqlExpression GetQueryShapeForFieldMapping() 
@@ -228,57 +280,115 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             // that always resolve to internal leaf node expression for scalar query shape.
         }
 
-        private SqlExpression ConvertDerivedTableToOuterApplyInProjection(SqlExpression projection, string memberName)
+        /// <summary>
+        ///     Adds a join for every sub-query in the projection that has to be an OUTER APPLY, and replaces
+        ///     that sub-query in the projection with the shape of the new data source.
+        /// </summary>
+        /// <remarks>
+        ///     A wrap inside one of the joins re-points <paramref name="inFlight"/> (the projection), so the
+        ///     next sub-query is always read from an up-to-date projection. A sub-query is found by its member
+        ///     path, not by instance, because re-pointing builds new nodes. Each sub-query is handled once;
+        ///     what replaces it is not searched again.
+        /// </remarks>
+        private void AddProjectedApplies(InFlight inFlight)
         {
+            var handledPaths = new HashSet<string>();
+            while (this.TryFindProjectedApply(inFlight[0], new List<string>(), handledPaths, out var path))
+            {
+                handledPaths.Add(PathKey(path));
+                var derivedTable = GetExpressionAtPath(inFlight[0], path) as SqlDerivedTableExpression
+                                    ??
+                                    throw new InvalidOperationException($"Expected a {nameof(SqlDerivedTableExpression)} at the path of the projected sub-query.");
+                var memberName = path.Count > 0 ? path[path.Count - 1] : null;
+                var dsShape = this.AddDataSourceWithJoinResolutionCore(derivedTable, isDefaultIfEmpty: true, memberName, inFlight);
+                inFlight.Set(0, ReplaceExpressionAtPath(inFlight[0], path, 0, dsShape.ShapeExpression));
+            }
+        }
+
+        private bool TryFindProjectedApply(SqlExpression projection, List<string> currentPath, HashSet<string> handledPaths, out List<string> foundPath)
+        {
+            if (handledPaths.Contains(PathKey(currentPath)))
+            {
+                foundPath = null;
+                return false;
+            }
             if (projection is SqlMemberInitExpression memberInit)
             {
-                var memberAssignments = new List<SqlMemberAssignment>();
-                var memberAssignmentChanged = false;
                 foreach (var binding in memberInit.Bindings)
                 {
-                    var updatedExpression = this.ConvertDerivedTableToOuterApplyInProjection(binding.SqlExpression, binding.MemberName);
-                    if(updatedExpression != binding.SqlExpression)
-                        memberAssignmentChanged = true;
-                    memberAssignments.Add(new SqlMemberAssignment(binding.MemberName, updatedExpression));
+                    currentPath.Add(binding.MemberName);
+                    if (this.TryFindProjectedApply(binding.SqlExpression, currentPath, handledPaths, out foundPath))
+                        return true;
+                    currentPath.RemoveAt(currentPath.Count - 1);
                 }
-                if (memberAssignmentChanged)
-                    return new SqlMemberInitExpression(memberAssignments);
-                else
-                    return memberInit;
             }
-            else if (projection is SqlDerivedTableExpression derivedTable &&
-                    this.ShouldSubQueryBeProjectedAsJoin(derivedTable))
+            else if (projection is SqlDerivedTableExpression derivedTable && this.ShouldSubQueryBeProjectedAsJoin(derivedTable))
             {
-                var dsShape = this.AddDataSourceWithJoinResolution(derivedTable, isDefaultIfEmpty: true, memberName);
-                return dsShape.ShapeExpression;
+                foundPath = currentPath.ToList();
+                return true;
             }
-            else
-                return projection;
+            foundPath = null;
+            return false;
+        }
+
+        private static string PathKey(IReadOnlyList<string> path) => string.Join("\u0001", path);
+
+        private static SqlExpression GetExpressionAtPath(SqlExpression root, IReadOnlyList<string> path)
+        {
+            var current = root;
+            foreach (var memberName in path)
+            {
+                var memberInit = current as SqlMemberInitExpression
+                                    ??
+                                    throw new InvalidOperationException($"Expected a {nameof(SqlMemberInitExpression)} while looking for member '{memberName}'.");
+                current = memberInit.Bindings.First(x => x.MemberName == memberName).SqlExpression;
+            }
+            return current;
+        }
+
+        private static SqlExpression ReplaceExpressionAtPath(SqlExpression root, IReadOnlyList<string> path, int depth, SqlExpression replacement)
+        {
+            if (depth == path.Count)
+                return replacement;
+            var memberInit = root as SqlMemberInitExpression
+                                ??
+                                throw new InvalidOperationException($"Expected a {nameof(SqlMemberInitExpression)} while replacing member '{path[depth]}'.");
+            var memberAssignments = memberInit.Bindings
+                                        .Select(x => new SqlMemberAssignment(
+                                                x.MemberName,
+                                                x.MemberName == path[depth]
+                                                    ? ReplaceExpressionAtPath(x.SqlExpression, path, depth + 1, replacement)
+                                                    : x.SqlExpression))
+                                        .ToList();
+            return new SqlMemberInitExpression(memberAssignments);
         }
 
         /// <summary>
-        ///     Finds the sub-queries in the projection that <see cref="ConvertDerivedTableToOuterApplyInProjection"/>
-        ///     will add as joins, and returns the operation that join will be added with (the same rule
-        ///     <see cref="AddDataSourceWithJoinResolution"/> uses). Returns null if there is no such sub-query.
+        ///     The expressions an operation is holding while it runs steps that can wrap this query. A wrap
+        ///     re-points all of them (<see cref="Apply"/>), so a step does not have to know what the operation
+        ///     around it is holding.
         /// </summary>
-        private SqlQueryOperation? GetOperationForProjectedApply(SqlExpression projection)
+        private sealed class InFlight
         {
-            if (projection is SqlMemberInitExpression memberInit)
+            private readonly SqlExpression[] items;
+
+            public InFlight(params SqlExpression[] items)
             {
-                SqlQueryOperation? result = null;
-                foreach (var binding in memberInit.Bindings)
-                {
-                    var op = this.GetOperationForProjectedApply(binding.SqlExpression);
-                    // Join wraps in more cases than NavigationJoin, so it wins.
-                    if (op == SqlQueryOperation.Join)
-                        return op;
-                    result = result ?? op;
-                }
-                return result;
+                this.items = items.ToArray();
             }
-            if (projection is SqlDerivedTableExpression derivedTable && this.ShouldSubQueryBeProjectedAsJoin(derivedTable))
-                return string.IsNullOrWhiteSpace(derivedTable.Tag) ? SqlQueryOperation.Join : SqlQueryOperation.NavigationJoin;
-            return null;
+
+            public SqlExpression this[int index] => this.items[index];
+
+            public void Set(int index, SqlExpression value)
+            {
+                this.items[index] = value ?? throw new ArgumentNullException(nameof(value));
+            }
+
+            public void Apply(WrapResult wrapResult)
+            {
+                for (var i = 0; i < this.items.Length; i++)
+                    this.items[i] = wrapResult.Rewrite(this.items[i]);
+            }
         }
 
         private bool ShouldSubQueryBeProjectedAsJoin(SqlDerivedTableExpression derivedTable)
@@ -297,52 +407,65 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (orderByExpression is null)
                 throw new ArgumentNullException(nameof(orderByExpression));
+            orderByExpression = this.RepointStale(nameof(ApplyOrderBy), "order by", orderByExpression);
 
+            this.EnterOperation();
             orderByExpression = this.WrapIfRequiredSingle(SqlQueryOperation.OrderBy, orderByExpression);
             var matchedExpression = this.selectList.Where(x => x.ColumnExpression == orderByExpression).FirstOrDefault();
             if (matchedExpression != null)
                 orderByExpression = this.SqlFactory.CreateAlias(matchedExpression.Alias);
             this.orderByClause.Add(new OrderByColumn(orderByExpression, direction));
             this.OnAfterApply(SqlQueryOperation.OrderBy);
+            this.LeaveOperation(nameof(ApplyOrderBy));
         }
 
         public void ApplyTop(int top)
         {
+            this.EnterOperation();
             this.WrapIfRequired(SqlQueryOperation.Top, null);
             this.Top = top;
             this.OnAfterApply(SqlQueryOperation.Top);
+            this.LeaveOperation(nameof(ApplyTop));
         }
 
         public void ApplyDistinct()
         {
             this.ThrowIfProjectionHasProjectedSubQuery(nameof(SqlQueryOperation.Distinct));
+            this.EnterOperation();
             this.WrapIfRequired(SqlQueryOperation.Distinct, null);
             this.IsDistinct = true;
             this.OnAfterApply(SqlQueryOperation.Distinct);
+            this.LeaveOperation(nameof(ApplyDistinct));
         }
 
         public void ApplyPaging(int pageNumber, int pageSize)
         {
+            this.EnterOperation();
             if (!this.HasOrderByApplied)
                 this.ApplyOrderBy(new SqlLiteralExpression(1), SortDirection.Ascending);
             this.WrapIfRequired(SqlQueryOperation.RowsPerPage, null);
             this.RowOffset = (pageNumber - 1) * pageSize;
             this.RowsPerPage = pageSize;
             this.OnAfterApply(SqlQueryOperation.RowsPerPage);
+            this.LeaveOperation(nameof(ApplyPaging));
         }
 
         public void ApplyRowsPerPage(int rowsPerPage)
         {
+            this.EnterOperation();
             this.WrapIfRequired(SqlQueryOperation.RowsPerPage, null);
             this.RowsPerPage = rowsPerPage;
             this.OnAfterApply(SqlQueryOperation.RowsPerPage);
+            this.LeaveOperation(nameof(ApplyRowsPerPage));
         }
 
         public void ApplyRowOffset(int rowOffset)
         {
+            this.EnterOperation();
             this.WrapIfRequired(SqlQueryOperation.RowOffset, null);
             this.RowOffset = rowOffset;
             this.OnAfterApply(SqlQueryOperation.RowOffset);
+            this.LeaveOperation(nameof(ApplyRowOffset));
         }
 
         public SqlDataSourceQueryShapeExpression AddJoin(SqlQuerySourceExpression querySource, SqlJoinType joinType)
@@ -393,8 +516,41 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return dataSource;
         }
 
+        /// <summary>
+        ///     A member of the query shape is a sub-query (a LINQ <c>let</c> keeps one there until a member of it is read).
+        ///     When a member of it is read, the sub-query is added to this query as an OUTER APPLY and the member is
+        ///     replaced by the shape of that new data source. This is the only place that does it.
+        /// </summary>
+        /// <param name="shapeOwner">The shape that holds <paramref name="memberName"/>.</param>
+        /// <param name="memberName">Name of the member that holds the sub-query.</param>
+        /// <param name="subQuery">The sub-query. If this query has to be wrapped to add the join, the sub-query is re-pointed to the new outer data source.</param>
+        /// <param name="joinedShape">Shape of the new data source, when the query was changed.</param>
+        /// <returns>
+        ///     <c>true</c> if the query was changed (the join was added). <c>false</c> if it was not: once a projection is
+        ///     applied, a selected sub-query stays a sub-query and cannot become an outer apply.
+        /// </returns>
+        public bool TryJoinSubQueryMember(SqlQueryShapeExpression shapeOwner, string memberName, SqlDerivedTableExpression subQuery, out SqlDataSourceQueryShapeExpression joinedShape)
+        {
+            if (shapeOwner is null)
+                throw new ArgumentNullException(nameof(shapeOwner));
+            if (subQuery is null)
+                throw new ArgumentNullException(nameof(subQuery));
+            if (this.HasProjectionApplied)
+            {
+                joinedShape = null;
+                return false;
+            }
+            // the member is being replaced by the joined data source, so the sub-query is taken out of the shape
+            shapeOwner.RemoveMember(memberName);
+            joinedShape = this.AddNavigationJoin(shapeOwner, subQuery, SqlJoinType.OuterApply, memberName);
+            return true;
+        }
+
         // TODO: check if we can move isDefaultEmpty logic inside here as well
         public SqlDataSourceQueryShapeExpression AddDataSourceWithJoinResolution(SqlQuerySourceExpression newQuerySource, bool isDefaultIfEmpty, string tag = null)
+            => this.AddDataSourceWithJoinResolutionCore(newQuerySource, isDefaultIfEmpty, tag, inFlight: null);
+
+        private SqlDataSourceQueryShapeExpression AddDataSourceWithJoinResolutionCore(SqlQuerySourceExpression newQuerySource, bool isDefaultIfEmpty, string tag, InFlight inFlight)
         {
             // This method is called through SelectMany converter where SelectMany has received an external query
             // and it is sending that external query to this method.
@@ -473,12 +629,14 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             //var queryShape = this.QueryShape as SqlDataSourceQueryShapeExpression
             //                    ??
             //                    throw new InvalidOperationException($"QueryShape is not a {nameof(SqlDataSourceQueryShapeExpression)}.");
-            var dataSource = this.AddJoinedSource(newOperation, newQuerySource, joinType, parentShape: null, navigationName: null, dataSourceAlias: newDataSourceAlias, joinCondition: joinCondition, joinName: tag);
+            var dataSource = this.AddJoinedSource(newOperation, newQuerySource, joinType, parentShape: null, navigationName: null, dataSourceAlias: newDataSourceAlias, joinCondition: joinCondition, joinName: tag, inFlight: inFlight);
             return dataSource;
         }
 
         public void ConvertToRecursiveQuery(SqlDerivedTableExpression anchorDerivedTable, SqlDerivedTableExpression recursiveDerivedTable)
         {
+            anchorDerivedTable = this.RepointStale(nameof(ConvertToRecursiveQuery), "anchor query", anchorDerivedTable) as SqlDerivedTableExpression;
+            recursiveDerivedTable = this.RepointStale(nameof(ConvertToRecursiveQuery), "recursive query", recursiveDerivedTable) as SqlDerivedTableExpression;
             var cteAlias = Guid.NewGuid();
             var cteReference = new SqlCteReferenceExpression(cteAlias);
             recursiveDerivedTable = SqlExpressionReplacementVisitor.Find(anchorDerivedTable).In(recursiveDerivedTable).ReplaceWith(cteReference) as SqlDerivedTableExpression
@@ -488,7 +646,9 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             var unionItem2 = new UnionItem(recursiveDerivedTable, SqlUnionType.UnionAll);
             var unionAll = this.SqlFactory.CreateUnionQuery(new[] { unionItem1, unionItem2 });
 
+            this.EnterOperation();
             this.InitializeCteQuery(cteReference, unionAll);
+            this.LeaveOperation(nameof(ConvertToRecursiveQuery));
         }
 
         private void InitializeCteQuery(SqlCteReferenceExpression cteReference, SqlSubQuerySourceExpression querySource)
@@ -506,39 +666,29 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
         public void SwitchBindingToLastDataSource()
         {
+            this.EnterOperation();
             var lastDataSource = this.dataSources.Last();
             this.QueryShape = this.CreateDataSourceQueryShape(lastDataSource);
+            this.LeaveOperation(nameof(SwitchBindingToLastDataSource));
         }
 
         public void UpdateJoin(Guid joinDataSourceAlias, SqlJoinType joinType, SqlExpression joinCondition, string joinName, bool navigationJoin)
         {
+            joinCondition = this.RepointStale(nameof(UpdateJoin), "join condition", joinCondition);
             var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
             this.dataSources[indexOfDataSource] = new JoinDataSource(joinType, dataSource.QuerySource, joinDataSourceAlias, joinCondition: joinCondition, joinName: joinName, isNavigationJoin: navigationJoin);
-        }
-
-        public void UpdateJoinType(Guid joinDataSourceAlias, SqlJoinType joinType)
-        {
-            var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
-            if (dataSource is JoinDataSource joinDataSource)
-                this.dataSources[indexOfDataSource] = new JoinDataSource(joinType, joinDataSource.QuerySource, joinDataSourceAlias, joinCondition: joinDataSource.JoinCondition, joinName: joinDataSource.JoinName, isNavigationJoin: joinDataSource.IsNavigationJoin);
-            else
-                throw new InvalidOperationException($"Join data source with alias {joinDataSourceAlias} is not a join data source.");
+            this.AssertValidIfOutermost(nameof(UpdateJoin));
         }
 
         public void UpdateJoinCondition(Guid joinDataSourceAlias, SqlExpression joinCondition)
         {
+            joinCondition = this.RepointStale(nameof(UpdateJoinCondition), "join condition", joinCondition);
             var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
             if (dataSource is JoinDataSource joinDataSource)
+            {
                 this.dataSources[indexOfDataSource] = new JoinDataSource(joinDataSource.JoinType, joinDataSource.QuerySource, joinDataSource.Alias, joinCondition: joinCondition, joinName: joinDataSource.JoinName, isNavigationJoin: joinDataSource.IsNavigationJoin);
-            else
-                throw new InvalidOperationException($"Join data source with alias {joinDataSourceAlias} is not a join data source.");
-        }
-
-        public void UpdateJoinName(Guid joinDataSourceAlias, string joinName)
-        {
-            var (dataSource, indexOfDataSource) = this.GetAliasedDataSourceRequired(joinDataSourceAlias);
-            if (dataSource is JoinDataSource joinDataSource)
-                this.dataSources[indexOfDataSource] = new JoinDataSource(joinDataSource.JoinType, joinDataSource.QuerySource, joinDataSource.Alias, joinCondition: joinDataSource.JoinCondition, joinName: joinName, isNavigationJoin: joinDataSource.IsNavigationJoin);
+                this.AssertValidIfOutermost(nameof(UpdateJoinCondition));
+            }
             else
                 throw new InvalidOperationException($"Join data source with alias {joinDataSourceAlias} is not a join data source.");
         }
@@ -558,30 +708,54 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        public void WrapIfRequired(SqlQueryOperation newOperation) => this.WrapIfRequired(newOperation, null);
+        /// <summary>
+        ///     Wraps this query into a sub-query if the given operation cannot be added to it as it is.
+        ///     Call this before you convert expressions against the query shape, because a wrap changes the
+        ///     aliases. The returned <see cref="WrapResult"/> re-points expressions you already hold.
+        /// </summary>
+        public WrapResult WrapIfRequired(SqlQueryOperation newOperation)
+        {
+            this.EnterOperation();
+            SqlExpression[] noExpressions = null;
+            var wrapResult = this.WrapIfRequiredCore(newOperation, ref noExpressions);
+            this.LeaveOperation(nameof(WrapIfRequired));
+            return wrapResult;
+        }
 
-        protected SqlExpression[] WrapIfRequired(SqlQueryOperation newOperation, SqlExpression[] sqlExpressions)
+        private SqlExpression[] WrapIfRequired(SqlQueryOperation newOperation, SqlExpression[] sqlExpressions)
+        {
+            this.WrapIfRequiredCore(newOperation, ref sqlExpressions);
+            return sqlExpressions;
+        }
+
+        /// <summary>
+        ///     Wraps if required and re-points <paramref name="sqlExpressions"/> right after each wrap.
+        ///     When a CTE wrap and a normal wrap both happen, the expressions go through both, in order.
+        /// </summary>
+        private WrapResult WrapIfRequiredCore(SqlQueryOperation newOperation, ref SqlExpression[] sqlExpressions, InFlight inFlight = null)
         {
             if (sqlExpressions?.Length > 0)
             {
                 // below method will check if given expression is a sub-query (SqlDerivedTableExpression)
                 // and it is CTE then it modifies the current query and extract the CTE data sources
                 // from sub-query and it in this query and make this query as CTE query.
-                sqlExpressions = this.WrapQueryIfCteReferencesExist(sqlExpressions);
+                sqlExpressions = this.WrapQueryIfCteReferencesExist(sqlExpressions, inFlight);
             }
 
             if (this.IsWrapRequired(newOperation))
             {
                 this.ThrowIfProjectionHasProjectedSubQuery(newOperation.ToString());
-                this.WrapQuery();
+                this.ThrowIfOrderByWouldBeLeftInDerivedTable(newOperation);
+                var wrapResult = this.WrapQuery();
 
                 if (sqlExpressions?.Length > 0)
-                {
-                    sqlExpressions = this.ReplaceDataSourceAccessing(sqlExpressions);
-                }
+                    sqlExpressions = wrapResult.RewriteAll(sqlExpressions);
+                inFlight?.Apply(wrapResult);
+
+                return wrapResult;
             }
 
-            return sqlExpressions;
+            return WrapResult.NotWrapped;
         }
 
         /// <summary>
@@ -601,7 +775,24 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        protected virtual void WrapQuery()
+        /// <summary>
+        ///     Wrapping moves this query into a derived table. SQL Server only accepts an ORDER BY inside a derived table
+        ///     together with TOP, OFFSET or FETCH, and without one the order would not reach the outer query anyway.
+        ///     The wrap is the engine's own decision (see <see cref="IsWrapRequired"/>), so instead of producing SQL that
+        ///     the database rejects later, the consumer is told which operation caused it and how to avoid it.
+        /// </summary>
+        private void ThrowIfOrderByWouldBeLeftInDerivedTable(SqlQueryOperation causedBy)
+        {
+            if (!this.HasOrderByApplied || this.HasTopApplied || this.HasRowOffsetApplied || this.HasRowsPerPageApplied)
+                return;
+
+            throw new NotSupportedException(
+                $"The query has an OrderBy and then '{causedBy}', which makes the query a derived table (a sub-query in FROM). " +
+                "SQL Server does not allow an ORDER BY inside a derived table unless it has Take (TOP) or Skip/Paging (OFFSET), " +
+                "and the order would not be kept. Move OrderBy to the end of the query, after that step, or add Take/Skip to the query that is ordered.");
+        }
+
+        private WrapResult WrapQuery()
         {
             this.ApplyAutoProjectionIfPossible(applyAll: false);
 
@@ -620,10 +811,12 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
             var derivedTable = this.SqlFactory.ConvertSelectQueryToDeriveTable(this);
 
+            this.wrapsInOperation++;
             this.Initialize();
             
             var derivedTableDataSource = new AliasedDataSource(derivedTable, Guid.NewGuid());
             AddAliasedDataSource(derivedTableDataSource);
+            var wrapResult = this.CaptureWrap();
 
             this.QueryShape = this.CreateDataSourceQueryShape(derivedTableDataSource);
 
@@ -642,16 +835,18 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
                 foreach (var queryable in queryableSelectedInProjection)
                 {
-                    var updatedExpression = this.ReplaceDataSourceAccessingSingle(queryable.ColumnExpression);
+                    var updatedExpression = wrapResult.Rewrite(queryable.ColumnExpression);
                     memberInit.AddMemberAssignment(queryable.Alias, updatedExpression, projectable: true);
                 }
             }
 
             for (var i = 0; i < currentCteDataSources.Length; i++)
                 this.cteDataSources.Add(currentCteDataSources[i]);
+
+            return wrapResult;
         }
 
-        protected void OnAfterApply(SqlQueryOperation operationApplied)
+        private void OnAfterApply(SqlQueryOperation operationApplied)
         {
             // Since navigation is added to the query and the binding remains in the modelBinding,
             // which causes problem in next apply, for example, Navigation is used in Where
@@ -665,18 +860,18 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        public virtual bool HasJoinApplied => this.dataSources.Where(x => x is JoinDataSource).Any();
-        public virtual bool HasProjectionApplied => this.selectList.Count > 0;
-        public virtual bool HasWhereApplied => this.whereClause.Count > 0;
-        public virtual bool HasGroupByApplied => this.GroupByClause != null;
-        public virtual bool HasHavingApplied => this.havingClause.Count > 0;
-        public virtual bool HasOrderByApplied => this.orderByClause.Count > 0;
-        public virtual bool HasTopApplied => this.Top.HasValue;
-        public virtual bool HasDistinctApplied => this.IsDistinct;
-        public virtual bool HasRowOffsetApplied => this.RowOffset.HasValue;
-        public virtual bool HasRowsPerPageApplied => this.RowsPerPage.HasValue;
+        private bool HasJoinApplied => this.dataSources.Where(x => x is JoinDataSource).Any();
+        internal bool HasProjectionApplied => this.selectList.Count > 0;
+        private bool HasWhereApplied => this.whereClause.Count > 0;
+        private bool HasGroupByApplied => this.GroupByClause != null;
+        private bool HasHavingApplied => this.havingClause.Count > 0;
+        private bool HasOrderByApplied => this.orderByClause.Count > 0;
+        private bool HasTopApplied => this.Top.HasValue;
+        private bool HasDistinctApplied => this.IsDistinct;
+        private bool HasRowOffsetApplied => this.RowOffset.HasValue;
+        private bool HasRowsPerPageApplied => this.RowsPerPage.HasValue;
 
-        protected virtual bool IsWrapRequired(SqlQueryOperation newOperation)
+        private bool IsWrapRequired(SqlQueryOperation newOperation)
         {
             var performWrap = false;
             switch (newOperation)
@@ -716,8 +911,9 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             return performWrap;
         }
 
-        protected virtual void Initialize()
+        private void Initialize()
         {
+            this.RetireDataSources();
             this.dataSources.Clear();
             this.selectList.Clear();
             this.whereClause.Clear();
@@ -738,6 +934,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
         {
             if (newQueryShape is null)
                 throw new ArgumentNullException(nameof(newQueryShape));
+            newQueryShape = this.RepointStale(nameof(UpdateModelBinding), "query shape", newQueryShape);
 
             // TODO: check if below will work, because we are NOT using QueryShapeComposer
             //var queryShape = this.QueryShape as SqlQueryShapeExpression
@@ -745,15 +942,18 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             //                    throw new InvalidOperationException($"{nameof(SqlSelectExpression)}.{nameof(QueryShape)} is not of type {nameof(SqlQueryShapeExpression)}");
             //queryShape.Reset(newQueryShape);
             this.QueryShape = newQueryShape;
+            this.AssertValidIfOutermost(nameof(UpdateModelBinding));
         }
 
 
 
 
-        private SqlDataSourceQueryShapeExpression AddJoinedSource(SqlQueryOperation newOperation, SqlQuerySourceExpression querySource, SqlJoinType joinType, SqlQueryShapeExpression parentShape = null, string navigationName = null, Guid? dataSourceAlias = null, SqlExpression joinCondition = null, string joinName = null)
+        private SqlDataSourceQueryShapeExpression AddJoinedSource(SqlQueryOperation newOperation, SqlQuerySourceExpression querySource, SqlJoinType joinType, SqlQueryShapeExpression parentShape = null, string navigationName = null, Guid? dataSourceAlias = null, SqlExpression joinCondition = null, string joinName = null, InFlight inFlight = null)
         {
             if (querySource is null)
                 throw new ArgumentNullException(nameof(querySource));
+            querySource = this.RepointStale(nameof(AddJoinedSource), "join source", querySource) as SqlQuerySourceExpression;
+            joinCondition = this.RepointStale(nameof(AddJoinedSource), "join condition", joinCondition);
 
             // It is important that we pass `NavigationJoin` as the next operation instead of `Join` when `navigationName`
             // is provided. This handles cases where a "Where" clause is applied to the query, followed by a projection
@@ -764,12 +964,14 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             // would cause the query to wrap unnecessarily. By treating it as a navigation join, the wrapping mechanism
             // ensures that the Join is applied without additional wrapping.
 
+            this.EnterOperation();
+
             SqlExpression[] expressionsToCheckIfWrappingOccurs;
             if (joinCondition != null)
                 expressionsToCheckIfWrappingOccurs = new[] { querySource, joinCondition };
             else
                 expressionsToCheckIfWrappingOccurs = new[] { querySource };
-            expressionsToCheckIfWrappingOccurs = this.WrapIfRequired(newOperation, expressionsToCheckIfWrappingOccurs);
+            this.WrapIfRequiredCore(newOperation, ref expressionsToCheckIfWrappingOccurs, inFlight);
 
             // EXTREMELY IMPORTANT:
             //  below we are setting back `querySource` and `joinCondition` from `sqlExpressionsToPass`
@@ -797,28 +999,23 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
             this.OnAfterApply(newOperation);
 
+            this.LeaveOperation(nameof(AddJoinedSource));
             return dsQueryShape;
         }
 
-        private SqlExpression ReplaceDataSourceAccessingSingle(SqlExpression sqlExpression)
+        /// <summary>
+        ///     Call this right after this query has been wrapped (or turned into a CTE query). It remembers how the
+        ///     old query maps to the new outer data source, so the result can re-point expressions later.
+        /// </summary>
+        private WrapResult CaptureWrap()
         {
-            if (sqlExpression is null)
-                throw new ArgumentNullException(nameof(sqlExpression));
-            return this.ReplaceDataSourceAccessing(new[] { sqlExpression }).FirstOrDefault()
-                   ??
-                   throw new InvalidOperationException($"ReplaceDataSourceAccessing didn't return any result");
-        }
-
-        protected SqlExpression[] ReplaceDataSourceAccessing(SqlExpression[] sqlExpressions)
-        {
-            if (sqlExpressions is null)
-                throw new ArgumentNullException(nameof(sqlExpressions));
-
+            // Right after a wrap there is exactly one data source (plus the CTE sources, which are
+            // listed separately). More than that means something else changed the query first.
             if (this.dataSources.Count > 1)
             {
                 var cteDataSourceCount = this.cteDataSources.Count();
                 if (cteDataSourceCount + 1 != this.dataSources.Count)
-                    throw new InvalidOperationException($"This method should be called right after the wrapping is done, currently we are seeing more than 1 data sources which means some other operation has also been performed before calling this method.");
+                    throw new InvalidOperationException($"{nameof(CaptureWrap)} must be called right after the wrapping is done, currently we are seeing more than 1 data sources which means some other operation has also been performed before calling this method.");
             }
 
             var ds = this.dataSources.First();
@@ -843,12 +1040,10 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             // Since SqlDerivedTableExpression has this condition that it's SelectList cannot be null / empty, therefore,
             // we are guaranteed that we will have at least 1 column in the derivedTable.
             // This query has been wrapped, so the actual query has been moved inside as derived table,
-            // so the select list expression should have same expressions as sqlExpression
-            for (var i = 0; i < sqlExpressions.Length; i++)
-            {
-                sqlExpressions[i] = SubQueryProjectionReplacementVisitor.FindAndReplace(derivedTableProjections, ds, sqlExpressions[i]);
-            }
-            return sqlExpressions;
+            // so the select list expression should have same expressions as the expressions that will be re-pointed.
+            var wrapResult = new WrapResult(derivedTableProjections, ds);
+            this.wrapHistory.Add(wrapResult);
+            return wrapResult;
         }
 
         private SqlDataSourceQueryShapeExpression CreateDataSourceQueryShape(AliasedDataSource aliasedDataSource)
@@ -957,7 +1152,7 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
             }
         }
 
-        private SqlExpression[] WrapQueryIfCteReferencesExist(SqlExpression[] sqlExpressions)
+        private SqlExpression[] WrapQueryIfCteReferencesExist(SqlExpression[] sqlExpressions, InFlight inFlight)
         {
             if (sqlExpressions is null)
                 throw new ArgumentNullException(nameof(sqlExpressions));
@@ -1005,16 +1200,19 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
 
                     var fromSource = new SqlCteReferenceExpression(Guid.NewGuid());
 
+                    this.wrapsInOperation++;
                     this.InitializeCteQuery(fromSource, thisQueryToDeriveTable);
+                    var cteWrapResult = this.CaptureWrap();
+                    inFlight?.Apply(cteWrapResult);
 
                     // it means local non-cte data source was used in the `sqlExpression`
-                    sqlExpressions = this.ReplaceDataSourceAccessing(sqlExpressions);
+                    sqlExpressions = cteWrapResult.RewriteAll(sqlExpressions);
                     for (var i = 0; i < extractedCteDataSources.Count; i++)
                     {
                         // IMPORTANT: below we are passing the extractedCteDataSources[i] instead of extractedCteDataSources[i].CteBody
                         // this is because the replacement system checks if it's inside a CTE data source that's when it puts adds the
                         // cross join otherwise not.
-                        var sqlAliasedCteDataSource = this.ReplaceDataSourceAccessingSingle(extractedCteDataSources[i] /*do NOT pass .CteBody*/) as SqlAliasedCteSourceExpression
+                        var sqlAliasedCteDataSource = cteWrapResult.Rewrite(extractedCteDataSources[i] /*do NOT pass .CteBody*/) as SqlAliasedCteSourceExpression
                                                     ??
                                                     throw new InvalidOperationException($"Expected expression type is '{nameof(SqlAliasedCteSourceExpression)}'.");
                         var querySourceUpdated = sqlAliasedCteDataSource.CteBody;

@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Atis.SqlExpressionEngine.UnitTest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Atis.Expressions\Atis.Expressions.csproj" />
   </ItemGroup>
 

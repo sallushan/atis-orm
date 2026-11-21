@@ -105,10 +105,10 @@ values (42, 'John')
 
         private sealed class InsertRewritingVisitor : Atis.SqlExpressionEngine.Visitors.SqlExpressionVisitor
         {
-            protected override SqlExpression VisitSqlLiteral(SqlLiteralExpression node)
+            protected internal override SqlExpression VisitSqlLiteral(SqlLiteralExpression node)
                 => Equals(node.LiteralValue, "before") ? new SqlLiteralExpression("after") : node;
 
-            protected override SqlExpression VisitSqlOutputColumn(SqlOutputColumnExpression node)
+            protected internal override SqlExpression VisitSqlOutputColumn(SqlOutputColumnExpression node)
                 => new SqlOutputColumnExpression(node.Source, node.ColumnName + "_visited");
         }
 
@@ -566,7 +566,7 @@ where	(a_1.ItemId = '123')
 
         private sealed class OutputColumnSuffixingVisitor : Atis.SqlExpressionEngine.Visitors.SqlExpressionVisitor
         {
-            protected override SqlExpression VisitSqlOutputColumn(SqlOutputColumnExpression node)
+            protected internal override SqlExpression VisitSqlOutputColumn(SqlOutputColumnExpression node)
                 => new SqlOutputColumnExpression(node.Source, node.ColumnName + "_visited");
         }
 

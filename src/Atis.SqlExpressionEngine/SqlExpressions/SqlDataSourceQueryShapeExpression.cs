@@ -154,27 +154,10 @@ namespace Atis.SqlExpressionEngine.SqlExpressions
                         resolvedExpression = new SqlQueryShapeFieldResolverExpression(qs, this.SelectQuery);
                 }
                 else
+                    // A sub-query member (for example from a LINQ 'let') comes back as it is, as a SqlDerivedTableExpression.
+                    // This method never changes the query. A consumer that wants the sub-query joined
+                    // calls SqlSelectExpression.TryJoinSubQueryMember (see MemberExpressionConverter).
                     resolvedExpression = assignment;
-                // here we are testing if the SelectQuery has not projection applied
-                // which is to avoid the case if a sub-query has been selected in projection we cannot 
-                // convert it to outer apply
-                if (!this.SelectQuery.HasProjectionApplied && resolvedExpression is SqlDerivedTableExpression derivedTable)
-                {
-                    // Although we are here adding the outer apply and projections of outer apply in
-                    // the query shape, but we are NOT really sure if it's a good idea. We are basically
-                    // assuming that the resolve part will always be done from MemberExpressionConverter
-                    // and it will be done on the projection level or at-least on the point where query
-                    // shape is being changed.
-                    var navigationParent = this.ShapeExpression;
-                    // since current memberName is being mapped to derivedTable so we are removing it and we'll
-                    // add it's columns in current query-shape
-                    navigationParent.RemoveMember(memberName);
-                    var dsQueryShape = this.SelectQuery.AddNavigationJoin(navigationParent, derivedTable, SqlJoinType.OuterApply, memberName);
-                    if (dsQueryShape is SqlQueryShapeExpression d)
-                        resolvedExpression = new SqlQueryShapeFieldResolverExpression(d, this.SelectQuery);
-                    else
-                        resolvedExpression = dsQueryShape;
-                }
                 return true;
             }
             else
